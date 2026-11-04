@@ -1,0 +1,37 @@
+{
+  "name": "Mastermind SSS — Painel Operacional",
+  "short_name": "Mastermind SSS",
+  "description": "Painel operacional da rede SSS: central de decisão, recomendação de compra recorrente e sazonal, alertas de estoque, transferências entre lojas e DRE por unidade.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#ECEAE6",
+  "theme_color": "#ECEAE6",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

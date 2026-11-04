@@ -1,0 +1,7 @@
+# Configuração mínima para a Supabase CLI (supabase link / functions deploy).
+project_id = "cyxerqtlkhubrkcjqcmx"
+
+[functions.sss-compras]
+# O painel valida o acesso pelo header x-app-passcode (secret APP_PASSCODE),
+# por isso a verificação de JWT do Supabase fica desligada nesta função.
+verify_jwt = false
