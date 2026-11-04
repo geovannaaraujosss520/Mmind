@@ -1,0 +1,15 @@
+# Segredos e ambiente local
+.env
+.env.*
+!.env.example
+supabase/.env
+supabase/.temp/
+supabase/.branches/
+
+# Sistema / editores
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log
+node_modules/
