@@ -25,6 +25,8 @@ Ordem de ligação: vínculo confirmado → vínculo antigo por código → cód
 Status: Confirmado · Por código · Conferir · Sem vínculo · Fora da Central.
 **Vínculo à grade** (fornecedores em `FORNECEDORES_GRADE`): quando a loja tem um produto só e a Central tem vários tamanhos (ex.: colar 35/38/42/45/50 cm), o produto é ligado a todos os tamanhos da mesma cor; o pedido distribui a quantidade pela proporção da rede e os pedidos em andamento de qualquer tamanho são descontados.
 
+**Vínculo a todas as letras** (qualquer fornecedor): quando a Central tem o mesmo produto de A a Z, cada letra com código próprio (ex.: COLAR CHOKER DE CRISTAL 38CM E PINGENTE LETRA A…Z, Glamour), e a loja tem um produto só ("LETRA ALFABETO"), o produto é ligado a todas as letras da mesma cor. O pedido distribui a quantidade entre as letras pela proporção da rede e desconta pedidos em andamento de qualquer letra.
+
 ## Vendedores
 Por vendedor e loja, em período de/até: faturamento, atendimentos, PA, ticket, preço médio da peça, % de peças abaixo do preço-limite (alerta a partir de 60%), atendimentos de 1 peça, desconto, % de vendas com cliente identificado e cadastros novos completos (nome completo, telefone, CPF válido, CEP).
 Perfil comparado à média da própria loja: Destaque · Na média · Atenção · Tirador de pedido (mín. 15 atendimentos).

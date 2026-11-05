@@ -304,8 +304,8 @@ async function moduloRecorrente(apiBase: string, lojasTokens: Record<string, str
   const [andamento, vinc] = await Promise.all([pedidosEmAndamento(listaCentral), carregarVinculos()]);
   const vincRede = new Map<string, any>();
   {
-    let r: any = await sb().from(TABELA_VINCULOS).select('produto_chave, chave_central, ignorar, grade');
-    if (r.error) r = await sb().from(TABELA_VINCULOS).select('produto_chave, chave_central, ignorar');
+    let r: any = await sb().from(TABELA_VINCULOS).select('produto_chave, chave_central, ignorar, grade, descricao_central');
+    if (r.error) r = await sb().from(TABELA_VINCULOS).select('produto_chave, chave_central, ignorar, descricao_central');
     const data = r.data;
     for (const v of data ?? []) vincRede.set(String(v.produto_chave), v);
   }
@@ -429,12 +429,17 @@ async function moduloRecorrente(apiBase: string, lojasTokens: Record<string, str
       if (v && !v.ignorar && v.chave_central) {
         if (!exatos.has(v.chave_central)) exatos.set(v.chave_central, []); exatos.get(v.chave_central)!.push(prod);
         // vinculo a grade: qualquer tamanho do mesmo codigo e cor e deste produto
-        if (v.grade) { const kg = `${String(v.chave_central).split('|')[0]}|${andamento.cbPorChave.get(v.chave_central) ?? corBaseDaChave(v.chave_central)}`; if (!porGrade.has(kg)) porGrade.set(kg, []); porGrade.get(kg)!.push(prod); }
+        if (v.grade) {
+          const kg = `${String(v.chave_central).split('|')[0]}|${andamento.cbPorChave.get(v.chave_central) ?? corBaseDaChave(v.chave_central)}`; if (!porGrade.has(kg)) porGrade.set(kg, []); porGrade.get(kg)!.push(prod);
+          // familia por letra (A-Z, cada letra com codigo proprio): pedido de qualquer letra e deste produto
+          const kl = chaveFamiliaLetra(v.descricao_central, String(v.chave_central).split('|')[1]); if (kl) { if (!porGrade.has(kl)) porGrade.set(kl, []); if (!porGrade.get(kl)!.includes(prod)) porGrade.get(kl)!.push(prod); }
+        }
       }
     }
     for (const it of itens.values()) {
       const v = vl.get(it.cod);
-      const ex = exatos.get(it.chave) ?? porGrade.get(`${String(it.chave).split('|')[0]}|${andamento.cbPorChave.get(it.chave) ?? corBaseDaChave(it.chave)}`);
+      const kl = chaveFamiliaLetra(it.descricao, String(it.chave).split('|')[1]);
+      const ex = exatos.get(it.chave) ?? porGrade.get(`${String(it.chave).split('|')[0]}|${andamento.cbPorChave.get(it.chave) ?? corBaseDaChave(it.chave)}`) ?? (kl ? porGrade.get(kl) : undefined);
       if (!ex && v?.ignorar) { ignorados++; continue; }
       let pid: string | null = null;
       if (ex?.length === 1) pid = ex[0];
@@ -721,9 +726,14 @@ async function gerarPedidoSugerido(apiBase: string, lojasTokens: Record<string, 
       central: { chave: esc.chave, codigo: esc.codigo, idProduto: esc.idProduto, descricao: esc.descricao, variacao: esc.variacao, variacaoDescricao: esc.variacaoDescricao ?? esc.variacao, corBase: esc.corBase ?? corBase(esc.variacaoDescricao ?? esc.variacao), referencia: esc.referencia, categoria: esc.categoria, preco: esc.preco, qtdMinima: esc.qtdMinima, qtdMaxima: esc.qtdMaxima, fatorConversao: fator, prazo: esc.prazo, emEstoque: esc.emEstoque, ultimaCompra: esc.ultimaCompra },
       alternativas: m.alternativas.map(resumoItemCentral),
       // vinculo a grade: o painel distribui a quantidade entre os tamanhos pela proporcao da rede
-      distribuirGrade: !!(m as any).grade && tamanhosDaGrade(idx, esc).length > 1,
-      // grade: todas as variacoes (cores/tamanhos) do mesmo codigo e fornecedor, para pedir varios tamanhos
-      grade: !fornecedorTemGrade(esc.fornecedorNome) ? [] : (idx.porCodigo.get(codNorm(esc.codigo)) ?? []).filter((x: any) => x.fornecedorId === esc.fornecedorId && codNorm(x.codigo) === codNorm(esc.codigo)).slice(0, 80).map(resumoItemCentral),
+      distribuirGrade: !!(m as any).grade && !!itensDaGrade(idx, esc),
+      tipoGrade: itensDaGrade(idx, esc)?.tipo ?? null,
+      // grade: familia por letra (A-Z) ou todas as variacoes (cores/tamanhos) do mesmo codigo e fornecedor
+      grade: (() => {
+        const fam = itensDaGrade(idx, esc);
+        if (fam?.tipo === 'letra') return fam.itens.map((x: any) => ({ ...resumoItemCentral(x), rotuloGrade: `Letra ${letraDe(x.descricao)}` }));
+        return !fornecedorTemGrade(esc.fornecedorNome) ? [] : (idx.porCodigo.get(codNorm(esc.codigo)) ?? []).filter((x: any) => x.fornecedorId === esc.fornecedorId && codNorm(x.codigo) === codNorm(esc.codigo)).slice(0, 80).map(resumoItemCentral);
+      })(),
       fornecedorId: esc.fornecedorId, fornecedorNome: esc.fornecedorNome,
     });
   }
@@ -1398,16 +1408,17 @@ const chaveProduto = (r: { codigoSistema?: unknown; produtoId?: unknown }) => {
 const resumoItemCentral = (c: any) => ({ chave: c.chave, codigo: c.codigo, descricao: c.descricao, variacao: c.variacao, variacaoDescricao: c.variacaoDescricao ?? c.variacao, corBase: c.corBase ?? corBase(c.variacaoDescricao ?? c.variacao), preco: c.preco, qtdMinima: c.qtdMinima, qtdMaxima: c.qtdMaxima, fatorConversao: c.fatorConversao, idProduto: c.idProduto, emEstoque: c.emEstoque, fornecedorId: c.fornecedorId, fornecedorNome: c.fornecedorNome, categoria: c.categoria, ultimaCompra: c.ultimaCompra, qtdRede: c.qtdTotal ?? 0 });
 
 function indexarCatalogo(cat: any) {
-  const porCodigo = new Map<string, any[]>(), porDesc = new Map<string, any[]>(), porChave = new Map<string, any>();
+  const porCodigo = new Map<string, any[]>(), porDesc = new Map<string, any[]>(), porChave = new Map<string, any>(), porFamilia = new Map<string, any[]>();
   for (const it of cat.itens) {
     porChave.set(it.chave, it);
+    const kf = familiaDoItem(it); if (kf) { if (!porFamilia.has(kf)) porFamilia.set(kf, []); porFamilia.get(kf)!.push(it); }
     const c = codNorm(it.codigo); if (c) { if (!porCodigo.has(c)) porCodigo.set(c, []); porCodigo.get(c)!.push(it); }
     for (const desc of it.descricoes?.length ? it.descricoes : [it.descricao]) {
       for (const d of [limpa(desc), limpa(`${desc} ${it.variacao}`)]) { if (!d) continue; if (!porDesc.has(d)) porDesc.set(d, []); if (!porDesc.get(d)!.includes(it)) porDesc.get(d)!.push(it); }
     }
     if (it.referencia) { const rf = codNorm(it.referencia); if (!porCodigo.has(rf)) porCodigo.set(rf, []); if (!porCodigo.get(rf)!.includes(it)) porCodigo.get(rf)!.push(it); }
   }
-  return { porCodigo, porDesc, porChave, itens: cat.itens };
+  return { porCodigo, porDesc, porChave, porFamilia, itens: cat.itens };
 }
 
 // Vinculos da propria loja (cada loja tem sua conta na VarejOnline e o id do produto pode coincidir entre contas).
@@ -1473,6 +1484,30 @@ function tamanhosDaGrade(idx: ReturnType<typeof indexarCatalogo>, it: any): any[
   return (idx.porCodigo.get(codNorm(it.codigo)) ?? []).filter((x: any) => x.fornecedorId === it.fornecedorId && codNorm(x.codigo) === codNorm(it.codigo) && (x.corBase ?? corBase(x.variacaoDescricao ?? x.variacao)) === cb);
 }
 
+// Familia por letra: o mesmo produto de A a Z, cada letra com codigo proprio na Central
+// (ex.: COLAR CHOKER DE CRISTAL 38CM E PINGENTE LETRA A ... LETRA Z). Vale para qualquer fornecedor.
+const RE_LETRA = /\b(LETRA|INICIAL)\s+([A-Z])\b/;
+function letraDe(desc: unknown): string | null { const m = limpa(desc).match(RE_LETRA); return m ? m[2] : null; }
+function chaveFamiliaLetra(desc: unknown, variacao: unknown): string | null {
+  const d = limpa(desc); if (!RE_LETRA.test(d)) return null;
+  return `L:${d.replace(RE_LETRA, '$1 *')}|${limpa(variacao)}`;
+}
+const familiaDoItem = (it: any) => { const k = chaveFamiliaLetra(it.descricao, String(it.chave ?? '').split('|')[1]); return k ? `${it.fornecedorId}|${k}` : null; };
+
+// Grade do item: tamanhos do mesmo codigo/cor (fornecedores com grade) ou familia por letra.
+function itensDaGrade(idx: ReturnType<typeof indexarCatalogo>, it: any): { tipo: 'tamanho' | 'letra'; itens: any[]; rotulos: string[] } | null {
+  if (!it) return null;
+  const t = tamanhosDaGrade(idx, it);
+  if (t.length > 1) return { tipo: 'tamanho', itens: t, rotulos: t.map((x: any) => x.variacao) };
+  const kf = familiaDoItem(it);
+  const fam = kf ? (idx.porFamilia.get(kf) ?? []) : [];
+  if (fam.length > 1) {
+    const ord = [...fam].sort((a: any, b: any) => String(letraDe(a.descricao)).localeCompare(String(letraDe(b.descricao))));
+    return { tipo: 'letra', itens: ord, rotulos: ord.map((x: any) => letraDe(x.descricao) ?? '?') };
+  }
+  return null;
+}
+
 // ---- Tela de vinculos ----
 let cacheCatalogo: { quando: number; idx: ReturnType<typeof indexarCatalogo>; cat: any } | null = null;
 async function catalogoIndexado() {
@@ -1519,7 +1554,7 @@ async function moduloVinculos(body: any, apiBase?: string, lojasTokens?: Record<
       if (!termos.every((t) => alvo.includes(t))) return null;
       const sc = (codNorm(it.codigo) === cod ? 100 : 0) + (codNorm(it.codigo).startsWith(cod) ? 20 : 0) + Math.min(it.vezes, 20);
       return { it, sc };
-    }).filter(Boolean).sort((a: any, b: any) => b.sc - a.sc).slice(0, 40).map((x: any) => ({ ...resumoItemCentral(x.it), tamanhosGrade: tamanhosDaGrade(idx, x.it).length }));
+    }).filter(Boolean).sort((a: any, b: any) => b.sc - a.sc).slice(0, 40).map((x: any) => { const g = itensDaGrade(idx, x.it); return { ...resumoItemCentral(x.it), tamanhosGrade: g?.itens.length ?? 0, tipoGrade: g?.tipo ?? null }; });
     return { itens: res };
   }
 
@@ -1537,7 +1572,7 @@ async function moduloVinculos(body: any, apiBase?: string, lojasTokens?: Record<
         vendaMediaDiaria: r.vendaMediaDiaria ?? 0, estoqueAtual: r.estoqueAtual ?? null,
         via: m.via, variacaoIncerta: m.variacaoIncerta, vinculoQuebrado: !!(m as any).vinculoQuebrado, motivo: (m as any).motivo ?? null,
         grade: !!(m as any).grade,
-        gradeDisponivel: (() => { const t = tamanhosDaGrade(idx, m.item); return t.length > 1 ? { chave: m.item.chave, codigo: m.item.codigo, tamanhos: t.map((x: any) => x.variacao) } : null; })(),
+        gradeDisponivel: (() => { const g = itensDaGrade(idx, m.item); return g ? { chave: m.item.chave, codigo: m.item.codigo, tipo: g.tipo, tamanhos: g.rotulos, codigos: g.tipo === 'letra' ? g.itens.map((x: any) => x.codigo) : [m.item.codigo] } : null; })(),
         central: m.item ? resumoItemCentral(m.item) : null,
         alternativas: m.alternativas.map(resumoItemCentral),
         atualizadoPor: vn?.atualizado_por ?? null, atualizadoEm: vn?.atualizado_em ?? null, lojaOrigem: vn?.loja_origem ?? null,
@@ -1560,7 +1595,7 @@ async function moduloVinculos(body: any, apiBase?: string, lojasTokens?: Record<
       return { produto_chave: chaveProduto(v), produto_id: String(v.produtoId), codigo_sistema: v.codigoSistema ? String(v.codigoSistema) : null, descricao_produto: v.descricaoLoja ?? null,
         chave_central: it.chave, codigo_central: it.codigo, variacao: it.variacao || null, fornecedor_id: it.fornecedorId, descricao_central: it.descricao,
         ignorar: false, motivo: null, loja_origem: loja, atualizado_por: quem, atualizado_em: new Date().toISOString(),
-        ...(v.grade === true ? { grade: tamanhosDaGrade(idx, it).length > 1 } : (v.grade === false ? { grade: false } : {})) };
+        ...(v.grade === true ? { grade: !!itensDaGrade(idx, it) } : (v.grade === false ? { grade: false } : {})) };
     });
     if (linhas.some((l: any) => l.grade === true)) {
       const t = await s.from(TABELA_VINCULOS).select('grade').limit(1);
