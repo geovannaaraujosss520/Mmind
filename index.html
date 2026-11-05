@@ -3240,7 +3240,7 @@ async function carregarVinculos(depois) {
     const d = await vinCall({ acao: 'listar', loja, produtos });
     d.linhas.forEach(l => { l.lojasQueVendem = lojasPorProduto.get(String(l.produtoId)) || null; });
     d.linhas.sort((a, b) => b.vendaMediaDiaria - a.vendaMediaDiaria);
-    vinState = { ...d, rede: escolha === '__REDE__', totalLojas: lojas.length, filtro: 'todos', busca: '', limite: 150, abertos: new Set() };
+    vinState = { ...d, rede: escolha === '__REDE__', totalLojas: lojas.length, filtro: 'todos', busca: '', limite: 150, abertos: new Set(), sel: new Set() };
     renderVinculos();
     st.textContent = `Carregado às ${new Date().toLocaleTimeString('pt-BR')}`;
     depois && depois();
@@ -3286,10 +3286,12 @@ function renderVinculos() {
       <div class="tbl-tools">
         <input type="search" id="vin_busca" placeholder="Buscar produto, código ou fornecedor…" value="${esc(vinState.busca)}">
         ${porCodigoPend.length ? `<button class="secondary" id="vin_lote">Confirmar os ${porCodigoPend.length} ligados por código</button>` : ''}
+        <button id="vin_conf_sel" disabled>Confirmar selecionados</button>
+        <button class="secondary" id="vin_sel_limpar" style="display:none">Limpar seleção</button>
         <button class="secondary" id="vin_csv">Exportar CSV</button>
         <span class="cnt" id="vin_cnt"></span>
       </div>
-      <div style="overflow-x:auto"><table class="no-tools"><thead><tr><th>Produto</th><th>Venda/dia${vinState.rede ? ' (rede)' : ''}</th><th data-col-lojas>Lojas que vendem</th><th>Status</th><th>Item da Central</th><th>Fornecedor</th><th>Preço</th><th></th></tr></thead><tbody id="vin_tbody"></tbody></table></div>
+      <div style="overflow-x:auto"><table class="no-tools"><thead><tr><th style="width:28px"><input type="checkbox" id="vin_sel_todos" title="Selecionar os que estão na tela" style="width:auto"></th><th>Produto</th><th>Venda/dia${vinState.rede ? ' (rede)' : ''}</th><th data-col-lojas>Lojas que vendem</th><th>Status</th><th>Item da Central</th><th>Fornecedor</th><th>Preço</th><th></th></tr></thead><tbody id="vin_tbody"></tbody></table></div>
       <div id="vin_mais" style="margin-top:10px"></div>
       <div class="sub" style="font-size:11px; margin-top:10px; max-width:none">Ordem de ligação: vínculo confirmado → vínculo antigo por código → código igual (código do sistema/interno = código da Central) → descrição igual. "Conferir" = ligado pela descrição ou com dúvida entre variações. Produtos "sem vínculo" não entram no pedido sugerido.</div>
     </div>`;
@@ -3307,17 +3309,56 @@ function renderVinculos() {
       renderVinculos();
     } catch (e) { $('status-vinculos').textContent = 'Erro: ' + e.message; ev.target.disabled = false; }
   });
+  $('vin_sel_todos').addEventListener('change', e => {
+    const vis = linhasFiltradas().slice(0, vinState.limite).filter(selecionavelVinculo);
+    vis.forEach(l => e.target.checked ? vinState.sel.add(String(l.produtoId)) : vinState.sel.delete(String(l.produtoId)));
+    $('vin_tbody').querySelectorAll('[data-vin-sel]').forEach(cb => { cb.checked = vinState.sel.has(cb.dataset.vinSel); });
+    atualizarSelecaoVinculos();
+  });
+  $('vin_sel_limpar').addEventListener('click', () => { vinState.sel.clear(); $('vin_tbody').querySelectorAll('[data-vin-sel]').forEach(cb => cb.checked = false); atualizarSelecaoVinculos(); });
+  $('vin_conf_sel').addEventListener('click', async ev => {
+    const lista = vinState.linhas.filter(l => vinState.sel.has(String(l.produtoId)) && selecionavelVinculo(l));
+    if (!lista.length) return;
+    if (precisaNome()) return;
+    if (!confirm(`Confirmar ${lista.length} vínculo(s) como estão na tela? Eles passam a valer para o pedido de TODAS as lojas.`)) return;
+    ev.target.disabled = true;
+    try {
+      let salvos = 0;
+      for (let k = 0; k < lista.length; k += 500) {
+        $('status-vinculos').textContent = `Confirmando ${Math.min(k + 500, lista.length)} de ${lista.length}…`;
+        const r = await vinCall({ acao: 'salvarLote', loja: vinState.loja, itens: lista.slice(k, k + 500).map(l => ({ produtoId: l.produtoId, codigoSistema: l.codigoSistema, chave: l.central.chave, descricaoLoja: l.descricao, ...(l.grade ? { grade: true } : {}) })) });
+        salvos += r.salvos || 0;
+      }
+      const quem = $('vin_usuario').value.trim();
+      lista.forEach(l => { l.via = 'vínculo'; l.variacaoIncerta = false; l.vinculoQuebrado = false; l.atualizadoPor = quem; vinState.sel.delete(String(l.produtoId)); });
+      $('status-vinculos').textContent = `✓ ${salvos} vínculo(s) confirmados.`;
+      renderVinculos();
+    } catch (e) { $('status-vinculos').textContent = 'Erro: ' + e.message; ev.target.disabled = false; }
+  });
   desenharLinhasVinculos();
+}
+
+// Conferência em massa: só linhas com item da Central sugerido e ainda não confirmadas
+const selecionavelVinculo = l => !!l.central && !['confirmado', 'ignorado'].includes(statusVinculo(l));
+function atualizarSelecaoVinculos() {
+  const n = vinState.linhas.filter(l => vinState.sel.has(String(l.produtoId)) && selecionavelVinculo(l)).length;
+  $('vin_conf_sel').disabled = !n;
+  $('vin_conf_sel').textContent = n ? `Confirmar selecionados (${n})` : 'Confirmar selecionados';
+  $('vin_sel_limpar').style.display = n ? '' : 'none';
+  const vis = linhasFiltradas().slice(0, vinState.limite).filter(selecionavelVinculo);
+  const todos = $('vin_sel_todos'); if (todos) { todos.checked = vis.length > 0 && vis.every(l => vinState.sel.has(String(l.produtoId))); todos.disabled = !vis.length; }
 }
 
 function desenharLinhasVinculos() {
   const lista = linhasFiltradas(), vis = lista.slice(0, vinState.limite);
   document.querySelectorAll('[data-col-lojas]').forEach(th => th.style.display = vinState.rede ? '' : 'none');
   $('vin_cnt').textContent = `${fmtNum(lista.length)} produtos`;
-  $('vin_tbody').innerHTML = vis.map(l => linhaVinculoHTML(l)).join('') || `<tr><td colspan="${vinState.rede ? 8 : 7}"><div class="empty">Nenhum produto neste filtro.</div></td></tr>`;
+  $('vin_tbody').innerHTML = vis.map(l => linhaVinculoHTML(l)).join('') || `<tr><td colspan="${vinState.rede ? 9 : 8}"><div class="empty">Nenhum produto neste filtro.</div></td></tr>`;
   $('vin_mais').innerHTML = lista.length > vis.length ? `<button class="secondary" id="vin_mais_btn">Mostrar mais ${Math.min(150, lista.length - vis.length)}</button>` : '';
   if ($('vin_mais_btn')) $('vin_mais_btn').addEventListener('click', () => { vinState.limite += 150; desenharLinhasVinculos(); });
   ligarLinhasVinculos($('vin_tbody'));
+  $('vin_tbody').querySelectorAll('[data-vin-sel]').forEach(cb => cb.addEventListener('change', () => { cb.checked ? vinState.sel.add(cb.dataset.vinSel) : vinState.sel.delete(cb.dataset.vinSel); atualizarSelecaoVinculos(); }));
+  atualizarSelecaoVinculos();
 }
 
 const gradeNome = g => g && g.tipo === 'letra' ? `${g.tamanhos.length} letras` : `${g ? g.tamanhos.length : 0} tamanhos`;
@@ -3329,6 +3370,7 @@ function linhaVinculoHTML(l) {
     : [c && s !== 'confirmado' ? btn('data-vin-confirmar', 'Confirmar', true) : '', l.gradeDisponivel && !l.grade ? btn('data-vin-grade', l.gradeDisponivel.tipo === 'letra' ? `Todas as letras (${l.gradeDisponivel.tamanhos.length})` : `Grade (${l.gradeDisponivel.tamanhos.length})`, s !== 'confirmado') : '', btn('data-vin-trocar', c ? 'Trocar' : 'Vincular', !c),
        s === 'confirmado' ? btn('data-vin-remover', 'Desfazer') : '', btn('data-vin-ignorar', 'Fora da Central')].join(' ');
   return `<tr data-vin-linha="${id}">
+    <td>${selecionavelVinculo(l) ? `<input type="checkbox" data-vin-sel="${id}" ${vinState.sel.has(String(l.produtoId)) ? 'checked' : ''} style="width:auto">` : ''}</td>
     <td class="prod-name">${esc(l.descricao)}<br><span style="font-size:11px; color:var(--muted)">${esc(l.codigoSistema || '')}${l.codigoInterno ? ' · ' + esc(l.codigoInterno) : ''}</span></td>
     <td>${fmtNum(l.vendaMediaDiaria)}</td>
     ${vinState.rede ? `<td>${l.lojasQueVendem ?? '–'} de ${vinState.totalLojas}</td>` : ''}
@@ -3342,7 +3384,7 @@ function linhaVinculoHTML(l) {
     <td>${c ? fmtMoeda(c.preco) : ''}</td>
     <td style="white-space:nowrap">${acoes}</td>
   </tr>
-  <tr data-vin-busca-linha="${id}" style="display:${vinState.abertos.has(String(l.produtoId)) ? '' : 'none'}"><td colspan="${vinState.rede ? 8 : 7}" style="background:var(--panel-2); padding:14px"><div data-vin-busca-box="${id}"></div></td></tr>`;
+  <tr data-vin-busca-linha="${id}" style="display:${vinState.abertos.has(String(l.produtoId)) ? '' : 'none'}"><td colspan="${vinState.rede ? 9 : 8}" style="background:var(--panel-2); padding:14px"><div data-vin-busca-box="${id}"></div></td></tr>`;
 }
 
 function acharLinhaVinculo(pid) { return vinState.linhas.find(x => String(x.produtoId) === String(pid)); }
