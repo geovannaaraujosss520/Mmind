@@ -96,6 +96,15 @@ Depois de publicar, quem usa o app instalado deve fechar e abrir de novo (ou Ctr
 
 ---
 
+## Rodar o painel com Node.js (repositório privado)
+No plano gratuito do GitHub, o Pages não funciona com o repositório privado. O `server.js` (sem dependências, Node 18+) serve só o painel (`index.html`, `manifest.json`, `sw.js`, `icons/`) — nunca o resto do repositório.
+
+```bash
+node server.js            # http://localhost:3000
+PORT=8080 node server.js  # outra porta
+```
+Para deixar no ar para as lojas, publique em um serviço que roda Node (Render, Railway etc.) com o comando `npm start`. Se o secret `ALLOWED_ORIGIN` estiver configurado no Supabase, troque-o pelo novo endereço.
+
 ## Segurança — leia antes de abrir para as lojas
 - Acesso por **e-mail e senha** (Supabase Auth). Papéis: **Administrador** (tudo, inclusive Usuários e Lojas), **Equipe** (rede toda, sem Usuários/Lojas), **Franqueado** (só as lojas marcadas — vê, aprova e envia os pedidos delas; dados de vendedores só da própria loja). A permissão é conferida no servidor, não só na tela.
 - Usuários são criados pelo administrador na tela **Usuários**, com senha temporária trocada no 1º acesso. Desative o cadastro público em Supabase → Authentication → Sign In / Providers → *Allow new users to sign up* = off.
