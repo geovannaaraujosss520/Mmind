@@ -149,19 +149,31 @@ function dataVarejo(s: unknown): Date | null {
 // A API entrega no máximo ~300 itens por página, mesmo pedindo 1000: avança pelo tamanho real
 // e só para em página vazia (antes parava na 1ª página, porque 300 < 1000).
 // onPage processa cada página e a descarta, economizando memória.
+// Nova tentativa em erro 5xx/429 ou falha de rede (ate 4 vezes), pedindo paginas menores (1000 -> 300 -> 100).
+async function paginaVarejo(urlBase: string, token: string, caminho: string): Promise<any> {
+  const tamanhos = [1000, 300, 100, 100];
+  let ultimo = "";
+  for (let t = 0; t < tamanhos.length; t++) {
+    if (t) await new Promise((ok) => setTimeout(ok, 800 * t + Math.random() * 400));
+    let resp: Response;
+    try { resp = await fetch(`${urlBase}&quantidade=${tamanhos[t]}&token=${token}`, { signal: AbortSignal.timeout(45000) }); }
+    catch (e) { ultimo = `sem resposta (${String((e as Error)?.name ?? e)})`; continue; }
+    if (resp.ok) return await resp.json();
+    const text = await resp.text().catch(() => "");
+    if (resp.status === 401 || resp.status === 403) throw new Error(`VarejOnline recusou o token desta loja (${resp.status}) — atualize o token em Lojas`);
+    ultimo = semToken(`Erro ao consultar ${caminho} (${resp.status}): ${text.slice(0, 200)}`);
+    if (resp.status !== 429 && resp.status < 500) break;
+  }
+  throw new Error(ultimo + (/\(5\d\d\)/.test(ultimo) ? " — instabilidade da VarejOnline; tentei 4 vezes" : ""));
+}
+
 async function fetchAllPages(url: string, token: string, onPage?: (items: any[]) => void): Promise<any[]> {
   const results: any[] = [];
   let inicio = 0;
   let ultima = "";
   for (let n = 0; n < 400; n++) {
     const sep = url.includes("?") ? "&" : "?";
-    const pageUrl = `${url}${sep}inicio=${inicio}&quantidade=1000&token=${token}`;
-    const resp = await fetch(pageUrl);
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(semToken(`Erro ao consultar ${url.split("?")[0]} (${resp.status}): ${text.slice(0, 300)}`));
-    }
-    const page = await resp.json();
+    const page = await paginaVarejo(`${url}${sep}inicio=${inicio}`, token, url.split("?")[0]);
     const items = Array.isArray(page) ? page : (page.items ?? page.dados ?? []);
     if (!items.length) break;
     const assinatura = JSON.stringify(items[0]).slice(0, 300);

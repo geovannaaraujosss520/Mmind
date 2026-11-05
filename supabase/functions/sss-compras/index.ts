@@ -95,15 +95,32 @@ const OVERRIDES: Record<string, string> = {
 
 // A API entrega no maximo ~300 itens por pagina: avanca pelo tamanho real e so para em pagina vazia.
 // onPage: processa cada pagina e descarta (economiza memoria; evita o erro 546 do Supabase).
+// Uma pagina da VarejOnline com nova tentativa: erro 5xx/429 ou falha de rede tenta de novo (ate 4 vezes),
+// pedindo paginas menores (1000 -> 300 -> 100), que a VarejOnline aguenta melhor em lojas grandes.
+async function paginaVarejo(urlBase: string, token: string): Promise<any> {
+  const tamanhos = [1000, 300, 100, 100];
+  let ultimo = '';
+  for (let t = 0; t < tamanhos.length; t++) {
+    if (t) await new Promise((ok) => setTimeout(ok, 800 * t + Math.random() * 400));
+    let r: Response;
+    try { r = await fetch(`${urlBase}&quantidade=${tamanhos[t]}&token=${token}`, { signal: AbortSignal.timeout(45000) }); }
+    catch (e) { ultimo = `sem resposta (${String((e as Error)?.name ?? e)})`; continue; }
+    if (r.ok) return await r.json();
+    const caminho = urlBase.split('?')[0];
+    if (r.status === 401 || r.status === 403) throw new Error(`VarejOnline recusou o token desta loja (${r.status}) — atualize o token em Lojas`);
+    ultimo = `respondeu ${r.status} em ${caminho}`;
+    if (r.status !== 429 && r.status < 500) break;
+  }
+  throw new Error(`VarejOnline ${ultimo}${ultimo.startsWith('respondeu 5') ? ' (instabilidade da VarejOnline; tentei 4 vezes)' : ''}`);
+}
+
 async function fetchAllPages(url: string, token: string, onPage?: (items: any[]) => void): Promise<any[]> {
   const out: any[] = [];
   let inicio = 0;
   let ultima = '';
   for (let n = 0; n < 100; n++) {
     const sep = url.includes('?') ? '&' : '?';
-    const r = await fetch(`${url}${sep}inicio=${inicio}&quantidade=1000&token=${token}`);
-    if (!r.ok) throw new Error(`VarejOnline respondeu ${r.status} em ${url.split('?')[0]}`);
-    const page = await r.json();
+    const page = await paginaVarejo(`${url}${sep}inicio=${inicio}`, token);
     const items = Array.isArray(page) ? page : (page.items ?? page.dados ?? []);
     if (!items.length) break;
     const sig = JSON.stringify(items[0]).slice(0, 300);
