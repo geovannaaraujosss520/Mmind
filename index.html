@@ -739,8 +739,12 @@ document.querySelectorAll('[data-run]').forEach(btn => {
 });
 
 async function chamarEdge(payload, url = EDGE_URL) {
-  const resp = await fetch(url, { method: 'POST', headers: headersComSenha(), body: JSON.stringify(payload) });
-  const data = await resp.json();
+  let resp;
+  try { resp = await fetch(url, { method: 'POST', headers: headersComSenha(), body: JSON.stringify(payload) }); }
+  catch (e) { throw new Error('Sem resposta do servidor (Supabase). Pode ter sido a internet ou uma atualização em andamento — confira se a alteração foi salva e tente de novo em alguns segundos.'); }
+  let data;
+  try { data = await resp.json(); }
+  catch (e) { throw new Error(resp.status === 546 ? 'Erro 546: a consulta passou do limite de tempo/memória do Supabase.' : `Erro HTTP ${resp.status} (resposta inválida do servidor).`); }
   if (!resp.ok || data.error) throw new Error(data.error || `Erro HTTP ${resp.status}`);
   return data;
 }
