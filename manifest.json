@@ -1,7 +1,7 @@
 {
   "id": "./",
-  "name": "Mastermind SSS — Painel Operacional",
-  "short_name": "Mastermind SSS",
+  "name": "Insight SSS — Painel Operacional",
+  "short_name": "Insight SSS",
   "description": "Painel operacional da rede SSS: central de decisão, recomendação de compra recorrente e sazonal, alertas de estoque, transferências entre lojas e DRE por unidade.",
   "lang": "pt-BR",
   "dir": "ltr",

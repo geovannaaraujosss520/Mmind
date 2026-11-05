@@ -1,4 +1,4 @@
-# Mastermind SSS — Painel Operacional
+# Insight SSS (antigo Mastermind) — Painel Operacional
 
 Painel de decisão da rede **Santo Santo Santo**: compras, estoque, financeiro, equipe e pedidos para a Central do Franqueado, com dados ao vivo da **VarejOnline** e da **Central do Franqueado**.
 

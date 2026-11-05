@@ -1,4 +1,4 @@
-// Mastermind SSS — servidor do painel em Node.js (sem dependências).
+// Insight SSS — servidor do painel em Node.js (sem dependências).
 // Serve index.html, manifest.json, sw.js e icons/ para quem não usa o GitHub Pages
 // (por exemplo, com o repositório privado). Os dados continuam vindo das Edge Functions do Supabase.
 //
@@ -38,4 +38,4 @@ const servidor = http.createServer((req, res) => {
   });
 });
 
-servidor.listen(PORTA, () => console.log(`Mastermind SSS no ar: http://localhost:${PORTA}`));
+servidor.listen(PORTA, () => console.log(`Insight SSS no ar: http://localhost:${PORTA}`));

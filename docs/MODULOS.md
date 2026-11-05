@@ -1,4 +1,4 @@
-# Módulos do Mastermind SSS
+# Módulos do Insight SSS (antigo Mastermind)
 
 ## Central de Decisão
 Roda em paralelo Compras, Estoque, DRE do mês + metas, Vendedores (e Benchmark, opcional) e entrega:

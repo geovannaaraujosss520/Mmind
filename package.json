@@ -1,8 +1,8 @@
 {
-  "name": "mastermind-sss",
+  "name": "insight-sss",
   "version": "1.0.0",
   "private": true,
-  "description": "Painel Mastermind SSS servido em Node.js",
+  "description": "Painel Insight SSS servido em Node.js",
   "main": "server.js",
   "scripts": { "start": "node server.js" },
   "engines": { "node": ">=18" }
