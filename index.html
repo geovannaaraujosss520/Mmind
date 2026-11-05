@@ -9,7 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
-<meta name="theme-color" content="#ECEAE6">
+<meta name="theme-color" content="#961A1D">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Mastermind SSS">
@@ -316,7 +316,7 @@
   <div class="caixa-usuario" id="caixaUsuario">
     <input id="senhaAcesso" type="hidden" autocomplete="off" value="">
     <div class="u-nome" id="usuarioNome">—</div>
-    <div class="u-papel"><span id="usuarioPapel"></span> · <a href="#" id="btnSair">Sair</a></div>
+    <div class="u-papel"><span id="usuarioPapel"></span> · <a href="#" id="btnSair">Sair</a><span id="instalarApp" style="display:none"> · <a href="#" id="btnInstalar">Instalar app</a></span></div>
   </div>
 </div>
 
@@ -3636,6 +3636,29 @@ $('usr_criar').addEventListener('click', async ev => {
 });
 
 iniciarAcesso();
+
+// ---- App instalável (PWA) ----
+let _promptInstalar = null;
+const rodandoComoApp = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const ehIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); _promptInstalar = e; if (!rodandoComoApp()) $('instalarApp').style.display = ''; });
+window.addEventListener('appinstalled', () => { _promptInstalar = null; $('instalarApp').style.display = 'none'; });
+if (ehIOS && !rodandoComoApp()) $('instalarApp').style.display = '';
+$('btnInstalar').addEventListener('click', async e => {
+  e.preventDefault();
+  if (_promptInstalar) { _promptInstalar.prompt(); const r = await _promptInstalar.userChoice.catch(() => null); if (r?.outcome === 'accepted') $('instalarApp').style.display = 'none'; _promptInstalar = null; return; }
+  alert(ehIOS ? 'No iPhone/iPad: toque em Compartilhar (quadrado com seta) → "Adicionar à Tela de Início".' : 'No Chrome/Edge: menu ⋮ → "Instalar Mastermind SSS" (ou o ícone de instalar na barra de endereço).');
+});
+// Atalhos do app (?view=pedido etc.): abre a tela pedida depois do login
+(function abrirTelaDaUrl() {
+  const v = new URLSearchParams(location.search).get('view'); if (!v) return;
+  const tentar = (n = 0) => {
+    const item = document.querySelector(`.nav-item[data-view="${CSS.escape(v)}"]`);
+    if (item && item.style.display !== 'none' && !document.getElementById('telaLogin')?.offsetParent) { item.click(); return; }
+    if (n < 60) setTimeout(() => tentar(n + 1), 500);
+  };
+  tentar();
+})();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

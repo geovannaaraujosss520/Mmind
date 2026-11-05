@@ -3,7 +3,7 @@
 // HTML: rede primeiro (pega sempre a versão nova do painel), cache só se estiver offline.
 // Ícones/manifest: cache primeiro.
 
-const CACHE_NAME = "mastermind-sss-v3";
+const CACHE_NAME = "mastermind-sss-v4";
 const ARQUIVOS_CASCO = [
   "./index.html",
   "./manifest.json",
