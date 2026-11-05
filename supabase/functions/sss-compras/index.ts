@@ -304,8 +304,8 @@ async function moduloRecorrente(apiBase: string, lojasTokens: Record<string, str
   const [andamento, vinc] = await Promise.all([pedidosEmAndamento(listaCentral), carregarVinculos()]);
   const vincRede = new Map<string, any>();
   {
-    let r: any = await sb().from(TABELA_VINCULOS).select('produto_chave, chave_central, ignorar, grade, descricao_central');
-    if (r.error) r = await sb().from(TABELA_VINCULOS).select('produto_chave, chave_central, ignorar, descricao_central');
+    let r: any = await sb().from(TABELA_VINCULOS).select('produto_chave, chave_central, codigo_central, variacao, ignorar, grade, descricao_central');
+    if (r.error) r = await sb().from(TABELA_VINCULOS).select('produto_chave, chave_central, codigo_central, variacao, ignorar, descricao_central');
     const data = r.data;
     for (const v of data ?? []) vincRede.set(String(v.produto_chave), v);
   }
@@ -316,7 +316,7 @@ async function moduloRecorrente(apiBase: string, lojasTokens: Record<string, str
     let saldos: any[] = [];
     try {
       const enxuta = (sd: any) => ({ cancelado: sd.cancelado, tipoSaida: sd.tipoSaida, entidade: sd.entidade ? { id: sd.entidade.id, nome: sd.entidade.nome } : undefined, entidadeId: sd.entidadeId,
-        mercadorias: (sd.mercadorias ?? []).map((it: any) => ({ produto: it.produto ? { id: it.produto.id, descricao: it.produto.descricao, codigoSistema: it.produto.codigoSistema } : null, quantidade: it.quantidade, valorCusto: it.valorCusto })) });
+        mercadorias: (sd.mercadorias ?? []).map((it: any) => ({ produto: it.produto ? { id: it.produto.id, descricao: it.produto.descricao, codigoSistema: it.produto.codigoSistema } : null, quantidade: it.quantidade, valorCusto: it.valorCusto, valorTotal: it.valorTotal })) });
       [, saldos] = await Promise.all([
         buscarSaidasParalelo(apiBase, token, ini, hoje, (sd) => { saidas.push(enxuta(sd)); }),
         fetchAllPages(`${apiBase}/saldos-mercadorias`, token, (pg) => { for (const sl of pg) saldos.push(enxutoSaldo(sl)); })]);
@@ -332,9 +332,10 @@ async function moduloRecorrente(apiBase: string, lojasTokens: Record<string, str
         const p = it.produto;
         if (!p) continue;
         const k = String(p.id);
-        const cur = venda.get(k) ?? { produtoId: p.id, descricao: p.descricao, codigoSistema: p.codigoSistema, qtd: 0, custo: 0 };
+        const cur = venda.get(k) ?? { produtoId: p.id, descricao: p.descricao, codigoSistema: p.codigoSistema, qtd: 0, custo: 0, receita: 0 };
         cur.qtd += Number(it.quantidade ?? 0);
         cur.custo += Number(it.valorCusto ?? 0);
+        cur.receita += Number(it.valorTotal ?? 0);
         venda.set(k, cur);
       }
     }
@@ -428,18 +429,23 @@ async function moduloRecorrente(apiBase: string, lojasTokens: Record<string, str
       const v = vincRede.get(chaveProduto({ codigoSistema: vd.codigoSistema, produtoId: prod }));
       if (v && !v.ignorar && v.chave_central) {
         if (!exatos.has(v.chave_central)) exatos.set(v.chave_central, []); exatos.get(v.chave_central)!.push(prod);
+        const cv = `CV:${codVar(v.codigo_central ?? String(v.chave_central).split('|')[0], v.variacao ?? String(v.chave_central).split('|')[1])}`;
+        if (!exatos.has(cv)) exatos.set(cv, []); if (!exatos.get(cv)!.includes(prod)) exatos.get(cv)!.push(prod);
         // vinculo a grade: qualquer tamanho do mesmo codigo e cor e deste produto
         if (v.grade) {
           const kg = `${String(v.chave_central).split('|')[0]}|${andamento.cbPorChave.get(v.chave_central) ?? corBaseDaChave(v.chave_central)}`; if (!porGrade.has(kg)) porGrade.set(kg, []); porGrade.get(kg)!.push(prod);
           // familia por letra (A-Z, cada letra com codigo proprio): pedido de qualquer letra e deste produto
           const kl = chaveFamiliaLetra(v.descricao_central, String(v.chave_central).split('|')[1]); if (kl) { if (!porGrade.has(kl)) porGrade.set(kl, []); if (!porGrade.get(kl)!.includes(prod)) porGrade.get(kl)!.push(prod); }
+          // letras como variacao do mesmo codigo (A, B, ... Z): pedido de qualquer letra
+          if (/^[A-Z]( |$)/.test(String(v.chave_central).split('|')[1] ?? '')) { const kc = `${String(v.chave_central).split('|')[0]}|*`; if (!porGrade.has(kc)) porGrade.set(kc, []); if (!porGrade.get(kc)!.includes(prod)) porGrade.get(kc)!.push(prod); }
         }
       }
     }
     for (const it of itens.values()) {
       const v = vl.get(it.cod);
       const kl = chaveFamiliaLetra(it.descricao, String(it.chave).split('|')[1]);
-      const ex = exatos.get(it.chave) ?? porGrade.get(`${String(it.chave).split('|')[0]}|${andamento.cbPorChave.get(it.chave) ?? corBaseDaChave(it.chave)}`) ?? (kl ? porGrade.get(kl) : undefined);
+      const varIt = String(it.chave).split('|')[1] ?? '';
+      const ex = exatos.get(it.chave) ?? exatos.get(`CV:${codVar(it.cod, varIt)}`) ?? (/^[A-Z]( |$)/.test(varIt) ? porGrade.get(`${String(it.chave).split('|')[0]}|*`) : undefined) ?? porGrade.get(`${String(it.chave).split('|')[0]}|${andamento.cbPorChave.get(it.chave) ?? corBaseDaChave(it.chave)}`) ?? (kl ? porGrade.get(kl) : undefined);
       if (!ex && v?.ignorar) { ignorados++; continue; }
       let pid: string | null = null;
       if (ex?.length === 1) pid = ex[0];
@@ -484,6 +490,8 @@ async function moduloRecorrente(apiBase: string, lojasTokens: Record<string, str
         demandaProjetadaPeriodo: Number(demanda.toFixed(1)),
         qtdRecomendadaCompra: qtdRec,
         valorEstimadoCompra: Number((qtdRec * custoUnit).toFixed(2)),
+        // preco medio de venda (liquido do que foi cobrado) e custo medio, para retorno e perda no pedido
+        precoMedioVenda: agg.qtd > 0 ? r2(agg.receita / agg.qtd) : null, custoUnitario: r2(custoUnit),
         riscoRuptura: est + emAndamento < demanda,
       });
     }
@@ -697,7 +705,7 @@ async function gerarPedidoSugerido(apiBase: string, lojasTokens: Record<string, 
     l = rec.lojas[0];
   }
   if (!l || l.erro) throw new Error(`Nao foi possivel calcular a recomendacao de ${loja}: ${l?.erro ?? 'sem dados'}`);
-  const cat = montarCatalogo(base.lista);
+  const cat = juntarCatalogoFixo(montarCatalogo(base.lista), await carregarCatalogoFixo());
 
   const idx = indexarCatalogo(cat);
   const vinc = await carregarVinculosLoja(loja);
@@ -722,6 +730,7 @@ async function gerarPedidoSugerido(apiBase: string, lojasTokens: Record<string, 
     linhas.push({
       produtoId: r.produtoId, descricaoLoja: r.descricao, codigoSistema: r.codigoSistema,
       riscoRuptura: r.riscoRuptura, vendaMediaDiaria: r.vendaMediaDiaria, estoqueAtual: r.estoqueAtual, emAndamento: r.emAndamento,
+      precoVenda: r.precoMedioVenda ?? null, demandaPeriodo: r.demandaProjetadaPeriodo ?? null, unidadesPorQtd: multiplicar ? fator : 1,
       qtdRecomendadaUnidades: r.qtdRecomendadaCompra, qtd, valor: r2(qtd * esc.preco), via, ajustes, variacaoIncerta,
       central: { chave: esc.chave, codigo: esc.codigo, idProduto: esc.idProduto, descricao: esc.descricao, variacao: esc.variacao, variacaoDescricao: esc.variacaoDescricao ?? esc.variacao, corBase: esc.corBase ?? corBase(esc.variacaoDescricao ?? esc.variacao), referencia: esc.referencia, categoria: esc.categoria, preco: esc.preco, qtdMinima: esc.qtdMinima, qtdMaxima: esc.qtdMaxima, fatorConversao: fator, prazo: esc.prazo, emEstoque: esc.emEstoque, ultimaCompra: esc.ultimaCompra },
       alternativas: m.alternativas.map(resumoItemCentral),
@@ -731,7 +740,7 @@ async function gerarPedidoSugerido(apiBase: string, lojasTokens: Record<string, 
       // grade: familia por letra (A-Z) ou todas as variacoes (cores/tamanhos) do mesmo codigo e fornecedor
       grade: (() => {
         const fam = itensDaGrade(idx, esc);
-        if (fam?.tipo === 'letra') return fam.itens.map((x: any) => ({ ...resumoItemCentral(x), rotuloGrade: `Letra ${letraDe(x.descricao)}` }));
+        if (fam?.tipo === 'letra') return fam.itens.map((x: any) => ({ ...resumoItemCentral(x), rotuloGrade: `Letra ${letraDoItem(x)}` }));
         return !fornecedorTemGrade(esc.fornecedorNome) ? [] : (idx.porCodigo.get(codNorm(esc.codigo)) ?? []).filter((x: any) => x.fornecedorId === esc.fornecedorId && codNorm(x.codigo) === codNorm(esc.codigo)).slice(0, 80).map(resumoItemCentral);
       })(),
       fornecedorId: esc.fornecedorId, fornecedorNome: esc.fornecedorNome,
@@ -1440,7 +1449,11 @@ function casarProduto(r: any, idx: ReturnType<typeof indexarCatalogo>, vinc: { n
   const vn = vinc.novos.get(chaveProduto(r));
   if (vn?.ignorar) return { via: 'ignorado', item: null, variacaoIncerta: false, alternativas: [] as any[], motivo: vn.motivo ?? null };
   if (vn?.chave_central) {
-    const it = idx.porChave.get(vn.chave_central);
+    let it = idx.porChave.get(vn.chave_central);
+    if (!it && vn.codigo_central) {
+      const cs = (idx.porCodigo.get(codNorm(vn.codigo_central)) ?? []).filter((x: any) => codNorm(x.codigo) === codNorm(vn.codigo_central));
+      it = cs.find((x: any) => limpa(x.variacaoDescricao ?? x.variacao) === limpa(vn.variacao)) ?? cs.find((x: any) => varNorm(x.variacaoDescricao ?? x.variacao) === varNorm(vn.variacao)) ?? (cs.length === 1 ? cs[0] : undefined);
+    }
     if (it) return { via: 'vínculo', item: it, variacaoIncerta: false, grade: !!vn.grade, alternativas: (idx.porCodigo.get(codNorm(it.codigo)) ?? []).filter((x: any) => x !== it).slice(0, 5) };
     // item vinculado sumiu do catalogo (sem pedidos no periodo): cai para as outras regras, avisando
   }
@@ -1492,6 +1505,8 @@ function chaveFamiliaLetra(desc: unknown, variacao: unknown): string | null {
   const d = limpa(desc); if (!RE_LETRA.test(d)) return null;
   return `L:${d.replace(RE_LETRA, '$1 *')}|${limpa(variacao)}`;
 }
+const letraDaVariacao = (it: any): string | null => { const m = limpa(it.variacaoDescricao ?? it.variacao).match(/^([A-Z])( |$)/); return m ? m[1] : null; };
+const letraDoItem = (it: any) => letraDe(it.descricao) ?? letraDaVariacao(it);
 const familiaDoItem = (it: any) => { const k = chaveFamiliaLetra(it.descricao, String(it.chave ?? '').split('|')[1]); return k ? `${it.fornecedorId}|${k}` : null; };
 
 // Grade do item: tamanhos do mesmo codigo/cor (fornecedores com grade) ou familia por letra.
@@ -1499,6 +1514,11 @@ function itensDaGrade(idx: ReturnType<typeof indexarCatalogo>, it: any): { tipo:
   if (!it) return null;
   const t = tamanhosDaGrade(idx, it);
   if (t.length > 1) return { tipo: 'tamanho', itens: t, rotulos: t.map((x: any) => x.variacao) };
+  const mesmos = (idx.porCodigo.get(codNorm(it.codigo)) ?? []).filter((x: any) => x.fornecedorId === it.fornecedorId && codNorm(x.codigo) === codNorm(it.codigo) && letraDaVariacao(x));
+  if (mesmos.length >= 5 && letraDaVariacao(it)) {
+    const ord = [...mesmos].sort((a: any, b: any) => String(letraDaVariacao(a)).localeCompare(String(letraDaVariacao(b))));
+    return { tipo: 'letra', itens: ord, rotulos: ord.map((x: any) => letraDaVariacao(x)!) };
+  }
   const kf = familiaDoItem(it);
   const fam = kf ? (idx.porFamilia.get(kf) ?? []) : [];
   if (fam.length > 1) {
@@ -1508,13 +1528,103 @@ function itensDaGrade(idx: ReturnType<typeof indexarCatalogo>, it: any): { tipo:
   return null;
 }
 
+// =====================================================================
+// CATALOGO FIXO DA CENTRAL (tabela catalogo_central)
+// Itens vistos nos pedidos (origem 'pedido', com idProduto/unidade para envio pela API) + planilha "Peças da Central"
+// (origem 'planilha'). Nada sai sozinho: um item sem pedido ha 180 dias continua no catalogo.
+// =====================================================================
+const TABELA_CATALOGO = 'catalogo_central';
+let cacheFixo: { quando: number; itens: any[] } | null = null;
+let ultimaGravacaoPedidos = 0;
+async function carregarCatalogoFixo(forcar = false): Promise<any[]> {
+  if (!forcar && cacheFixo && Date.now() - cacheFixo.quando < 10 * 60_000) return cacheFixo.itens;
+  const out: any[] = [];
+  for (let de = 0; de < 200_000; de += 1000) {
+    const r: any = await sb().from(TABELA_CATALOGO).select('chave, codigo, descricao, variacao, fornecedor_id, fornecedor_nome, categoria, preco, qtd_minima, fator_conversao, id_produto, unidade, origem, ultima_compra').range(de, de + 999);
+    if (r.error) { cacheFixo = { quando: Date.now(), itens: [] }; return []; } // SQL ainda nao rodado
+    out.push(...(r.data ?? []));
+    if ((r.data ?? []).length < 1000) break;
+  }
+  cacheFixo = { quando: Date.now(), itens: out };
+  return out;
+}
+// Variacao sem numeracao e referencia: "1 - PRETO - 0382.0001" / "1-PRETO-5212" / "DOURADO - IV1009.0001" -> "PRETO" / "DOURADO"
+const varNorm = (v: unknown) => limpa(String(v ?? '').trim().replace(/^\d{1,2}\s*-\s*/, '').replace(/\s*-\s*[A-Za-z]*\d[A-Za-z0-9.\/-]*\s*$/, ''));
+const codVar = (codigo: unknown, variacao: unknown) => `${codNorm(codigo)}|${varNorm(variacao)}`;
+// Acrescenta ao catalogo dos pedidos os itens do catalogo fixo que nao apareceram nos pedidos recentes.
+function juntarCatalogoFixo<T extends { itens: any[]; fornecedores: any[] }>(cat: T, fixos: any[]): T {
+  const temChave = new Set(cat.itens.map((i: any) => i.chave));
+  const temCV = new Set(cat.itens.map((i: any) => codVar(i.codigo, i.variacaoDescricao ?? i.variacao)));
+  const fornPorNome = new Map<string, string>(cat.fornecedores.map((f: any) => [limpa(f.nome), String(f.id)]));
+  const ordem = [...fixos].sort((a, b) => Number(b.origem === 'pedido') - Number(a.origem === 'pedido'));
+  for (const f of ordem) {
+    const cv = codVar(f.codigo, f.variacao);
+    if (temChave.has(f.chave) || temCV.has(cv)) continue;
+    temChave.add(f.chave); temCV.add(cv);
+    const fid = f.fornecedor_id ? String(f.fornecedor_id) : (fornPorNome.get(limpa(f.fornecedor_nome)) ?? `NOME:${limpa(f.fornecedor_nome)}`);
+    const v = String(f.variacao ?? '');
+    cat.itens.push({ chave: f.chave, codigo: String(f.codigo ?? ''), descricao: f.descricao, descricoes: [f.descricao], variacao: v, variacaoDescricao: v, corBase: corBase(v), tamanho: [...tokensTamanho(v)],
+      referencia: null, categoria: f.categoria ?? null, fornecedorId: fid, fornecedorNome: f.fornecedor_nome ?? '', preco: Number(f.preco) || 0, qtdMinima: Number(f.qtd_minima) || 1, qtdMaxima: null,
+      fatorConversao: Number(f.fator_conversao) || 1, idProduto: f.id_produto ?? null, unidade: f.unidade ?? null, ultimaCompra: f.ultima_compra ?? null, vezes: 0, qtdTotal: 0, lojas: 0, doCatalogoFixo: true });
+  }
+  return cat;
+}
+// Guarda no catalogo fixo os itens vistos nos pedidos (no maximo a cada 6 h por instancia).
+async function gravarItensDosPedidos(cat: any) {
+  if (Date.now() - ultimaGravacaoPedidos < 6 * 3600_000) return;
+  ultimaGravacaoPedidos = Date.now();
+  const agora = new Date().toISOString();
+  const linhas = cat.itens.filter((i: any) => !i.doCatalogoFixo).map((i: any) => ({ chave: i.chave, codigo: i.codigo, descricao: i.descricao, variacao: i.variacaoDescricao ?? i.variacao ?? '',
+    fornecedor_id: i.fornecedorId, fornecedor_nome: i.fornecedorNome, categoria: i.categoria ?? null, preco: i.preco, qtd_minima: i.qtdMinima, fator_conversao: i.fatorConversao,
+    id_produto: i.idProduto ?? null, unidade: i.unidade ?? null, origem: 'pedido', ultima_compra: i.ultimaCompra ?? null, atualizado_em: agora }));
+  for (let k = 0; k < linhas.length; k += 500) {
+    const { error } = await sb().from(TABELA_CATALOGO).upsert(linhas.slice(k, k + 500), { onConflict: 'chave' });
+    if (error) return; // tabela ainda nao existe
+  }
+  cacheFixo = null;
+}
+
+// Importacao da planilha "Peças da Central" (Fornecedor, Código, Nome, Variações, Custo): uma linha por variacao.
+async function importarCatalogoPlanilha(itens: any[]) {
+  if (!Array.isArray(itens) || !itens.length || itens.length > 3000) throw new Error('Envie de 1 a 3000 produtos por vez.');
+  const t = await sb().from(TABELA_CATALOGO).select('chave').limit(1);
+  if (t.error) throw new Error('Rode antes o SQL 20261105000003_catalogo_central.sql no Supabase.');
+  const agora = new Date().toISOString();
+  const linhas = new Map<string, any>();
+  for (const p of itens) {
+    const codigo = String(p.codigo ?? '').trim(), nome = String(p.nome ?? '').trim();
+    if (!codigo || !nome) continue;
+    const vars = String(p.variacoes ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+    for (const v of vars.length ? vars : ['']) {
+      const chave = chaveItem(codigo, v);
+      linhas.set(chave, { chave, codigo, descricao: nome, variacao: v, fornecedor_nome: String(p.fornecedor ?? '').trim(), preco: Number(String(p.custo ?? '').replace(',', '.')) || null, origem: 'planilha', atualizado_em: agora });
+    }
+  }
+  const todas = [...linhas.values()];
+  // itens que ja vieram dos pedidos guardam idProduto/unidade: nao sobrescreve
+  const dePedido = new Set<string>();
+  for (let k = 0; k < todas.length; k += 300) {
+    const r = await sb().from(TABELA_CATALOGO).select('chave, origem').in('chave', todas.slice(k, k + 300).map((x) => x.chave));
+    for (const x of r.data ?? []) if (x.origem === 'pedido') dePedido.add(x.chave);
+  }
+  const gravar = todas.filter((x) => !dePedido.has(x.chave));
+  for (let k = 0; k < gravar.length; k += 500) {
+    const { error } = await sb().from(TABELA_CATALOGO).upsert(gravar.slice(k, k + 500), { onConflict: 'chave' });
+    if (error) throw new Error(`Erro ao gravar o catálogo: ${error.message}`);
+  }
+  cacheFixo = null; cacheCatalogo = null;
+  return { ok: true, produtos: itens.length, variacoes: todas.length, gravadas: gravar.length, jaVistasEmPedidos: dePedido.size };
+}
+
 // ---- Tela de vinculos ----
 let cacheCatalogo: { quando: number; idx: ReturnType<typeof indexarCatalogo>; cat: any } | null = null;
 async function catalogoIndexado() {
-  if (cacheCatalogo && cacheCentral && cacheCatalogo.quando === cacheCentral.quando) return cacheCatalogo;
+  if (cacheCatalogo && cacheCentral && cacheCatalogo.quando === cacheCentral.quando && cacheFixo) return cacheCatalogo;
   const base = await buscarPedidosCentral(DIAS_CATALOGO);
   if (base.erro && !base.lista.length) throw new Error(base.erro);
   const cat = montarCatalogo(base.lista);
+  await gravarItensDosPedidos(cat).catch(() => {});
+  juntarCatalogoFixo(cat, await carregarCatalogoFixo());
   cacheCatalogo = { quando: cacheCentral?.quando ?? Date.now(), idx: indexarCatalogo(cat), cat };
   return cacheCatalogo;
 }
@@ -1556,6 +1666,41 @@ async function moduloVinculos(body: any, apiBase?: string, lojasTokens?: Record<
       return { it, sc };
     }).filter(Boolean).sort((a: any, b: any) => b.sc - a.sc).slice(0, 40).map((x: any) => { const g = itensDaGrade(idx, x.it); return { ...resumoItemCentral(x.it), tamanhosGrade: g?.itens.length ?? 0, tipoGrade: g?.tipo ?? null }; });
     return { itens: res };
+  }
+
+  if (acao === 'importarCatalogo') return await importarCatalogoPlanilha(body.itens);
+
+  // Vinculos conferidos na planilha: { itens: [{ codigoSistema, produtoId, descricao, codigo, variacao, todasLetras }] }
+  if (acao === 'importarVinculos') {
+    const lista: any[] = Array.isArray(body.itens) ? body.itens : [];
+    if (!lista.length || lista.length > 3000) throw new Error('Envie de 1 a 3000 vínculos por vez.');
+    const { idx } = await catalogoIndexado();
+    const quemImp = String(body.usuario ?? '').trim() || null, agora = new Date().toISOString();
+    const linhas: any[] = [], erros: any[] = [];
+    for (const v of lista) {
+      const codigo = String(v.codigo ?? '').trim(), varTxt = String(v.variacao ?? '').trim();
+      if (!codigo || (!v.codigoSistema && v.produtoId == null)) { erros.push({ produto: v.descricao, motivo: 'sem código da Central ou do sistema' }); continue; }
+      let it = idx.porChave.get(chaveItem(codigo, varTxt));
+      if (!it || it.doCatalogoFixo) {
+        const cs = (idx.porCodigo.get(codNorm(codigo)) ?? []).filter((x: any) => codNorm(x.codigo) === codNorm(codigo));
+        it = cs.find((x: any) => limpa(x.variacaoDescricao ?? x.variacao) === limpa(varTxt)) ?? cs.find((x: any) => !x.doCatalogoFixo && varNorm(x.variacaoDescricao ?? x.variacao) === varNorm(varTxt)) ?? cs.find((x: any) => varNorm(x.variacaoDescricao ?? x.variacao) === varNorm(varTxt)) ?? (!varTxt && cs.length === 1 ? cs[0] : undefined);
+      }
+      if (!it) {
+        const nCod = (idx.porCodigo.get(codNorm(codigo)) ?? []).filter((x: any) => codNorm(x.codigo) === codNorm(codigo));
+        erros.push({ produto: v.descricao, codigo, variacao: varTxt, motivo: !nCod.length ? 'código não está no catálogo da Central' : `escolha a variação (${nCod.slice(0, 6).map((x: any) => x.variacaoDescricao || x.variacao).join(', ')}${nCod.length > 6 ? '…' : ''})` });
+        continue;
+      }
+      const grade = v.todasLetras === true && !!itensDaGrade(idx, it);
+      linhas.push({ produto_chave: chaveProduto({ codigoSistema: v.codigoSistema, produtoId: v.produtoId }), produto_id: v.produtoId != null ? String(v.produtoId) : null,
+        codigo_sistema: v.codigoSistema ? String(v.codigoSistema) : null, descricao_produto: v.descricao ?? null, chave_central: it.chave, codigo_central: it.codigo, variacao: it.variacaoDescricao ?? it.variacao ?? null,
+        fornecedor_id: it.fornecedorId, descricao_central: it.descricao, ignorar: false, motivo: null, loja_origem: 'planilha', atualizado_por: quemImp, atualizado_em: agora, grade });
+    }
+    const unicos = [...new Map(linhas.map((l) => [l.produto_chave, l])).values()];
+    for (let i = 0; i < unicos.length; i += 300) {
+      const { error } = await s.from(TABELA_VINCULOS).upsert(unicos.slice(i, i + 300), { onConflict: 'produto_chave' });
+      if (error) throw new Error(`Erro ao salvar vínculos: ${error.message}`);
+    }
+    return { ok: true, salvos: unicos.length, erros: erros.slice(0, 200), totalErros: erros.length };
   }
 
   if (!loja) throw new Error('Informe a loja.');
@@ -1784,7 +1929,7 @@ Deno.serve(async (req) => {
     if (modulo === 'catalogoCentral') { equipe(); return resp(await moduloCatalogoCentral(body)); }
     if (modulo === 'vinculos') {
       const acao = String(body.acao ?? '');
-      if (['salvar', 'salvarLote', 'ignorar', 'remover'].includes(acao)) equipe(); // vínculos valem para a rede inteira
+      if (['salvar', 'salvarLote', 'ignorar', 'remover', 'importarCatalogo', 'importarVinculos'].includes(acao)) equipe(); // vínculos valem para a rede inteira
       if (acao === 'produtosVendidos') { exigirLoja(a, body.loja); return resp(await moduloVinculos(body, Deno.env.get('VAREJONLINE_API_BASE')!, await getLojasTokens())); }
       return resp(await moduloVinculos(body));
     }

@@ -416,6 +416,18 @@
         <span class="status" id="status-vinculos"></span>
       </div>
     </div>
+    <div class="panel" id="vin_import">
+      <div style="font-size:13px; font-weight:650; margin-bottom:4px">Importar planilhas</div>
+      <div class="sub" style="font-size:12px; max-width:none">
+        <strong>1. Catálogo da Central</strong> — a planilha "Peças da Central" (Fornecedor, Código, Nome, Variações, Custo). Os itens ficam guardados de vez: importar de novo só acrescenta os novos e atualiza o custo.<br>
+        <strong>2. Vínculos conferidos</strong> — a planilha de conferência com a coluna Aprovar; só as linhas com SIM são carregadas.</div>
+      <div class="actions" style="flex-wrap:wrap">
+        <label class="secondary" style="cursor:pointer; padding:8px 14px; border:1px solid var(--line); border-radius:10px; font-size:12.5px; text-transform:none; letter-spacing:0; margin:0">Catálogo da Central (.xlsx)<input type="file" id="vin_imp_cat" accept=".xlsx,.xls,.csv" style="display:none"></label>
+        <label class="secondary" style="cursor:pointer; padding:8px 14px; border:1px solid var(--line); border-radius:10px; font-size:12.5px; text-transform:none; letter-spacing:0; margin:0">Vínculos conferidos (.xlsx)<input type="file" id="vin_imp_vin" accept=".xlsx,.xls" style="display:none"></label>
+        <span class="status" id="vin_imp_status"></span>
+      </div>
+      <div id="vin_imp_erros"></div>
+    </div>
     <div id="erro-vinculos"></div>
     <div id="resultado-vinculos"></div>
   </div>
@@ -2298,7 +2310,8 @@ async function gerarPedido() {
     const recomendacao = {
       nomeLoja: l.nomeLoja, parametros: rec.parametros, pedidosCentral: l.pedidosCentral, diagEstoque: l.diagEstoque,
       recomendacoes: l.recomendacoes.filter(r => r.qtdRecomendadaCompra > 0).map(r => ({ produtoId: r.produtoId, descricao: r.descricao, codigoSistema: r.codigoSistema, codigoInterno: r.codigoInterno,
-        qtdRecomendadaCompra: r.qtdRecomendadaCompra, valorEstimadoCompra: r.valorEstimadoCompra, riscoRuptura: r.riscoRuptura, vendaMediaDiaria: r.vendaMediaDiaria, estoqueAtual: r.estoqueAtual, emAndamento: r.emAndamento })),
+        qtdRecomendadaCompra: r.qtdRecomendadaCompra, valorEstimadoCompra: r.valorEstimadoCompra, riscoRuptura: r.riscoRuptura, vendaMediaDiaria: r.vendaMediaDiaria, estoqueAtual: r.estoqueAtual, emAndamento: r.emAndamento,
+        precoMedioVenda: r.precoMedioVenda, demandaProjetadaPeriodo: r.demandaProjetadaPeriodo })),
     };
     // Etapa 2: converte em itens da Central; se o servidor estourar o limite, tenta com um catálogo menor.
     let d = null, ultimoErro = null;
@@ -2336,6 +2349,11 @@ function renderPedido() {
       <div class="kpi"><div class="label">Fornecedores</div><div class="value">${d.totais.fornecedores}</div><div class="hint">um pedido por fornecedor na Central</div></div>
       <div class="kpi"><div class="label">Itens em risco de ruptura</div><div class="value" style="color:${d.totais.itensRisco ? 'var(--danger)' : 'inherit'}">${d.totais.itensRisco}</div><div class="hint">de ${d.totais.itens} itens sugeridos</div></div>
       <div class="kpi"><div class="label">Sem item na Central</div><div class="value" style="color:${d.totais.semCorrespondencia ? 'var(--warn)' : 'inherit'}">${d.totais.semCorrespondencia}</div><div class="hint">comprar fora ou vincular${d.totais.ignoradosVinculo ? ` · ${d.totais.ignoradosVinculo} fora da Central` : ''}</div></div>
+    </div>
+    <div class="panel" style="padding:14px 18px">
+      <div style="font-size:12px; font-weight:600; color:var(--accent-deep); text-transform:uppercase; letter-spacing:.4px; margin-bottom:8px">Retorno do pedido para o franqueado</div>
+      <div class="kpis k4" style="margin:0" id="ped_retorno"></div>
+      <div class="sub" style="font-size:11.5px; margin-top:8px; max-width:none" id="ped_retorno_nota"></div>
     </div>
     ${d.avisoCentral ? `<div class="panel err">${esc(d.avisoCentral)}</div>` : ''}
     ${d.diagEstoque ? `<div class="panel" style="padding:12px 18px"><div style="font-size:12px; font-weight:600; color:var(--accent-deep); text-transform:uppercase; letter-spacing:.4px">Estoque da unidade (VarejOnline)</div>${htmlDiagEstoque(d.diagEstoque)}</div>` : ''}
@@ -2375,6 +2393,7 @@ function cardFornecedor(f, fi) {
         <div style="font-size:11px; color:var(--muted)" data-fcount="${fi}"></div>
       </div>
     </div>
+    <div data-fret="${fi}" style="margin-top:10px; font-size:12px; color:var(--muted)"></div>
     <div class="ped-aviso-minimo" data-fmin="${fi}" style="display:none; margin-top:10px; font-size:12px; color:var(--warn)"></div>
     <div style="overflow-x:auto; margin-top:12px">
     <table class="ped-tabela"><thead><tr><th></th><th>Item na Central</th><th>Produto da loja</th><th>Venda/dia</th><th>Estoque</th><th>Em andamento</th><th>Sugerido</th><th>Qtd no pedido</th><th>Preço</th><th>Subtotal</th></tr></thead><tbody>
@@ -2469,7 +2488,7 @@ function distribuirGradeAutomatica(f, i) {
     inserirAbaixo(f, i, { produtoId: i.produtoId, descricaoLoja: `${i.descricaoLoja} — grade`, codigoSistema: i.codigoSistema, riscoRuptura: false,
       vendaMediaDiaria: null, estoqueAtual: null, emAndamento: 0, qtdRecomendadaUnidades: 0, qtd: q, qtdOriginal: q, incluir: true, via: 'grade', ajustes: [], variacaoIncerta: false,
       central: { chave: g.chave, codigo: g.codigo, idProduto: g.idProduto, descricao: g.descricao, variacao: g.variacao, variacaoDescricao: g.variacaoDescricao, corBase: g.corBase, preco: g.preco, qtdMinima: g.qtdMinima, qtdMaxima: g.qtdMaxima, fatorConversao: g.fatorConversao || 1, emEstoque: g.emEstoque },
-      alternativas: [], grade: i.grade, extraGrade: true });
+      alternativas: [], grade: i.grade, extraGrade: true, precoVenda: i.precoVenda, unidadesPorQtd: i.unidadesPorQtd });
   });
   i.ajustes = [...(i.ajustes || []), `${tams.length} ${i.tipoGrade === 'letra' ? 'letras' : 'tamanhos'} distribuídos pela rede`];
   i.via = 'vínculo (grade)';
@@ -2535,7 +2554,7 @@ function abrirGrade(fi, ii) {
       inserirAbaixo(f, i, { produtoId: i.produtoId, descricaoLoja: `${i.descricaoLoja} — grade`, codigoSistema: i.codigoSistema, riscoRuptura: false,
         vendaMediaDiaria: null, estoqueAtual: null, emAndamento: 0, qtdRecomendadaUnidades: 0, qtd: q, qtdOriginal: 0, incluir: true, via: 'grade', ajustes: [], variacaoIncerta: false,
         central: { chave: g.chave, codigo: g.codigo, idProduto: g.idProduto, descricao: g.descricao, variacao: g.variacao, variacaoDescricao: g.variacaoDescricao, corBase: g.corBase, preco: g.preco, qtdMinima: g.qtdMinima, qtdMaxima: g.qtdMaxima, fatorConversao: g.fatorConversao || 1, emEstoque: g.emEstoque },
-        alternativas: [], grade: i.grade, extraGrade: true });
+        alternativas: [], grade: i.grade, extraGrade: true, precoVenda: i.precoVenda, unidadesPorQtd: i.unidadesPorQtd });
     });
     renderPedido();
   });
@@ -2563,6 +2582,51 @@ function atualizarTotais() {
   });
   $('ped_total').textContent = fmtMoeda(total);
   $('ped_total_hint').textContent = `${n} itens selecionados`;
+  // ---- Retorno e perda ----
+  const geral = { custo: 0, receita: 0, semPreco: 0, risco: 0, protegido: 0, perdaDia: 0, perdaChegada: 0, zerados: 0 };
+  pedState.fornecedores.forEach((f, fi) => {
+    const r = retornoForn(f);
+    for (const k in geral) geral[k] += r[k];
+    const el = box.querySelector(`[data-fret="${fi}"]`);
+    if (el) el.innerHTML = r.custo > 0 && r.receita > 0
+      ? `Volta em vendas <strong style="color:var(--ink)">${fmtMoeda(r.receita)}</strong> · lucro bruto <strong style="color:var(--ink)">${fmtMoeda(r.receita - r.custo)}</strong> (${fmtPct((r.receita - r.custo) / r.receita * 100)} de margem)${r.risco > 0 ? ` · protege ${fmtMoeda(r.protegido)} de ${fmtMoeda(r.risco)} em vendas em risco` : ''}${r.perdaDia > 0 ? ` · <span style="color:var(--danger)">${r.zerados} zerado(s): perdendo ${fmtMoeda(r.perdaDia)}/dia</span>` : ''}`
+      : '';
+  });
+  const lucro = geral.receita - geral.custo;
+  const kpi = (lab, val, hint, cor) => `<div class="kpi"><div class="label">${lab}</div><div class="value" style="${cor ? 'color:' + cor : ''}">${val}</div><div class="hint">${hint}</div></div>`;
+  $('ped_retorno').innerHTML =
+    kpi('Volta em vendas', fmtMoeda(geral.receita), `investindo ${fmtMoeda(geral.custo)} — ${geral.custo > 0 ? (geral.receita / geral.custo).toFixed(2).replace('.', ',') + '× o valor do pedido' : '—'}`) +
+    kpi('Lucro bruto', fmtMoeda(lucro), geral.receita > 0 ? `${fmtPct(lucro / geral.receita * 100)} de margem sobre a venda` : '—', lucro < 0 ? 'var(--danger)' : 'var(--ok, inherit)') +
+    kpi('Venda em risco se não pedir', fmtMoeda(geral.risco), geral.risco > 0 ? `este pedido protege ${fmtMoeda(geral.protegido)} (${fmtPct(geral.protegido / geral.risco * 100)})` : 'estoque cobre o período', geral.risco > 0 ? 'var(--warn)' : '') +
+    kpi('Perdendo hoje', geral.perdaDia > 0 ? `${fmtMoeda(geral.perdaDia)}/dia` : 'R$ 0', geral.perdaDia > 0 ? `${geral.zerados} produto(s) zerado(s) · até o pedido chegar: ~${fmtMoeda(geral.perdaChegada)}` : 'nenhum produto zerado', geral.perdaDia > 0 ? 'var(--danger)' : '');
+  $('ped_retorno_nota').textContent = `Preço de venda = preço médio cobrado pela loja no período analisado; lucro bruto = vendas − custo do pedido (sem impostos, frete e comissão). Venda em risco = demanda do período que o estoque e os pedidos em andamento não cobrem. "Até chegar" usa o prazo real do fornecedor (ou 10 dias).${geral.semPreco ? ` ${geral.semPreco} item(ns) sem venda no período ficaram fora do retorno.` : ''}`;
+}
+
+// Retorno de um fornecedor: vendas que o pedido gera, venda em risco por falta de estoque e perda diária dos itens zerados.
+function retornoForn(f) {
+  const r = { custo: 0, receita: 0, semPreco: 0, risco: 0, protegido: 0, perdaDia: 0, perdaChegada: 0, zerados: 0 };
+  const prazo = Number(f.leadTimeMedianoDias) > 0 ? Number(f.leadTimeMedianoDias) : 10;
+  const porProduto = new Map();
+  for (const i of f.itens) {
+    const base = porProduto.get(String(i.produtoId)) ?? { linha: null, receita: 0 };
+    if (!i.extraGrade && !base.linha) base.linha = i;
+    if (i.incluir && i.qtd > 0) {
+      const custo = i.qtd * i.central.preco; r.custo += custo;
+      const pv = Number(i.precoVenda) || 0;
+      if (pv > 0) { const rec = i.qtd * (Number(i.unidadesPorQtd) || 1) * pv; r.receita += rec; base.receita += rec; } else r.semPreco++;
+    }
+    porProduto.set(String(i.produtoId), base);
+  }
+  for (const { linha: i, receita } of porProduto.values()) {
+    if (!i) continue;
+    const pv = Number(i.precoVenda) || 0, vel = Number(i.vendaMediaDiaria) || 0, est = Math.max(0, Number(i.estoqueAtual) || 0), and = Number(i.emAndamento) || 0;
+    if (!(pv > 0) || !(vel > 0)) continue;
+    const falta = Math.max(0, (Number(i.demandaPeriodo) || 0) - est - and) * pv;
+    r.risco += falta; r.protegido += Math.min(falta, receita);
+    if (est <= 0) { r.perdaDia += vel * pv; r.zerados++; }
+    r.perdaChegada += vel * Math.max(0, prazo - est / vel) * pv;
+  }
+  return r;
 }
 
 function itensSelecionados(f) {
@@ -3039,6 +3103,61 @@ $('senhaAcesso').addEventListener('change', () => { delete $('vin_loja').dataset
 const vinCall = payload => chamarEdge({ modulo: 'vinculos', usuario: $('vin_usuario').value.trim(), ...payload }, EDGE_COMPRAS_URL);
 
 $('vin_carregar').addEventListener('click', () => carregarVinculos());
+
+// ---- Importação das planilhas (catálogo da Central e vínculos conferidos) ----
+let _xlsxLib = null;
+function carregarXLSX() {
+  if (_xlsxLib) return _xlsxLib;
+  _xlsxLib = new Promise((ok, falha) => { const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; sc.onload = () => ok(window.XLSX); sc.onerror = () => { _xlsxLib = null; falha(new Error('Não consegui carregar o leitor de planilhas.')); }; document.head.appendChild(sc); });
+  return _xlsxLib;
+}
+async function lerPlanilha(arquivo) {
+  const X = await carregarXLSX();
+  const wb = X.read(await arquivo.arrayBuffer(), { type: 'array' });
+  return wb.SheetNames.map(n => ({ nome: n, linhas: X.utils.sheet_to_json(wb.Sheets[n], { defval: '', raw: false }) }));
+}
+const normCab = t => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+const campo = (lin, ...nomes) => { for (const k of Object.keys(lin)) if (nomes.includes(normCab(k))) return String(lin[k] ?? '').trim(); return ''; };
+async function enviarEmPartes(acao, itens, tam, msg) {
+  let tot = { salvos: 0, gravadas: 0, variacoes: 0, erros: [], totalErros: 0 };
+  for (let k = 0; k < itens.length; k += tam) {
+    $('vin_imp_status').textContent = `${msg} ${Math.min(k + tam, itens.length)} de ${itens.length}…`;
+    const r = await vinCall({ acao, itens: itens.slice(k, k + tam) });
+    tot.salvos += r.salvos || 0; tot.gravadas += r.gravadas || 0; tot.variacoes += r.variacoes || 0; tot.totalErros += r.totalErros || 0; tot.erros.push(...(r.erros || []));
+  }
+  return tot;
+}
+$('vin_imp_cat').addEventListener('change', async e => {
+  const arq = e.target.files[0]; e.target.value = ''; if (!arq) return;
+  $('vin_imp_erros').innerHTML = '';
+  try {
+    $('vin_imp_status').textContent = 'Lendo a planilha…';
+    const abas = await lerPlanilha(arq);
+    const itens = abas.flatMap(a => a.linhas).map(l => ({ fornecedor: campo(l, 'FORNECEDOR'), codigo: campo(l, 'CODIGO'), nome: campo(l, 'NOME'), variacoes: campo(l, 'VARIACOES'), custo: campo(l, 'CUSTO') })).filter(x => x.codigo && x.nome);
+    if (!itens.length) throw new Error('Não achei as colunas Código e Nome nesta planilha.');
+    if (!confirm(`Importar ${itens.length} produtos da Central para o catálogo fixo?`)) { $('vin_imp_status').textContent = ''; return; }
+    const r = await enviarEmPartes('importarCatalogo', itens, 1500, 'Gravando produtos');
+    $('vin_imp_status').textContent = `✓ Catálogo atualizado: ${itens.length} produtos, ${r.variacoes} variações (${r.gravadas} gravadas da planilha; as já vistas em pedidos foram mantidas).`;
+  } catch (err) { $('vin_imp_status').textContent = 'Erro: ' + err.message; }
+});
+$('vin_imp_vin').addEventListener('change', async e => {
+  const arq = e.target.files[0]; e.target.value = ''; if (!arq) return;
+  $('vin_imp_erros').innerHTML = '';
+  if (precisaNome()) return;
+  try {
+    $('vin_imp_status').textContent = 'Lendo a planilha…';
+    const abas = await lerPlanilha(arq);
+    const sim = v => /^S(IM)?$/i.test(String(v).trim());
+    const itens = abas.flatMap(a => a.linhas).filter(l => sim(campo(l, 'APROVAR'))).map(l => ({
+      codigoSistema: campo(l, 'CODIGO DO SISTEMA', 'REFERENCIA BASE SKU'), produtoId: campo(l, 'ID VAREJONLINE', 'ID') || null, descricao: campo(l, 'PRODUTO VAREJONLINE', 'DESCRICAO'),
+      codigo: campo(l, 'CODIGO CENTRAL'), variacao: campo(l, 'VARIACAO'), todasLetras: sim(campo(l, 'TODAS AS LETRAS')) })).filter(x => x.codigo);
+    if (!itens.length) throw new Error('Nenhuma linha com Aprovar = SIM e Código Central preenchido.');
+    if (!confirm(`Carregar ${itens.length} vínculos aprovados? Eles passam a valer para a rede inteira (substituem o vínculo atual desses produtos).`)) { $('vin_imp_status').textContent = ''; return; }
+    const r = await enviarEmPartes('importarVinculos', itens, 1000, 'Gravando vínculos');
+    $('vin_imp_status').textContent = `✓ ${r.salvos} vínculos carregados${r.totalErros ? ` · ${r.totalErros} não encontrados no catálogo` : ''}.`;
+    if (r.erros.length) $('vin_imp_erros').innerHTML = `<div style="margin-top:10px; overflow-x:auto"><table class="no-tools"><thead><tr><th>Produto</th><th>Código</th><th>Variação</th><th>Motivo</th></tr></thead><tbody>${r.erros.slice(0, 200).map(x => `<tr><td class="prod-name">${esc(x.produto || '')}</td><td>${esc(x.codigo || '')}</td><td>${esc(x.variacao || '')}</td><td style="font-size:12px">${esc(x.motivo)}</td></tr>`).join('')}</tbody></table></div>`;
+  } catch (err) { $('vin_imp_status').textContent = 'Erro: ' + err.message; }
+});
 async function carregarVinculos(depois) {
   const erro = $('erro-vinculos'), st = $('status-vinculos'), box = $('resultado-vinculos');
   erro.innerHTML = '';
