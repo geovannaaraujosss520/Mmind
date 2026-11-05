@@ -1,12 +1,12 @@
-# Publica a Edge Function sss-compras no Supabase quando o código muda na branch main.
+# Publica as Edge Functions (sss-compras e sss-mastermind) no Supabase quando o código muda na branch main.
 # Requer o secret do repositório SUPABASE_ACCESS_TOKEN (Supabase → Account → Access Tokens).
 # Sem o secret, o workflow só avisa e termina sem erro.
-name: Deploy sss-compras
+name: Deploy Edge Functions
 
 on:
   push:
     branches: [main]
-    paths: ["supabase/functions/sss-compras/**"]
+    paths: ["supabase/functions/**"]
   workflow_dispatch:
 
 jobs:
@@ -35,4 +35,6 @@ jobs:
 
       - name: Deploy
         if: steps.token.outputs.ok == 'true'
-        run: supabase functions deploy sss-compras --project-ref "$PROJECT_REF" --no-verify-jwt
+        run: |
+          supabase functions deploy sss-compras --project-ref "$PROJECT_REF" --no-verify-jwt
+          supabase functions deploy sss-mastermind --project-ref "$PROJECT_REF" --no-verify-jwt

@@ -23,6 +23,10 @@
 //
 // Todas as chamadas são POST com { "modulo": "recorrente"|"sazonal"|"estoque"|"financeiro"|"metas"|"benchmark"|"lojas", ...params }.
 // GET (sem body) lista as lojas ativas configuradas.
+//
+// Limites do Supabase (erro 546 = tempo/memória): o painel consulta UMA loja por chamada
+// (lojas: [nome]) e junta os resultados no navegador. O benchmark tem ainda a ação
+// "agrupar", que recebe as métricas de todas as lojas e calcula faixas e grupos.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -71,26 +75,96 @@ function formatDateBR(d: Date): string {
   return `${dd}-${mm}-${yyyy}`;
 }
 
-async function fetchAllPages(url: string, token: string): Promise<any[]> {
+// Esconde o token da loja em mensagens de erro (elas chegam ao painel e aos logs).
+const semToken = (s: unknown) => String(s).replace(/token=[^&\s)"']+/g, "token=***");
+
+// "AAAA-MM-DD" do painel -> data LOCAL (new Date("2026-11-01") seria meia-noite UTC = dia 31 no Brasil).
+function dataDoPainel(s: unknown): Date | null {
+  const m = String(s ?? "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null;
+}
+// Datas da VarejOnline: "DD-MM-AAAA", "DD/MM/AAAA" (com ou sem hora) ou ISO "AAAA-MM-DD".
+// (new Date("05-11-2026") no JavaScript vira 11 de MAIO — por isso a leitura é explícita.)
+function dataVarejo(s: unknown): Date | null {
+  const t = String(s ?? "").trim();
+  let m = t.match(/^(\d{2})[-/](\d{2})[-/](\d{4})/);
+  if (m) return new Date(+m[3], +m[2] - 1, +m[1]);
+  m = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+  return null;
+}
+
+// A API entrega no máximo ~300 itens por página, mesmo pedindo 1000: avança pelo tamanho real
+// e só para em página vazia (antes parava na 1ª página, porque 300 < 1000).
+// onPage processa cada página e a descarta, economizando memória.
+async function fetchAllPages(url: string, token: string, onPage?: (items: any[]) => void): Promise<any[]> {
   const results: any[] = [];
   let inicio = 0;
-  const quantidade = 1000; // confirmado por teste: a API responde rápido (~0.4s) até esse tamanho de página
-  while (true) {
+  let ultima = "";
+  for (let n = 0; n < 400; n++) {
     const sep = url.includes("?") ? "&" : "?";
-    const pageUrl = `${url}${sep}inicio=${inicio}&quantidade=${quantidade}&token=${token}`;
+    const pageUrl = `${url}${sep}inicio=${inicio}&quantidade=1000&token=${token}`;
     const resp = await fetch(pageUrl);
     if (!resp.ok) {
       const text = await resp.text();
-      throw new Error(`Erro ao consultar ${pageUrl} (${resp.status}): ${text}`);
+      throw new Error(semToken(`Erro ao consultar ${url.split("?")[0]} (${resp.status}): ${text.slice(0, 300)}`));
     }
     const page = await resp.json();
     const items = Array.isArray(page) ? page : (page.items ?? page.dados ?? []);
     if (!items.length) break;
-    results.push(...items);
-    if (items.length < quantidade) break;
-    inicio += quantidade;
+    const assinatura = JSON.stringify(items[0]).slice(0, 300);
+    if (assinatura === ultima) break; // a API devolveu a mesma página de novo
+    ultima = assinatura;
+    if (onPage) onPage(items); else results.push(...items);
+    inicio += items.length;
   }
   return results;
+}
+
+// Lê as saídas (vendas) em janelas de até 30 dias, 4 em paralelo — a paginação é sequencial e lenta
+// em períodos longos. Janelas se sobrepõem em 1 dia; vendas repetidas são descartadas pelo id.
+async function buscarSaidas(apiBase: string, token: string, dIni: Date, dFim: Date, onSaida: (s: any) => void, janelaDias = 30, conc = 4) {
+  const janelas: [Date, Date][] = [];
+  for (let a = new Date(dIni); a <= dFim; a = new Date(a.getTime() + janelaDias * 86400000)) {
+    janelas.push([a, new Date(Math.min(dFim.getTime(), a.getTime() + janelaDias * 86400000))]);
+  }
+  const vistos = new Set<string>();
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(conc, janelas.length) }, async () => {
+    while (i < janelas.length) {
+      const [a, b] = janelas[i++];
+      await fetchAllPages(`${apiBase}/saidas?desde=${formatDateBR(a)}&ate=${formatDateBR(b)}`, token, (pg) => {
+        for (const sd of pg) {
+          const k = sd.id != null ? `i${sd.id}` : `d${sd.numeroDocumento}|${sd.data ?? ""}|${sd.entidade?.id ?? ""}`;
+          if (vistos.has(k)) continue;
+          vistos.add(k);
+          onSaida(sd);
+        }
+      });
+    }
+  }));
+}
+const ehPedidoVenda = (s: any) => !s.cancelado && (!s.tipoSaida || s.tipoSaida === "PEDIDO_VENDA");
+
+// Estoque da UNIDADE: se o token enxerga mais de uma unidade (loja + depósito), usa só a(s) que
+// venderam; se a API devolver saldo vazio, tenta de novo informando a unidade.
+async function saldosDaUnidade(apiBase: string, token: string, entidadesVenda: Set<string>) {
+  const enxuto = (sl: any) => ({ quantidade: sl.quantidade, entidade: sl.entidade ? { id: sl.entidade.id, nome: sl.entidade.nome } : undefined,
+    produto: sl.produto ? { id: sl.produto.id, descricao: sl.produto.descricao, codigoSistema: sl.produto.codigoSistema } : undefined });
+  let saldos: any[] = [];
+  await fetchAllPages(`${apiBase}/saldos-mercadorias`, token, (pg) => { for (const sl of pg) saldos.push(enxuto(sl)); });
+  let consultaComEntidade = false;
+  if (!saldos.length && entidadesVenda.size) {
+    await fetchAllPages(`${apiBase}/saldos-mercadorias?entidades=${[...entidadesVenda].join(",")}`, token, (pg) => { for (const sl of pg) saldos.push(enxuto(sl)); });
+    consultaComEntidade = true;
+  }
+  const unidades = new Set(saldos.map((sl) => String(sl.entidade?.id ?? "?")));
+  let filtrouUnidade = false;
+  if (unidades.size > 1 && [...entidadesVenda].some((e) => unidades.has(e))) {
+    saldos = saldos.filter((sl) => entidadesVenda.has(String(sl.entidade?.id)));
+    filtrouUnidade = true;
+  }
+  return { saldos, consultaComEntidade, filtrouUnidade, unidadesNoSaldo: unidades.size };
 }
 
 function lojasAlvo(lojasTokens: Record<string, string>, filtro: string[] | null): string[] {
@@ -120,10 +194,11 @@ async function moduloRecorrente(apiBase: string, lojasTokens: Record<string, str
     let saidas: any[] = [];
     let saldos: any[] = [];
     try {
-      saidas = await fetchAllPages(`${apiBase}/saidas?desde=${desde}&ate=${ate}`, token);
-      saldos = await fetchAllPages(`${apiBase}/saldos-mercadorias`, token);
+      const ents = new Set<string>();
+      await buscarSaidas(apiBase, token, inicioHistorico, hoje, (sd) => { if (sd.entidade?.id != null) ents.add(String(sd.entidade.id)); if (ehPedidoVenda(sd)) saidas.push(sd); });
+      saldos = (await saldosDaUnidade(apiBase, token, ents)).saldos;
     } catch (e) {
-      lojasResultado.push({ nomeLoja, erro: String(e), totalProdutosAnalisados: 0, valorTotalEstimadoCompra: 0, recomendacoes: [] });
+      lojasResultado.push({ nomeLoja, erro: semToken(e), totalProdutosAnalisados: 0, valorTotalEstimadoCompra: 0, recomendacoes: [] });
       continue;
     }
 
@@ -202,6 +277,8 @@ async function moduloSazonal(apiBase: string, lojasTokens: Record<string, string
   const mesInicio = Number(body.mesInicio ?? 10);
   const mesFim = Number(body.mesFim ?? 12);
   const topN = Number(body.topN ?? 30);
+  // Quando o painel consulta loja a loja, pede um ranking maior para juntar a rede com precisão.
+  const topNRede = Math.max(topN, Number(body.topNRede ?? topN));
   const nomesLojas = lojasAlvo(lojasTokens, body.lojas ?? null);
 
   type AggProduto = { produtoId: number; descricao: string; codigoSistema: string; qtdVendida: number; valorVendido: number };
@@ -218,11 +295,14 @@ async function moduloSazonal(apiBase: string, lojasTokens: Record<string, string
 
     for (const nomeLoja of nomesLojas) {
       const token = lojasTokens[nomeLoja];
-      let saidas: any[] = [];
+      const saidas: any[] = [];
       try {
-        saidas = await fetchAllPages(`${apiBase}/saidas?desde=${desde}&ate=${ate}`, token);
-      } catch {
-        porLoja.push({ loja: nomeLoja, topProdutos: [], totalUnidades: 0, totalValor: 0 });
+        await buscarSaidas(apiBase, token, inicio, fim, (sd) => {
+          if (!ehPedidoVenda(sd)) return;
+          saidas.push({ mercadorias: (sd.mercadorias ?? []).map((it: any) => ({ produto: it.produto ? { id: it.produto.id, descricao: it.produto.descricao, codigoSistema: it.produto.codigoSistema } : null, quantidade: it.quantidade, valorTotal: it.valorTotal })) });
+        });
+      } catch (e) {
+        porLoja.push({ loja: nomeLoja, topProdutos: [], totalUnidades: 0, totalValor: 0, erro: semToken(e) });
         continue;
       }
       const lojaAgg = new Map<string, AggProduto>();
@@ -252,7 +332,7 @@ async function moduloSazonal(apiBase: string, lojasTokens: Record<string, string
       });
     }
 
-    const rankingRede = Array.from(redeAgg.values()).sort((a, b) => b.qtdVendida - a.qtdVendida).slice(0, topN);
+    const rankingRede = Array.from(redeAgg.values()).sort((a, b) => b.qtdVendida - a.qtdVendida).slice(0, topNRede);
     resultadoPorAno.push({
       ano,
       periodo: { desde, ate },
@@ -263,7 +343,7 @@ async function moduloSazonal(apiBase: string, lojasTokens: Record<string, string
     });
   }
 
-  const rankingCombinado = Array.from(combinadoTodosAnos.values()).sort((a, b) => b.qtdVendida - a.qtdVendida).slice(0, topN);
+  const rankingCombinado = Array.from(combinadoTodosAnos.values()).sort((a, b) => b.qtdVendida - a.qtdVendida).slice(0, topNRede);
 
   return {
     parametros: { anos, mesInicio, mesFim, topN },
@@ -283,35 +363,34 @@ async function moduloEstoque(apiBase: string, lojasTokens: Record<string, string
   const hoje = new Date();
   const inicioHistorico = new Date(hoje);
   inicioHistorico.setDate(inicioHistorico.getDate() - diasHistorico);
-  const desde = formatDateBR(inicioHistorico);
-  const ate = formatDateBR(hoje);
 
   const lojasResultado: any[] = [];
 
   for (const nomeLoja of nomesLojas) {
     const token = lojasTokens[nomeLoja];
-    let saidas: any[] = [];
-    let saldos: any[] = [];
-    try {
-      saidas = await fetchAllPages(`${apiBase}/saidas?desde=${desde}&ate=${ate}`, token);
-      saldos = await fetchAllPages(`${apiBase}/saldos-mercadorias`, token);
-    } catch (e) {
-      lojasResultado.push({ nomeLoja, erro: String(e), alertasBaixo: [], alertasAlto: [], semMovimento: [] });
-      continue;
-    }
-
     const vendaProduto = new Map<string, { produtoId: number; descricao: string; codigoSistema: string; qtd: number }>();
-    for (const saida of saidas) {
-      if (saida.cancelado) continue;
-      if (saida.tipoSaida && saida.tipoSaida !== "PEDIDO_VENDA") continue;
-      for (const item of saida.mercadorias ?? []) {
-        const p = item.produto;
-        if (!p) continue;
-        const key = String(p.id);
-        const cur = vendaProduto.get(key) ?? { produtoId: p.id, descricao: p.descricao, codigoSistema: p.codigoSistema, qtd: 0 };
-        cur.qtd += Number(item.quantidade ?? 0);
-        vendaProduto.set(key, cur);
-      }
+    const entidadesVenda = new Set<string>();
+    let saldos: any[] = [];
+    let diagEstoque: any = null;
+    try {
+      await buscarSaidas(apiBase, token, inicioHistorico, hoje, (saida) => {
+        if (saida.entidade?.id != null) entidadesVenda.add(String(saida.entidade.id));
+        if (!ehPedidoVenda(saida)) return;
+        for (const item of saida.mercadorias ?? []) {
+          const p = item.produto;
+          if (!p) continue;
+          const key = String(p.id);
+          const cur = vendaProduto.get(key) ?? { produtoId: p.id, descricao: p.descricao, codigoSistema: p.codigoSistema, qtd: 0 };
+          cur.qtd += Number(item.quantidade ?? 0);
+          vendaProduto.set(key, cur);
+        }
+      });
+      const u = await saldosDaUnidade(apiBase, token, entidadesVenda);
+      saldos = u.saldos;
+      diagEstoque = { linhasSaldo: saldos.length, consultaComEntidade: u.consultaComEntidade, filtrouUnidade: u.filtrouUnidade, unidadesNoSaldo: u.unidadesNoSaldo };
+    } catch (e) {
+      lojasResultado.push({ nomeLoja, erro: semToken(e), alertasBaixo: [], alertasAlto: [], semMovimento: [] });
+      continue;
     }
 
     const estoqueProduto = new Map<string, { produtoId: number; descricao: string; codigoSistema: string; estoque: number }>();
@@ -362,6 +441,7 @@ async function moduloEstoque(apiBase: string, lojasTokens: Record<string, string
       totalAlertasBaixo: alertasBaixo.length,
       totalAlertasAlto: alertasAlto.length,
       totalSemMovimento: semMovimento.length,
+      diagEstoque,
       alertasBaixo,
       alertasAlto,
       semMovimento,
@@ -421,10 +501,15 @@ function dataCompetenciaConta(conta: any): { data: string | null; campoUsado: st
 async function moduloFinanceiro(apiBase: string, lojasTokens: Record<string, string>, body: any) {
   // Período do DRE: por padrão, o mês corrente inteiro.
   const hoje = new Date();
-  const inicioPadrao = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
-  const fimPadrao = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0);
-  const desde = body.desde ? formatDateBR(new Date(body.desde)) : formatDateBR(inicioPadrao);
-  const ate = body.ate ? formatDateBR(new Date(body.ate)) : formatDateBR(fimPadrao);
+  const inicioPeriodo = dataDoPainel(body.desde) ?? new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  const fimPeriodo = dataDoPainel(body.ate) ?? new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0);
+  const desde = formatDateBR(inicioPeriodo);
+  const ate = formatDateBR(fimPeriodo);
+  // Contas a pagar: busca 6 meses antes para pegar parcelas emitidas antes e que vencem no período;
+  // o filtro final é pela data de vencimento de cada parcela.
+  const inicioContas = new Date(inicioPeriodo); inicioContas.setMonth(inicioContas.getMonth() - 6);
+  const inicioMs = inicioPeriodo.getTime();
+  const fimMs = new Date(fimPeriodo.getFullYear(), fimPeriodo.getMonth(), fimPeriodo.getDate(), 23, 59, 59).getTime();
 
   const nomesLojas = lojasAlvo(lojasTokens, body.lojas ?? null);
 
@@ -434,17 +519,34 @@ async function moduloFinanceiro(apiBase: string, lojasTokens: Record<string, str
 
   for (const nomeLoja of nomesLojas) {
     const token = lojasTokens[nomeLoja];
-    let saidas: any[] = [];
     let devolucoes: any[] = [];
     let contasPagar: any[] = [];
     let negociacoesCartao: any[] = [];
     const avisos: string[] = [];
 
+    // Receita bruta e CMV, a partir das saídas (competência = data da própria venda).
+    let receitaBruta = 0;
+    let cmv = 0;
+    const outrasSaidas = new Map<string, number>(); // saídas não contadas como venda, por tipo
     try {
-      saidas = await fetchAllPages(`${apiBase}/saidas?desde=${desde}&ate=${ate}`, token);
+      await buscarSaidas(apiBase, token, inicioPeriodo, fimPeriodo, (saida) => {
+        if (saida.cancelado) return;
+        if (saida.tipoSaida && saida.tipoSaida !== "PEDIDO_VENDA") {
+          const v = (saida.mercadorias ?? []).reduce((t: number, it: any) => t + Number(it.valorTotal ?? 0), 0);
+          if (v) outrasSaidas.set(saida.tipoSaida, (outrasSaidas.get(saida.tipoSaida) ?? 0) + v);
+          return;
+        }
+        for (const item of saida.mercadorias ?? []) {
+          receitaBruta += Number(item.valorTotal ?? 0);
+          cmv += Number(item.valorCusto ?? 0);
+        }
+      });
     } catch (e) {
-      lojasResultado.push({ nomeLoja, erro: String(e) });
+      lojasResultado.push({ nomeLoja, erro: semToken(e) });
       continue;
+    }
+    for (const [tipo, v] of outrasSaidas) {
+      if (/VENDA/i.test(tipo) && !/DEVOLU/i.test(tipo)) avisos.push(`R$ ${v.toFixed(2)} em saídas do tipo ${tipo} não entraram na receita (só PEDIDO_VENDA é contado).`);
     }
     try {
       devolucoes = await fetchAllPages(`${apiBase}/devolucoes?desde=${desde}&ate=${ate}`, token);
@@ -452,7 +554,7 @@ async function moduloFinanceiro(apiBase: string, lojasTokens: Record<string, str
       avisos.push("Não foi possível consultar /devolucoes neste período — receita bruta pode estar sem o abatimento de devoluções.");
     }
     try {
-      contasPagar = await fetchAllPages(`${apiBase}/contas-pagar?desde=${desde}&ate=${ate}`, token);
+      contasPagar = await fetchAllPages(`${apiBase}/contas-pagar?desde=${formatDateBR(inicioContas)}&ate=${ate}`, token);
     } catch {
       avisos.push("Não foi possível consultar /contas-pagar — despesas operacionais ficaram zeradas.");
     }
@@ -460,18 +562,6 @@ async function moduloFinanceiro(apiBase: string, lojasTokens: Record<string, str
       negociacoesCartao = await fetchAllPages(`${apiBase}/negociacoes-cartao?desde=${desde}&ate=${ate}`, token);
     } catch {
       avisos.push("Não foi possível consultar /negociacoes-cartao — bandeiras ficaram zeradas.");
-    }
-
-    // Receita bruta e CMV, a partir das saídas (competência = data da própria venda).
-    let receitaBruta = 0;
-    let cmv = 0;
-    for (const saida of saidas) {
-      if (saida.cancelado) continue;
-      if (saida.tipoSaida && saida.tipoSaida !== "PEDIDO_VENDA") continue;
-      for (const item of saida.mercadorias ?? []) {
-        receitaBruta += Number(item.valorTotal ?? 0);
-        cmv += Number(item.valorCusto ?? 0);
-      }
     }
 
     let totalDevolucoes = 0;
@@ -486,16 +576,16 @@ async function moduloFinanceiro(apiBase: string, lojasTokens: Record<string, str
     // própria conta (não a janela de vencimento), já que /contas-pagar não tem filtro nativo
     // conhecido por competência: buscamos uma janela um pouco mais ampla e filtramos aqui.
     let camposDataAmostra = "";
+    let semDataLegivel = 0;
     const despesasPorCategoria = new Map<string, number>();
     for (const conta of contasPagar) {
       if (conta.cancelado) continue;
       const { data, campoUsado } = dataCompetenciaConta(conta);
       if (!camposDataAmostra) camposDataAmostra = campoUsado;
       if (data) {
-        const dataMs = new Date(data).getTime();
-        const desdeMs = new Date(inicioPadrao).getTime();
-        const ateMs = new Date(fimPadrao).getTime();
-        if (!Number.isNaN(dataMs) && (dataMs < desdeMs || dataMs > ateMs)) continue; // fora do período pedido
+        const d = dataVarejo(data);
+        if (!d) semDataLegivel++;
+        else if (d.getTime() < inicioMs || d.getTime() > fimMs) continue; // fora do período pedido
       }
       const categoria = camposCategoria(conta);
       const valor = Number(conta.valor ?? conta.valorTotal ?? 0);
@@ -503,6 +593,7 @@ async function moduloFinanceiro(apiBase: string, lojasTokens: Record<string, str
       categoriasRede.set(categoria, (categoriasRede.get(categoria) ?? 0) + valor);
     }
 
+    if (semDataLegivel) avisos.push(`${semDataLegivel} conta(s) a pagar com data em formato não reconhecido entraram no período sem filtro.`);
     const listaDespesas = Array.from(despesasPorCategoria.entries())
       .map(([categoria, valor]) => ({ categoria, valor: Number(valor.toFixed(2)) }))
       .sort((a, b) => b.valor - a.valor);
@@ -656,7 +747,10 @@ async function moduloBenchmark(apiBase: string, lojasTokens: Record<string, stri
     let dataAberturaIso: string | null = perfil.data_abertura_est ?? null;
     if (!dataAberturaIso) {
       try {
-        const primeiraPagina = await fetchAllPages(`${apiBase}/saidas?desde=01-01-2015&ate=${ate}&quantidade=1`, token);
+        // Só a 1ª venda (uma página de 1 item) — antes percorria TODO o histórico desde 2015.
+        const r = await fetch(`${apiBase}/saidas?desde=01-01-2015&ate=${ate}&inicio=0&quantidade=1&token=${token}`);
+        const j: any = r.ok ? await r.json() : [];
+        const primeiraPagina = Array.isArray(j) ? j : (j.items ?? j.dados ?? []);
         if (primeiraPagina.length && primeiraPagina[0].data) {
           const dataBR = String(primeiraPagina[0].data).split(" ")[0]; // "DD-MM-AAAA"
           const [dd, mm, yyyy] = dataBR.split("-");
@@ -666,32 +760,20 @@ async function moduloBenchmark(apiBase: string, lojasTokens: Record<string, stri
       } catch { /* segue sem data de abertura se a consulta falhar */ }
     }
 
-    let saidas: any[] = [];
     let saldos: any[] = [];
-    try {
-      [saidas, saldos] = await Promise.all([
-        fetchAllPages(`${apiBase}/saidas?desde=${desde}&ate=${ate}`, token),
-        fetchAllPages(`${apiBase}/saldos-mercadorias`, token),
-      ]);
-    } catch (e) {
-      return { nomeLoja, erro: String(e) };
-    }
-
     let receitaBruta = 0;
     let qtdVendidaTotal = 0;
     const receitaPorProduto = new Map<string, number>();
-    const receitaPorMes = new Array(12).fill(0); // índice 0 = mês mais antigo da janela, 11 = mês atual
-
-    for (const saida of saidas) {
-      if (saida.cancelado) continue;
-      if (saida.tipoSaida && saida.tipoSaida !== "PEDIDO_VENDA") continue;
+    const receitaPorMes = new Array(12).fill(0); // índice = mês civil (0 = janeiro)
+    const entidadesVenda = new Set<string>();
+    const somarSaida = (saida: any) => {
+      if (saida.entidade?.id != null) entidadesVenda.add(String(saida.entidade.id));
+      if (!ehPedidoVenda(saida)) return;
 
       // Bucket por mês civil da própria venda (não por "dias atrás"), pra achar o mês de pico real.
       let mesIdx: number | null = null;
-      if (saida.data) {
-        const dataSaida = new Date(String(saida.data).split(" ")[0].split("-").reverse().join("-"));
-        if (!Number.isNaN(dataSaida.getTime())) mesIdx = dataSaida.getMonth();
-      }
+      const dataSaida = dataVarejo(saida.data);
+      if (dataSaida) mesIdx = dataSaida.getMonth();
 
       for (const item of saida.mercadorias ?? []) {
         const valor = Number(item.valorTotal ?? 0);
@@ -702,6 +784,12 @@ async function moduloBenchmark(apiBase: string, lojasTokens: Record<string, stri
         const chaveProduto = String(item.produto?.id ?? item.idProduto ?? "?");
         receitaPorProduto.set(chaveProduto, (receitaPorProduto.get(chaveProduto) ?? 0) + valor);
       }
+    };
+    try {
+      await buscarSaidas(apiBase, token, inicioJanela, hoje, somarSaida);
+      saldos = (await saldosDaUnidade(apiBase, token, entidadesVenda)).saldos;
+    } catch (e) {
+      return { nomeLoja, erro: semToken(e) };
     }
 
     // Giro de estoque: unidades vendidas no período ÷ unidades em estoque atual.
@@ -754,7 +842,13 @@ async function moduloBenchmark(apiBase: string, lojasTokens: Record<string, stri
     const resultadosLote = await Promise.all(lote.map((nome) => processarLoja(nome)));
     resultados.push(...resultadosLote);
   }
+  // Modo loja a loja: devolve só as métricas; o painel junta todas e chama a ação "agrupar".
+  if (body.modo === "loja") return { parametros: { diasJanela, periodo: { desde, ate } }, lojas: resultados };
+  return agruparBenchmark(resultados, { diasJanela, periodo: { desde, ate } });
+}
 
+// Faixas (consumo, maturidade, giro, sazonalidade) e grupos de lojas parecidas — precisa de TODAS as lojas.
+function agruparBenchmark(resultados: any[], parametros: any) {
   const validos = resultados.filter((r) => !r.semPerfil && !r.erro && r.receitaPorHabitante != null);
   const valores = validos.map((r) => r.receitaPorHabitante).sort((a, b) => a - b);
   const valoresGiro = validos.filter((r) => r.giroEstoque != null).map((r) => r.giroEstoque).sort((a, b) => a - b);
@@ -824,7 +918,7 @@ async function moduloBenchmark(apiBase: string, lojasTokens: Record<string, stri
     .sort((a, b) => b.lojas.length - a.lojas.length);
 
   return {
-    parametros: { diasJanela, periodo: { desde, ate } },
+    parametros,
     lojas: resultados.sort((a, b) => (b.receitaPorHabitante ?? -1) - (a.receitaPorHabitante ?? -1)),
     clusters,
     clustersSazonais,
@@ -896,7 +990,7 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     } catch (err) {
-      return new Response(JSON.stringify({ error: String(err) }), {
+      return new Response(JSON.stringify({ error: semToken(err) }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -906,6 +1000,14 @@ serve(async (req) => {
   try {
     const body = await req.json().catch(() => ({}));
     const modulo = String(body.modulo ?? "");
+
+    // Benchmark: agrupa métricas já calculadas loja a loja (não consulta a VarejOnline).
+    if (modulo === "benchmark" && body.acao === "agrupar") {
+      const metricas = Array.isArray(body.metricas) ? body.metricas : [];
+      return new Response(JSON.stringify(agruparBenchmark(metricas, body.parametros ?? {})), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     // O módulo de cadastro de lojas não precisa da lista de tokens carregada de antemão.
     if (modulo === "lojas") {
@@ -948,7 +1050,7 @@ serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
-    return new Response(JSON.stringify({ error: String(err) }), {
+    return new Response(JSON.stringify({ error: semToken(err) }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

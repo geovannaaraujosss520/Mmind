@@ -21,7 +21,7 @@ Mmind/
 │   ├── config.toml
 │   ├── functions/
 │   │   ├── sss-compras/index.ts → Edge Function: compras, pedidos, vínculos, vendedores, compatibilidade
-│   │   └── sss-mastermind/      → Edge Function: estoque, financeiro, sazonal, benchmark, lojas (código pendente)
+│   │   └── sss-mastermind/      → Edge Function: estoque, financeiro, sazonal, benchmark, metas, lojas
 │   └── migrations/              → SQL das tabelas criadas pelo Mastermind (rodar em ordem)
 ├── .github/workflows/           → deploy automático (opcional) da Edge Function
 ├── .env.example                 → lista dos Secrets usados (sem valores reais)
@@ -66,7 +66,7 @@ Detalhes em [`docs/MODULOS.md`](docs/MODULOS.md).
 | `20261104000003_vinculos_produto_rede.sql` | vínculos produto ↔ item da Central (rede) |
 
 Todos usam `if not exists`: rodar de novo não apaga nada.
-Tabelas que já existiam antes do Mastermind (`lojas_config`, `pedidos_vinculos`, metas, `perfil_lojas`) não estão aqui.
+Tabelas que já existiam antes (`lojas_config`, `pedidos_vinculos`, `metas_faturamento`, `perfil_lojas`) não estão aqui.
 
 ### 2. Secrets (Supabase → Edge Functions → Secrets)
 | Secret | Obrigatório | Para quê |
@@ -81,10 +81,10 @@ Tabelas que já existiam antes do Mastermind (`lojas_config`, `pedidos_vinculos`
 | `LIMITE_PEDIDO_SEM_CONFIRMACAO` | não | valor (R$) acima do qual a aprovação pede confirmação extra |
 | `FORNECEDORES_GRADE` | não | fornecedores com grade de tamanhos (padrão: `EMPORIUM DA BIJUTERIA`) |
 
-### 3. Edge Function `sss-compras`
-- **Manual:** Supabase → Edge Functions → sss-compras → Code → colar `supabase/functions/sss-compras/index.ts` → **Deploy**.
+### 3. Edge Functions (`sss-compras` e `sss-mastermind`)
+- **Manual:** Supabase → Edge Functions → *nome da função* → Code → colar o `index.ts` da pasta correspondente em `supabase/functions/` → **Deploy**.
 - **CLI:** `supabase functions deploy sss-compras --project-ref cyxerqtlkhubrkcjqcmx --no-verify-jwt`
-- **Automático (opcional):** crie o secret do repositório **`SUPABASE_ACCESS_TOKEN`** (GitHub → Settings → Secrets and variables → Actions). A cada push em `supabase/functions/sss-compras/`, o workflow *Deploy sss-compras* publica sozinho.
+- **Automático (opcional):** crie o secret do repositório **`SUPABASE_ACCESS_TOKEN`** (GitHub → Settings → Secrets and variables → Actions). A cada push em `supabase/functions/`, o workflow *Deploy Edge Functions* publica as duas funções sozinho.
 
 ### 4. Painel
 Já publicado pelo GitHub Pages a partir da raiz da branch `main` (Settings → Pages → *Deploy from a branch* → `main` / `root`).
@@ -98,5 +98,4 @@ Depois de publicar, quem usa o app instalado deve fechar e abrir de novo (ou Ctr
 - O envio de pedidos à Central só funciona com `CENTRAL_ENVIO_HABILITADO=true`, sempre com confirmação humana e trava contra duplicidade.
 
 ## Pendências conhecidas
-- Exportar o código da `sss-mastermind` para `supabase/functions/sss-mastermind/` (e aplicar nela a leitura de estoque corrigida e a divisão loja a loja contra o erro 546).
 - Lista de frete da Central (`/api/v3/order/options`): o frete vem do último pedido do fornecedor quando a lista não é reconhecida.
