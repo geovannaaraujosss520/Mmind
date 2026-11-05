@@ -31,9 +31,19 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const ALLOWED_ORIGIN = Deno.env.get("ALLOWED_ORIGIN") || "*";
-const corsHeaders = {
-  "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
+
+// ALLOWED_ORIGIN aceita varios enderecos separados por virgula (ex.: GitHub Pages + servidor Node).
+// localhost sempre pode (painel rodando no computador com node server.js).
+const ORIGENS_PERMITIDAS = String(Deno.env.get('ALLOWED_ORIGIN') || '*').split(',').map((o) => o.trim().replace(/\/+$/, '')).filter(Boolean);
+function origemPermitida(req: Request): string {
+  if (ORIGENS_PERMITIDAS.includes('*')) return '*';
+  const o = (req.headers.get('origin') ?? '').replace(/\/+$/, '');
+  if (o && (ORIGENS_PERMITIDAS.includes(o) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o))) return o;
+  return ORIGENS_PERMITIDAS[0];
+}
+const corsHeaders: Record<string, string> = {
+  "Access-Control-Allow-Origin": ORIGENS_PERMITIDAS.includes("*") ? "*" : ORIGENS_PERMITIDAS[0],
+  "Vary": "Origin",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-app-passcode",
 };
 
@@ -1010,6 +1020,7 @@ async function moduloLojas(body: any) {
 // ---------- Roteador principal ----------
 
 serve(async (req) => {
+  corsHeaders["Access-Control-Allow-Origin"] = origemPermitida(req);
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
