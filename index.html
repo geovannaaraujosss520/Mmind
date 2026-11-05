@@ -2385,7 +2385,7 @@ function cardFornecedor(f, fi) {
         <td class="prod-name"><span style="font-family:var(--mono); font-size:12px">${esc(i.central.codigo)}</span>${i.central.variacao ? ` · <strong>${esc(i.central.variacao)}</strong>` : ''}<br><span style="font-size:12px">${esc(i.central.descricao)}</span>
           ${i.variacaoIncerta && alts.length ? `<br><select data-variacao style="margin-top:4px; font-size:11px; padding:4px 6px; max-width:260px"><option value="">${esc(i.central.variacao || i.central.descricao)} (sugerida)</option>${alts.map((a, ai) => `<option value="${ai}">${esc(a.variacao || a.descricao)} · ${fmtMoeda(a.preco)}</option>`).join('')}</select><br><span style="font-size:11px; color:var(--warn)">confira a variação</span>` : ''}
           ${i.central.emEstoque === false ? '<br><span class="tag-risco">fornecedor sem estoque</span>' : ''}
-          ${!i.extraGrade && (i.grade || []).length > 1 ? `<br><button class="secondary" data-grade="${fi}|${ii}" style="margin-top:6px; padding:4px 10px; font-size:11px">Grade: tamanhos e cores (${i.grade.length})</button>` : ''}</td>
+          ${!i.extraGrade && (i.grade || []).length > 1 ? `<br><button class="secondary" data-grade="${fi}|${ii}" style="margin-top:6px; padding:4px 10px; font-size:11px">${i.tipoGrade === 'letra' ? `Grade: letras (${i.grade.length})` : `Grade: tamanhos e cores (${i.grade.length})`}</button>` : ''}</td>
         <td class="prod-name" style="font-size:12px">${esc(i.descricaoLoja)}<br><span style="color:var(--muted); font-size:11px">${esc(i.codigoSistema || '')} · via ${esc(i.via)}${i.extraGrade ? '' : ` · <a href="#" data-ir-vinculo="${esc(i.produtoId)}" data-desc="${esc(i.descricaoLoja)}" style="color:var(--accent)">${i.via === 'vínculo' ? 'trocar' : 'corrigir'} vínculo</a>`}</span>${i.riscoRuptura ? ' <span class="tag-risco">risco</span>' : ''}</td>
         <td>${i.vendaMediaDiaria == null ? '–' : fmtNum(i.vendaMediaDiaria)}</td><td>${i.estoqueAtual == null ? '–' : fmtNum(i.estoqueAtual)}</td><td>${i.emAndamento ? fmtNum(i.emAndamento) : '–'}</td>
         <td>${fmtNum(i.qtdRecomendadaUnidades)}${i.ajustes.length ? `<br><span style="font-size:10px; color:var(--warn)">${esc(i.ajustes.join(', '))}</span>` : ''}</td>
@@ -2471,7 +2471,7 @@ function distribuirGradeAutomatica(f, i) {
       central: { chave: g.chave, codigo: g.codigo, idProduto: g.idProduto, descricao: g.descricao, variacao: g.variacao, variacaoDescricao: g.variacaoDescricao, corBase: g.corBase, preco: g.preco, qtdMinima: g.qtdMinima, qtdMaxima: g.qtdMaxima, fatorConversao: g.fatorConversao || 1, emEstoque: g.emEstoque },
       alternativas: [], grade: i.grade, extraGrade: true });
   });
-  i.ajustes = [...(i.ajustes || []), `${tams.length} tamanhos distribuídos pela rede`];
+  i.ajustes = [...(i.ajustes || []), `${tams.length} ${i.tipoGrade === 'letra' ? 'letras' : 'tamanhos'} distribuídos pela rede`];
   i.via = 'vínculo (grade)';
 }
 
@@ -2485,7 +2485,8 @@ function abrirGrade(fi, ii) {
   const corAtual = i.central.corBase ?? i.grade.find(g => g.chave === i.central.chave)?.corBase ?? corDe(i.central);
   const temOutrasCores = i.grade.some(g => corDe(g) !== corAtual);
   const linhaDe = chave => f.itens.find(x => x.central.chave === chave);
-  const ordenada = [...i.grade].sort((a, b) => Number(corDe(b) === corAtual) - Number(corDe(a) === corAtual) || String(a.variacao).localeCompare(String(b.variacao), 'pt-BR', { numeric: true }));
+  const rot = g => g.rotuloGrade || g.variacao;
+  const ordenada = [...i.grade].sort((a, b) => Number(corDe(b) === corAtual) - Number(corDe(a) === corAtual) || String(rot(a)).localeCompare(String(rot(b)), 'pt-BR', { numeric: true }));
   box.style.maxWidth = '860px'; box.style.whiteSpace = 'normal';
   box.innerHTML = `
     <div style="font-size:13px; font-weight:650; color:var(--accent-deep); margin-bottom:4px">Grade — ${esc(i.central.codigo)} ${esc(i.central.descricao)}</div>
@@ -2501,7 +2502,7 @@ function abrirGrade(fi, ii) {
       const outro = ex && ex !== i && !(ex.extraGrade && ex.produtoId === i.produtoId);
       const qtd = ex && ex.incluir !== false ? ex.qtd : 0;
       return `<tr data-g-row="${esc(g.chave)}" data-mesma-cor="${mesmaCor ? 1 : 0}">
-        <td class="prod-name">${esc(g.variacao || '(sem variação)')}${g.chave === i.central.chave ? ' <span class="chip" style="font-size:10px">atual</span>' : ''}</td>
+        <td class="prod-name">${g.rotuloGrade ? `<strong>${esc(g.rotuloGrade)}</strong> <span style="font-family:var(--mono); font-size:11px; color:var(--muted)">${esc(g.codigo)}</span>` : esc(g.variacao || '(sem variação)')}${g.chave === i.central.chave ? ' <span class="chip" style="font-size:10px">atual</span>' : ''}</td>
         <td><input type="number" data-g-qtd min="0" step="1" value="${qtd}" data-min="${g.qtdMinima}" data-rede="${g.qtdRede || 0}" style="width:80px; padding:6px 8px"></td>
         <td>${fmtMoeda(g.preco)}</td><td>${g.qtdMinima}${g.qtdMaxima ? ' / ' + g.qtdMaxima : ''}</td><td>${fmtNum(g.qtdRede || 0)}</td>
         <td style="font-size:11px; white-space:normal">${g.emEstoque === false ? '<span class="tag-risco">sem estoque no fornecedor</span>' : ''}${outro ? `<span style="color:var(--muted)">no pedido via ${esc(ex.descricaoLoja)}</span>` : ''}</td></tr>`;
@@ -3153,22 +3154,24 @@ function desenharLinhasVinculos() {
   ligarLinhasVinculos($('vin_tbody'));
 }
 
+const gradeNome = g => g && g.tipo === 'letra' ? `${g.tamanhos.length} letras` : `${g ? g.tamanhos.length : 0} tamanhos`;
+const gradeLista = g => g && g.tipo === 'letra' && g.tamanhos.length > 6 ? `${g.tamanhos[0]} a ${g.tamanhos[g.tamanhos.length - 1]}` : (g ? g.tamanhos.join(', ') : '');
 function linhaVinculoHTML(l) {
   const s = statusVinculo(l), st = VIN_STATUS[s], c = l.central, id = esc(l.produtoId);
   const btn = (attr, txt, prim) => `<button class="${prim ? '' : 'secondary'}" style="padding:5px 10px; font-size:11px; margin:2px 0" ${attr}="${id}">${txt}</button>`;
   const acoes = s === 'ignorado' ? btn('data-vin-remover', 'Voltar a comprar na Central')
-    : [c && s !== 'confirmado' ? btn('data-vin-confirmar', 'Confirmar', true) : '', l.gradeDisponivel && !l.grade ? btn('data-vin-grade', `Grade (${l.gradeDisponivel.tamanhos.length})`, s !== 'confirmado') : '', btn('data-vin-trocar', c ? 'Trocar' : 'Vincular', !c),
+    : [c && s !== 'confirmado' ? btn('data-vin-confirmar', 'Confirmar', true) : '', l.gradeDisponivel && !l.grade ? btn('data-vin-grade', l.gradeDisponivel.tipo === 'letra' ? `Todas as letras (${l.gradeDisponivel.tamanhos.length})` : `Grade (${l.gradeDisponivel.tamanhos.length})`, s !== 'confirmado') : '', btn('data-vin-trocar', c ? 'Trocar' : 'Vincular', !c),
        s === 'confirmado' ? btn('data-vin-remover', 'Desfazer') : '', btn('data-vin-ignorar', 'Fora da Central')].join(' ');
   return `<tr data-vin-linha="${id}">
     <td class="prod-name">${esc(l.descricao)}<br><span style="font-size:11px; color:var(--muted)">${esc(l.codigoSistema || '')}${l.codigoInterno ? ' · ' + esc(l.codigoInterno) : ''}</span></td>
     <td>${fmtNum(l.vendaMediaDiaria)}</td>
     ${vinState.rede ? `<td>${l.lojasQueVendem ?? '–'} de ${vinState.totalLojas}</td>` : ''}
     <td><span class="${st.cls}" title="${esc(st.dica)}" style="font-size:11px; padding:2px 8px; border-radius:20px">${st.txt}</span>
-      ${l.grade ? `<br><span style="font-size:10.5px; color:var(--accent-deep); font-weight:600">grade: ${l.gradeDisponivel ? l.gradeDisponivel.tamanhos.length + ' tamanhos' : 'todos os tamanhos'}</span>` : ''}
+      ${l.grade ? `<br><span style="font-size:10.5px; color:var(--accent-deep); font-weight:600">grade: ${l.gradeDisponivel ? gradeNome(l.gradeDisponivel) : 'todos os tamanhos'}</span>` : ''}
       ${s === 'conferir' ? `<br><span style="font-size:10.5px; color:var(--warn)">${l.vinculoQuebrado ? 'vínculo salvo sumiu do catálogo' : l.variacaoIncerta ? 'dúvida na variação' : 'ligado pela descrição'}</span>` : ''}
       ${s === 'ignorado' && l.motivo ? `<br><span style="font-size:10.5px; color:var(--muted)">${esc(l.motivo)}</span>` : ''}
       ${l.atualizadoPor && (s === 'confirmado' || s === 'ignorado') ? `<br><span style="font-size:10px; color:var(--muted)">por ${esc(l.atualizadoPor)}${l.lojaOrigem && l.lojaOrigem !== vinState.loja ? ` em ${esc(l.lojaOrigem)}` : ''}</span>` : ''}</td>
-    <td class="prod-name">${c ? `<span style="font-family:var(--mono); font-size:12px">${esc(c.codigo)}</span>${l.grade && l.gradeDisponivel ? ` · <strong>${esc(l.gradeDisponivel.tamanhos.join(', '))}</strong>` : c.variacao ? ` · <strong>${esc(c.variacao)}</strong>` : ''}<br><span style="font-size:12px">${esc(c.descricao)}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
+    <td class="prod-name">${c ? `<span style="font-family:var(--mono); font-size:12px">${esc(c.codigo)}</span>${l.grade && l.gradeDisponivel ? ` · <strong>${l.gradeDisponivel.tipo === 'letra' ? 'letras ' : ''}${esc(gradeLista(l.gradeDisponivel))}</strong>` : c.variacao ? ` · <strong>${esc(c.variacao)}</strong>` : ''}<br><span style="font-size:12px">${esc(c.descricao)}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
     <td class="prod-name" style="font-size:12px">${c ? esc(c.fornecedorNome) : ''}</td>
     <td>${c ? fmtMoeda(c.preco) : ''}</td>
     <td style="white-space:nowrap">${acoes}</td>
@@ -3205,7 +3208,9 @@ function ligarLinhasVinculos(tbody) {
   tbody.querySelectorAll('[data-vin-trocar]').forEach(b => b.addEventListener('click', () => abrirBuscaVinculo(b.dataset.vinTrocar)));
   tbody.querySelectorAll('[data-vin-grade]').forEach(b => b.addEventListener('click', () => {
     const l = acharLinhaVinculo(b.dataset.vinGrade);
-    if (!confirm(`Vincular "${l.descricao}" à grade inteira?\n\n${l.gradeDisponivel.codigo}: ${l.gradeDisponivel.tamanhos.join(', ')}\n\nNo pedido, a quantidade será distribuída entre esses tamanhos pela proporção da rede (dá para ajustar antes de aprovar).`)) return;
+    const g = l.gradeDisponivel, letra = g.tipo === 'letra';
+    if (!confirm(letra ? `Vincular "${l.descricao}" a todas as letras?\n\n${g.tamanhos.length} itens da Central (letras ${g.tamanhos.join(', ')}), cada um com seu código.\n\nNo pedido, a quantidade será distribuída entre as letras pela proporção da rede (dá para ajustar antes de aprovar).`
+      : `Vincular "${l.descricao}" à grade inteira?\n\n${g.codigo}: ${g.tamanhos.join(', ')}\n\nNo pedido, a quantidade será distribuída entre esses tamanhos pela proporção da rede (dá para ajustar antes de aprovar).`)) return;
     acaoVinculo(l, { acao: 'salvar', chave: l.gradeDisponivel.chave, grade: true }, b);
   }));
   vinState.abertos.forEach(pid => { if (tbody.querySelector(`[data-vin-busca-box="${CSS.escape(pid)}"]`)) abrirBuscaVinculo(pid, true); });
@@ -3220,13 +3225,13 @@ function abrirBuscaVinculo(pid, manterAberto) {
   const inicial = l.descricao.split(/\s+/).filter(w => w.length > 2).slice(0, 3).join(' ');
   const itemHTML = (it, tipo) => `<tr><td style="font-family:var(--mono); font-size:12px">${esc(it.codigo)}</td><td class="prod-name">${esc(it.descricao)}${it.variacao ? ` · <strong>${esc(it.variacao)}</strong>` : ''}</td>
     <td class="prod-name" style="font-size:12px">${esc(it.fornecedorNome)}</td><td>${fmtMoeda(it.preco)}</td><td style="font-size:11px; color:var(--muted)">${it.ultimaCompra ? new Date(it.ultimaCompra).toLocaleDateString('pt-BR') : ''}</td>
-    <td style="white-space:nowrap"><button style="padding:5px 10px; font-size:11px" data-vin-escolher="${esc(it.chave)}">Vincular</button>${it.tamanhosGrade > 1 ? ` <button class="secondary" style="padding:5px 10px; font-size:11px" data-vin-escolher-grade="${esc(it.chave)}" title="Liga o produto a todos os ${it.tamanhosGrade} tamanhos desta cor">Grade (${it.tamanhosGrade})</button>` : ''}</td></tr>`;
+    <td style="white-space:nowrap"><button style="padding:5px 10px; font-size:11px" data-vin-escolher="${esc(it.chave)}">Vincular</button>${it.tamanhosGrade > 1 ? ` <button class="secondary" style="padding:5px 10px; font-size:11px" data-vin-escolher-grade="${esc(it.chave)}" title="${it.tipoGrade === 'letra' ? `Liga o produto às ${it.tamanhosGrade} letras (um código por letra)` : `Liga o produto a todos os ${it.tamanhosGrade} tamanhos desta cor`}">${it.tipoGrade === 'letra' ? `Todas as letras (${it.tamanhosGrade})` : `Grade (${it.tamanhosGrade})`}</button>` : ''}</td></tr>`;
   const tabela = (itens) => itens.length ? `<table class="no-tools"><thead><tr><th>Código</th><th>Item da Central</th><th>Fornecedor</th><th>Preço</th><th>Último pedido</th><th></th></tr></thead><tbody>${itens.map(itemHTML).join('')}</tbody></table>` : '<div class="empty">Nada encontrado.</div>';
   box.innerHTML = `
     <div style="font-size:13px; font-weight:600; margin-bottom:8px">Escolha o item da Central para: <span style="color:var(--accent-deep)">${esc(l.descricao)}</span></div>
     ${l.gradeDisponivel ? `<div style="margin-bottom:12px; padding:10px 12px; background:var(--panel); border:1px solid var(--line); border-radius:10px; display:flex; gap:12px; align-items:center; flex-wrap:wrap">
-      <div style="font-size:12.5px; flex:1; min-width:240px"><strong>Este produto vale para todos os tamanhos?</strong><br><span style="color:var(--muted)">${esc(l.gradeDisponivel.codigo)}: ${esc(l.gradeDisponivel.tamanhos.join(', '))} — no pedido a quantidade é distribuída entre eles pela proporção da rede.</span></div>
-      <button data-vin-escolher-grade="${esc(l.gradeDisponivel.chave)}" style="padding:7px 14px; font-size:12px">Vincular à grade (${l.gradeDisponivel.tamanhos.length} tamanhos)</button></div>` : ''}
+      <div style="font-size:12.5px; flex:1; min-width:240px"><strong>${l.gradeDisponivel.tipo === 'letra' ? 'Este produto vale para todas as letras?' : 'Este produto vale para todos os tamanhos?'}</strong><br><span style="color:var(--muted)">${l.gradeDisponivel.tipo === 'letra' ? `Letras ${esc(l.gradeDisponivel.tamanhos.join(', '))} (um código por letra)` : `${esc(l.gradeDisponivel.codigo)}: ${esc(l.gradeDisponivel.tamanhos.join(', '))}`} — no pedido a quantidade é distribuída entre eles pela proporção da rede.</span></div>
+      <button data-vin-escolher-grade="${esc(l.gradeDisponivel.chave)}" style="padding:7px 14px; font-size:12px">${l.gradeDisponivel.tipo === 'letra' ? `Vincular a todas as letras (${l.gradeDisponivel.tamanhos.length})` : `Vincular à grade (${l.gradeDisponivel.tamanhos.length} tamanhos)`}</button></div>` : ''}
     ${l.alternativas?.length ? `<div style="font-size:12px; color:var(--muted); margin-bottom:4px">Sugestões (mesmo código / variações):</div><div style="overflow-x:auto; margin-bottom:12px">${tabela(l.alternativas)}</div>` : ''}
     <div class="tbl-tools"><input type="search" data-vin-q placeholder="Buscar na Central: código, nome, cor, fornecedor…" value="${esc(inicial)}"><span class="cnt" data-vin-qst></span></div>
     <div data-vin-res style="overflow-x:auto"></div>`;
