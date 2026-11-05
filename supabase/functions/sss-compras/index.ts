@@ -569,7 +569,7 @@ function corBase(desc: unknown) {
   const out: string[] = [];
   for (let i = 0; i < t.length; i++) {
     if (TAMANHOS.has(t[i])) continue;
-    if (/^\d+$/.test(t[i]) && i + 1 < t.length && /^(CM|MM|M|ML|L|G|KG|POL)$/.test(t[i + 1])) { i++; continue; }
+    if (/^\d+$/.test(t[i]) && i + 1 < t.length && /^(C+M|CMS|M+M|M|ML|L|G|KG|POL)$/.test(t[i + 1])) { i++; continue; } // C+M: aceita erro de digitacao (17Ccm)
     out.push(t[i]);
   }
   return out.join(' ');
