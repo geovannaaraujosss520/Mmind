@@ -1,13 +1,20 @@
 {
+  "id": "./",
   "name": "Mastermind SSS — Painel Operacional",
   "short_name": "Mastermind SSS",
   "description": "Painel operacional da rede SSS: central de decisão, recomendação de compra recorrente e sazonal, alertas de estoque, transferências entre lojas e DRE por unidade.",
-  "start_url": "./index.html",
+  "lang": "pt-BR",
+  "dir": "ltr",
+  "start_url": "./index.html?origem=app",
   "scope": "./",
   "display": "standalone",
-  "orientation": "portrait-primary",
+  "orientation": "any",
   "background_color": "#ECEAE6",
-  "theme_color": "#ECEAE6",
+  "theme_color": "#961A1D",
+  "categories": [
+    "business",
+    "productivity"
+  ],
   "icons": [
     {
       "src": "icons/icon-192.png",
@@ -32,6 +39,52 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Central de Decisão",
+      "short_name": "Decisão",
+      "url": "./index.html?view=central",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Pedido Central",
+      "short_name": "Pedido",
+      "url": "./index.html?view=pedido",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Vínculos de produtos",
+      "short_name": "Vínculos",
+      "url": "./index.html?view=vinculos",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Vendedores",
+      "short_name": "Vendedores",
+      "url": "./index.html?view=vendedores",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
   ]
 }
