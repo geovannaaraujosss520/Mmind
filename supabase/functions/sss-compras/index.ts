@@ -4,8 +4,19 @@
 // Tabelas: lojas_config, pedidos_vinculos, pedidos_sugeridos.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-const cors = {
-  'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') || '*',
+
+// ALLOWED_ORIGIN aceita varios enderecos separados por virgula (ex.: GitHub Pages + servidor Node).
+// localhost sempre pode (painel rodando no computador com node server.js).
+const ORIGENS_PERMITIDAS = String(Deno.env.get('ALLOWED_ORIGIN') || '*').split(',').map((o) => o.trim().replace(/\/+$/, '')).filter(Boolean);
+function origemPermitida(req: Request): string {
+  if (ORIGENS_PERMITIDAS.includes('*')) return '*';
+  const o = (req.headers.get('origin') ?? '').replace(/\/+$/, '');
+  if (o && (ORIGENS_PERMITIDAS.includes(o) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o))) return o;
+  return ORIGENS_PERMITIDAS[0];
+}
+const cors: Record<string, string> = {
+  'Access-Control-Allow-Origin': ORIGENS_PERMITIDAS.includes('*') ? '*' : ORIGENS_PERMITIDAS[0],
+  'Vary': 'Origin',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-app-passcode',
 };
 // =====================================================================
@@ -1906,6 +1917,7 @@ async function moduloUsuarios(body: any, a: Acesso) {
 }
 
 Deno.serve(async (req) => {
+  cors['Access-Control-Allow-Origin'] = origemPermitida(req);
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   // Configuração pública do login (URL do projeto + chave pública do Supabase Auth — feita para ficar no navegador).
   if (req.method === 'GET' && new URL(req.url).searchParams.has('config')) {

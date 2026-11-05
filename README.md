@@ -78,7 +78,7 @@ Tabelas que já existiam antes (`lojas_config`, `pedidos_vinculos`, `metas_fatur
 | `APP_PASSCODE` | sim | senha do time (entrada provisória até todos terem login) |
 | `LOGIN_OBRIGATORIO` | depois | `true` desliga a senha do time: só entra com e-mail e senha |
 | `PEDIDOS_API_KEY` | sim | chave da API da Central (leitura de pedidos) |
-| `ALLOWED_ORIGIN` | recomendado | endereço do painel (bloqueia chamadas de outros sites) |
+| `ALLOWED_ORIGIN` | recomendado | endereço(s) do painel separados por vírgula, sem barra no fim (ex.: `https://geovannaaraujosss520.github.io,https://seu-app.onrender.com`); localhost sempre funciona |
 | `CENTRAL_ENVIO_HABILITADO` | para enviar pedidos | `true` libera o envio à Central |
 | `CENTRAL_API_KEY_PEDIDOS` | se diferente | chave com permissão `criar_pedido` |
 | `CENTRAL_BASE_URL` | não | domínio da Central, se não for `app.centraldofranqueado.com.br` |
