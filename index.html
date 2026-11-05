@@ -3303,7 +3303,12 @@ function renderVinculos() {
     if (!confirm(`Confirmar ${porCodigoPend.length} vínculos feitos por código? Eles passam a ser usados como definitivos no pedido de TODAS as lojas.`)) return;
     ev.target.disabled = true;
     try {
-      const r = await vinCall({ acao: 'salvarLote', loja: vinState.loja, itens: porCodigoPend.map(l => ({ produtoId: l.produtoId, codigoSistema: l.codigoSistema, chave: l.central.chave, descricaoLoja: l.descricao })) });
+      const r = { salvos: 0 };
+      for (let k = 0; k < porCodigoPend.length; k += 500) {
+        $('status-vinculos').textContent = `Confirmando ${Math.min(k + 500, porCodigoPend.length)} de ${porCodigoPend.length}…`;
+        const p = await vinCall({ acao: 'salvarLote', loja: vinState.loja, itens: porCodigoPend.slice(k, k + 500).map(l => ({ produtoId: l.produtoId, codigoSistema: l.codigoSistema, chave: l.central.chave, descricaoLoja: l.descricao })) });
+        r.salvos += p.salvos || 0;
+      }
       porCodigoPend.forEach(l => { l.via = 'vínculo'; l.variacaoIncerta = false; l.vinculoQuebrado = false; l.atualizadoPor = $('vin_usuario').value.trim(); });
       $('status-vinculos').textContent = `${r.salvos} vínculos confirmados.`;
       renderVinculos();
