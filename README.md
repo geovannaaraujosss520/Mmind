@@ -64,6 +64,7 @@ Detalhes em [`docs/MODULOS.md`](docs/MODULOS.md).
 | `20261104000001_pedidos_sugeridos_envio.sql` | colunas/status do envio à Central |
 | `20261104000002_central_cache_dias.sql` | cache diário dos pedidos da Central |
 | `20261104000003_vinculos_produto_rede.sql` | vínculos produto ↔ item da Central (rede) |
+| `20261105000001_vinculos_grade.sql` | vínculo à grade (produto → todos os tamanhos) |
 
 Todos usam `if not exists`: rodar de novo não apaga nada.
 Tabelas que já existiam antes (`lojas_config`, `pedidos_vinculos`, `metas_faturamento`, `perfil_lojas`) não estão aqui.

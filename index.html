@@ -2223,6 +2223,7 @@ async function gerarPedido() {
     }
     if (!d) throw new Error(`O servidor não conseguiu montar o pedido nem com catálogo reduzido (${ultimoErro?.message}).`);
     d.fornecedores.forEach(f => f.itens.forEach(i => { i.incluir = true; i.qtdOriginal = i.qtd; }));
+    d.fornecedores.forEach(f => [...f.itens].forEach(i => { if (i.distribuirGrade) distribuirGradeAutomatica(f, i); }));
     pedState = d;
     renderPedido();
     st.textContent = `Gerado em ${((performance.now() - t0) / 1000).toFixed(0)}s · ${new Date().toLocaleTimeString('pt-BR')}${d.parametros?.diasCatalogo < 180 ? ` · catálogo da Central reduzido para ${d.parametros.diasCatalogo} dias` : ''}${avisoCache}`;
@@ -2353,28 +2354,64 @@ function ligarPedido() {
 }
 
 
+// Divide "total" entre as variações pela proporção vendida na rede (+1 para quem nunca vendeu); maior resto.
+function dividirPorProporcao(total, pesosRede) {
+  const pesos = pesosRede.map(w => (Number(w) || 0) + 1), soma = pesos.reduce((a, b) => a + b, 0);
+  const base = pesos.map(w => total * w / soma), inteiros = base.map(Math.floor);
+  let resto = total - inteiros.reduce((a, b) => a + b, 0);
+  base.map((v, k) => [v - inteiros[k], k]).sort((a, b) => b[0] - a[0]).forEach(([, k]) => { if (resto > 0) { inteiros[k]++; resto--; } });
+  return inteiros;
+}
+// Insere a linha de um tamanho extra logo abaixo do item de origem (e dos extras dele).
+function inserirAbaixo(f, i, nova) {
+  let pos = f.itens.indexOf(i);
+  while (pos + 1 < f.itens.length && f.itens[pos + 1].extraGrade && f.itens[pos + 1].produtoId === i.produtoId) pos++;
+  f.itens.splice(pos + 1, 0, nova);
+}
+// Produto vinculado à grade: espalha a quantidade sugerida pelos tamanhos da mesma cor.
+function distribuirGradeAutomatica(f, i) {
+  const cor = i.central.corBase ?? '';
+  const tams = (i.grade || []).filter(g => (g.corBase ?? '') === cor);
+  if (tams.length < 2 || !(i.qtd > 0)) return;
+  const partes = dividirPorProporcao(i.qtd, tams.map(g => g.qtdRede));
+  tams.forEach((g, k) => {
+    const q = partes[k];
+    if (g.chave === i.central.chave) { i.qtd = q; i.incluir = q > 0; return; }
+    const ex = f.itens.find(x => x.central.chave === g.chave);
+    if (ex) { ex.qtd += q; ex.incluir = ex.qtd > 0; return; }
+    if (q <= 0) return;
+    inserirAbaixo(f, i, { produtoId: i.produtoId, descricaoLoja: `${i.descricaoLoja} — grade`, codigoSistema: i.codigoSistema, riscoRuptura: false,
+      vendaMediaDiaria: null, estoqueAtual: null, emAndamento: 0, qtdRecomendadaUnidades: 0, qtd: q, qtdOriginal: q, incluir: true, via: 'grade', ajustes: [], variacaoIncerta: false,
+      central: { chave: g.chave, codigo: g.codigo, idProduto: g.idProduto, descricao: g.descricao, variacao: g.variacao, variacaoDescricao: g.variacaoDescricao, corBase: g.corBase, preco: g.preco, qtdMinima: g.qtdMinima, qtdMaxima: g.qtdMaxima, fatorConversao: g.fatorConversao || 1, emEstoque: g.emEstoque },
+      alternativas: [], grade: i.grade, extraGrade: true });
+  });
+  i.ajustes = [...(i.ajustes || []), `${tams.length} tamanhos distribuídos pela rede`];
+  i.via = 'vínculo (grade)';
+}
+
 // ---- Grade de tamanhos/cores: quantidade em várias variações do mesmo código ----
 function abrirGrade(fi, ii) {
   const f = pedState.fornecedores[fi], i = f.itens[ii];
   const linha = document.querySelector(`[data-grade-linha="${fi}|${ii}"]`), box = document.querySelector(`[data-grade-box="${fi}|${ii}"]`);
   if (linha.style.display === '') { linha.style.display = 'none'; return; }
   linha.style.display = '';
-  const corAtual = i.central.variacaoDescricao ?? i.grade.find(g => g.chave === i.central.chave)?.variacaoDescricao ?? i.central.variacao;
-  const temOutrasCores = i.grade.some(g => (g.variacaoDescricao ?? g.variacao) !== corAtual);
+  const corDe = g => g.corBase ?? g.variacaoDescricao ?? g.variacao;
+  const corAtual = i.central.corBase ?? i.grade.find(g => g.chave === i.central.chave)?.corBase ?? corDe(i.central);
+  const temOutrasCores = i.grade.some(g => corDe(g) !== corAtual);
   const linhaDe = chave => f.itens.find(x => x.central.chave === chave);
-  const ordenada = [...i.grade].sort((a, b) => Number((b.variacaoDescricao ?? b.variacao) === corAtual) - Number((a.variacaoDescricao ?? a.variacao) === corAtual) || String(a.variacao).localeCompare(String(b.variacao), 'pt-BR', { numeric: true }));
+  const ordenada = [...i.grade].sort((a, b) => Number(corDe(b) === corAtual) - Number(corDe(a) === corAtual) || String(a.variacao).localeCompare(String(b.variacao), 'pt-BR', { numeric: true }));
   box.style.maxWidth = '860px'; box.style.whiteSpace = 'normal';
   box.innerHTML = `
     <div style="font-size:13px; font-weight:650; color:var(--accent-deep); margin-bottom:4px">Grade — ${esc(i.central.codigo)} ${esc(i.central.descricao)}</div>
     <div class="sub" style="font-size:11.5px; margin-bottom:10px; max-width:none">Digite a quantidade de cada tamanho/cor. Tamanhos que já estão no pedido por outro produto da loja aparecem com a quantidade atual. "Vendido na rede" = peças pedidas por todas as lojas nos últimos 180 dias, usado para distribuir.</div>
     <div class="tbl-tools">
-      ${temOutrasCores ? `<label class="opt-row" style="text-transform:none; letter-spacing:0"><input type="checkbox" data-g-so-cor checked> Só a cor <strong>${esc(corAtual || '—')}</strong></label>` : ''}
+      ${temOutrasCores ? `<label class="opt-row" style="text-transform:none; letter-spacing:0"><input type="checkbox" data-g-so-cor checked> ${corAtual ? `Só a cor <strong>${esc(corAtual)}</strong>` : 'Só os tamanhos desta variação'}</label>` : ''}
       <span style="font-size:12px">Distribuir</span><input type="number" data-g-total min="0" step="1" style="width:80px; padding:6px 8px"><span style="font-size:12px">peças pela proporção da rede</span>
       <button class="secondary" data-g-distribuir>Distribuir</button><button class="secondary" data-g-zerar>Zerar</button>
     </div>
     <div style="overflow-x:auto"><table class="no-tools" style="width:auto; min-width:560px"><thead><tr><th>Variação</th><th>Qtd</th><th>Preço</th><th>Mín / máx</th><th>Vendido na rede</th><th>Situação</th></tr></thead><tbody>
     ${ordenada.map(g => {
-      const ex = linhaDe(g.chave), mesmaCor = (g.variacaoDescricao ?? g.variacao) === corAtual;
+      const ex = linhaDe(g.chave), mesmaCor = corDe(g) === corAtual;
       const outro = ex && ex !== i && !(ex.extraGrade && ex.produtoId === i.produtoId);
       const qtd = ex && ex.incluir !== false ? ex.qtd : 0;
       return `<tr data-g-row="${esc(g.chave)}" data-mesma-cor="${mesmaCor ? 1 : 0}">
@@ -2398,10 +2435,7 @@ function abrirGrade(fi, ii) {
   box.querySelector('[data-g-distribuir]').addEventListener('click', () => {
     const total = Math.max(0, Math.round(Number(box.querySelector('[data-g-total]').value) || 0));
     const rows = linhasVis(); if (!rows.length) return;
-    const pesos = rows.map(r => Number(r.querySelector('[data-g-qtd]').dataset.rede) + 1), soma = pesos.reduce((a, b) => a + b, 0);
-    const base = pesos.map(w => total * w / soma), inteiros = base.map(Math.floor);
-    let resto = total - inteiros.reduce((a, b) => a + b, 0);
-    base.map((v, k) => [v - inteiros[k], k]).sort((a, b) => b[0] - a[0]).forEach(([, k]) => { if (resto > 0) { inteiros[k]++; resto--; } });
+    const inteiros = dividirPorProporcao(total, rows.map(r => Number(r.querySelector('[data-g-qtd]').dataset.rede)));
     rows.forEach((r, k) => { const inp = r.querySelector('[data-g-qtd]'); inp.value = inteiros[k]; inp.dispatchEvent(new Event('input')); });
   });
   box.querySelector('[data-g-fechar]').addEventListener('click', () => { linha.style.display = 'none'; });
@@ -2411,9 +2445,9 @@ function abrirGrade(fi, ii) {
       const ex = linhaDe(g.chave);
       if (ex) { ex.qtd = q; ex.incluir = q > 0; return; }
       if (q <= 0) return;
-      f.itens.push({ produtoId: i.produtoId, descricaoLoja: `${i.descricaoLoja} — grade`, codigoSistema: i.codigoSistema, riscoRuptura: false,
+      inserirAbaixo(f, i, { produtoId: i.produtoId, descricaoLoja: `${i.descricaoLoja} — grade`, codigoSistema: i.codigoSistema, riscoRuptura: false,
         vendaMediaDiaria: null, estoqueAtual: null, emAndamento: 0, qtdRecomendadaUnidades: 0, qtd: q, qtdOriginal: 0, incluir: true, via: 'grade', ajustes: [], variacaoIncerta: false,
-        central: { chave: g.chave, codigo: g.codigo, idProduto: g.idProduto, descricao: g.descricao, variacao: g.variacao, variacaoDescricao: g.variacaoDescricao, preco: g.preco, qtdMinima: g.qtdMinima, qtdMaxima: g.qtdMaxima, fatorConversao: g.fatorConversao || 1, emEstoque: g.emEstoque },
+        central: { chave: g.chave, codigo: g.codigo, idProduto: g.idProduto, descricao: g.descricao, variacao: g.variacao, variacaoDescricao: g.variacaoDescricao, corBase: g.corBase, preco: g.preco, qtdMinima: g.qtdMinima, qtdMaxima: g.qtdMaxima, fatorConversao: g.fatorConversao || 1, emEstoque: g.emEstoque },
         alternativas: [], grade: i.grade, extraGrade: true });
     });
     renderPedido();
@@ -3037,17 +3071,18 @@ function linhaVinculoHTML(l) {
   const s = statusVinculo(l), st = VIN_STATUS[s], c = l.central, id = esc(l.produtoId);
   const btn = (attr, txt, prim) => `<button class="${prim ? '' : 'secondary'}" style="padding:5px 10px; font-size:11px; margin:2px 0" ${attr}="${id}">${txt}</button>`;
   const acoes = s === 'ignorado' ? btn('data-vin-remover', 'Voltar a comprar na Central')
-    : [c && s !== 'confirmado' ? btn('data-vin-confirmar', 'Confirmar', true) : '', btn('data-vin-trocar', c ? 'Trocar' : 'Vincular', !c),
+    : [c && s !== 'confirmado' ? btn('data-vin-confirmar', 'Confirmar', true) : '', l.gradeDisponivel && !l.grade ? btn('data-vin-grade', `Grade (${l.gradeDisponivel.tamanhos.length})`, s !== 'confirmado') : '', btn('data-vin-trocar', c ? 'Trocar' : 'Vincular', !c),
        s === 'confirmado' ? btn('data-vin-remover', 'Desfazer') : '', btn('data-vin-ignorar', 'Fora da Central')].join(' ');
   return `<tr data-vin-linha="${id}">
     <td class="prod-name">${esc(l.descricao)}<br><span style="font-size:11px; color:var(--muted)">${esc(l.codigoSistema || '')}${l.codigoInterno ? ' · ' + esc(l.codigoInterno) : ''}</span></td>
     <td>${fmtNum(l.vendaMediaDiaria)}</td>
     ${vinState.rede ? `<td>${l.lojasQueVendem ?? '–'} de ${vinState.totalLojas}</td>` : ''}
     <td><span class="${st.cls}" title="${esc(st.dica)}" style="font-size:11px; padding:2px 8px; border-radius:20px">${st.txt}</span>
+      ${l.grade ? `<br><span style="font-size:10.5px; color:var(--accent-deep); font-weight:600">grade: ${l.gradeDisponivel ? l.gradeDisponivel.tamanhos.length + ' tamanhos' : 'todos os tamanhos'}</span>` : ''}
       ${s === 'conferir' ? `<br><span style="font-size:10.5px; color:var(--warn)">${l.vinculoQuebrado ? 'vínculo salvo sumiu do catálogo' : l.variacaoIncerta ? 'dúvida na variação' : 'ligado pela descrição'}</span>` : ''}
       ${s === 'ignorado' && l.motivo ? `<br><span style="font-size:10.5px; color:var(--muted)">${esc(l.motivo)}</span>` : ''}
       ${l.atualizadoPor && (s === 'confirmado' || s === 'ignorado') ? `<br><span style="font-size:10px; color:var(--muted)">por ${esc(l.atualizadoPor)}${l.lojaOrigem && l.lojaOrigem !== vinState.loja ? ` em ${esc(l.lojaOrigem)}` : ''}</span>` : ''}</td>
-    <td class="prod-name">${c ? `<span style="font-family:var(--mono); font-size:12px">${esc(c.codigo)}</span>${c.variacao ? ` · <strong>${esc(c.variacao)}</strong>` : ''}<br><span style="font-size:12px">${esc(c.descricao)}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
+    <td class="prod-name">${c ? `<span style="font-family:var(--mono); font-size:12px">${esc(c.codigo)}</span>${l.grade && l.gradeDisponivel ? ` · <strong>${esc(l.gradeDisponivel.tamanhos.join(', '))}</strong>` : c.variacao ? ` · <strong>${esc(c.variacao)}</strong>` : ''}<br><span style="font-size:12px">${esc(c.descricao)}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
     <td class="prod-name" style="font-size:12px">${c ? esc(c.fornecedorNome) : ''}</td>
     <td>${c ? fmtMoeda(c.preco) : ''}</td>
     <td style="white-space:nowrap">${acoes}</td>
@@ -3082,6 +3117,11 @@ function ligarLinhasVinculos(tbody) {
     acaoVinculo(l, { acao: 'ignorar', motivo }, b);
   }));
   tbody.querySelectorAll('[data-vin-trocar]').forEach(b => b.addEventListener('click', () => abrirBuscaVinculo(b.dataset.vinTrocar)));
+  tbody.querySelectorAll('[data-vin-grade]').forEach(b => b.addEventListener('click', () => {
+    const l = acharLinhaVinculo(b.dataset.vinGrade);
+    if (!confirm(`Vincular "${l.descricao}" à grade inteira?\n\n${l.gradeDisponivel.codigo}: ${l.gradeDisponivel.tamanhos.join(', ')}\n\nNo pedido, a quantidade será distribuída entre esses tamanhos pela proporção da rede (dá para ajustar antes de aprovar).`)) return;
+    acaoVinculo(l, { acao: 'salvar', chave: l.gradeDisponivel.chave, grade: true }, b);
+  }));
   vinState.abertos.forEach(pid => { if (tbody.querySelector(`[data-vin-busca-box="${CSS.escape(pid)}"]`)) abrirBuscaVinculo(pid, true); });
 }
 
@@ -3094,14 +3134,20 @@ function abrirBuscaVinculo(pid, manterAberto) {
   const inicial = l.descricao.split(/\s+/).filter(w => w.length > 2).slice(0, 3).join(' ');
   const itemHTML = (it, tipo) => `<tr><td style="font-family:var(--mono); font-size:12px">${esc(it.codigo)}</td><td class="prod-name">${esc(it.descricao)}${it.variacao ? ` · <strong>${esc(it.variacao)}</strong>` : ''}</td>
     <td class="prod-name" style="font-size:12px">${esc(it.fornecedorNome)}</td><td>${fmtMoeda(it.preco)}</td><td style="font-size:11px; color:var(--muted)">${it.ultimaCompra ? new Date(it.ultimaCompra).toLocaleDateString('pt-BR') : ''}</td>
-    <td><button style="padding:5px 10px; font-size:11px" data-vin-escolher="${esc(it.chave)}">Vincular</button></td></tr>`;
+    <td style="white-space:nowrap"><button style="padding:5px 10px; font-size:11px" data-vin-escolher="${esc(it.chave)}">Vincular</button>${it.tamanhosGrade > 1 ? ` <button class="secondary" style="padding:5px 10px; font-size:11px" data-vin-escolher-grade="${esc(it.chave)}" title="Liga o produto a todos os ${it.tamanhosGrade} tamanhos desta cor">Grade (${it.tamanhosGrade})</button>` : ''}</td></tr>`;
   const tabela = (itens) => itens.length ? `<table class="no-tools"><thead><tr><th>Código</th><th>Item da Central</th><th>Fornecedor</th><th>Preço</th><th>Último pedido</th><th></th></tr></thead><tbody>${itens.map(itemHTML).join('')}</tbody></table>` : '<div class="empty">Nada encontrado.</div>';
   box.innerHTML = `
     <div style="font-size:13px; font-weight:600; margin-bottom:8px">Escolha o item da Central para: <span style="color:var(--accent-deep)">${esc(l.descricao)}</span></div>
+    ${l.gradeDisponivel ? `<div style="margin-bottom:12px; padding:10px 12px; background:var(--panel); border:1px solid var(--line); border-radius:10px; display:flex; gap:12px; align-items:center; flex-wrap:wrap">
+      <div style="font-size:12.5px; flex:1; min-width:240px"><strong>Este produto vale para todos os tamanhos?</strong><br><span style="color:var(--muted)">${esc(l.gradeDisponivel.codigo)}: ${esc(l.gradeDisponivel.tamanhos.join(', '))} — no pedido a quantidade é distribuída entre eles pela proporção da rede.</span></div>
+      <button data-vin-escolher-grade="${esc(l.gradeDisponivel.chave)}" style="padding:7px 14px; font-size:12px">Vincular à grade (${l.gradeDisponivel.tamanhos.length} tamanhos)</button></div>` : ''}
     ${l.alternativas?.length ? `<div style="font-size:12px; color:var(--muted); margin-bottom:4px">Sugestões (mesmo código / variações):</div><div style="overflow-x:auto; margin-bottom:12px">${tabela(l.alternativas)}</div>` : ''}
     <div class="tbl-tools"><input type="search" data-vin-q placeholder="Buscar na Central: código, nome, cor, fornecedor…" value="${esc(inicial)}"><span class="cnt" data-vin-qst></span></div>
     <div data-vin-res style="overflow-x:auto"></div>`;
-  const ligarEscolha = cont => cont.querySelectorAll('[data-vin-escolher]').forEach(b => b.addEventListener('click', () => acaoVinculo(l, { acao: 'salvar', chave: b.dataset.vinEscolher }, b)));
+  const ligarEscolha = cont => {
+    cont.querySelectorAll('[data-vin-escolher]').forEach(b => b.addEventListener('click', () => acaoVinculo(l, { acao: 'salvar', chave: b.dataset.vinEscolher, grade: false }, b)));
+    cont.querySelectorAll('[data-vin-escolher-grade]').forEach(b => b.addEventListener('click', () => acaoVinculo(l, { acao: 'salvar', chave: b.dataset.vinEscolherGrade, grade: true }, b)));
+  };
   ligarEscolha(box);
   const inp = box.querySelector('[data-vin-q]'), res = box.querySelector('[data-vin-res]'), qst = box.querySelector('[data-vin-qst]');
   let timer = null, seq = 0;

@@ -217,7 +217,11 @@ async function pedidosEmAndamento(listaPronta?: { lista: any[]; falhas: number; 
     porLoja.get(k)!.push(p);
     total++;
   }
-  return { porLoja, total, erro: base.erro, idVar: criarIdentificadorVariacao(base.lista) };
+  // cor (sem tamanho) de cada item, pelo nome ORIGINAL da variacao (a chave perde os parenteses)
+  const idVar = criarIdentificadorVariacao(base.lista);
+  const cbPorChave = new Map<string, string>();
+  for (const p of base.lista) for (const i of p.itensPedido ?? []) cbPorChave.set(idVar(i).chave, corBase(i.variacao?.descricao ?? ''));
+  return { porLoja, total, erro: base.erro, idVar, cbPorChave };
 }
 
 async function carregarVinculos() {
@@ -253,7 +257,9 @@ async function moduloRecorrente(apiBase: string, lojasTokens: Record<string, str
   const [andamento, vinc] = await Promise.all([pedidosEmAndamento(listaCentral), carregarVinculos()]);
   const vincRede = new Map<string, any>();
   {
-    const { data } = await sb().from(TABELA_VINCULOS).select('produto_chave, chave_central, ignorar');
+    let r: any = await sb().from(TABELA_VINCULOS).select('produto_chave, chave_central, ignorar, grade');
+    if (r.error) r = await sb().from(TABELA_VINCULOS).select('produto_chave, chave_central, ignorar');
+    const data = r.data;
     for (const v of data ?? []) vincRede.set(String(v.produto_chave), v);
   }
 
@@ -370,13 +376,18 @@ async function moduloRecorrente(apiBase: string, lojasTokens: Record<string, str
     let vinculados = 0, ignorados = 0, semVenda = 0;
     // vinculos exatos (produto -> codigo+variacao) desta loja, invertidos: item da Central -> produto
     const exatos = new Map<string, string[]>();
+    const porGrade = new Map<string, string[]>();
     for (const [prod, vd] of venda) {
       const v = vincRede.get(chaveProduto({ codigoSistema: vd.codigoSistema, produtoId: prod }));
-      if (v && !v.ignorar && v.chave_central) { if (!exatos.has(v.chave_central)) exatos.set(v.chave_central, []); exatos.get(v.chave_central)!.push(prod); }
+      if (v && !v.ignorar && v.chave_central) {
+        if (!exatos.has(v.chave_central)) exatos.set(v.chave_central, []); exatos.get(v.chave_central)!.push(prod);
+        // vinculo a grade: qualquer tamanho do mesmo codigo e cor e deste produto
+        if (v.grade) { const kg = `${String(v.chave_central).split('|')[0]}|${andamento.cbPorChave.get(v.chave_central) ?? corBaseDaChave(v.chave_central)}`; if (!porGrade.has(kg)) porGrade.set(kg, []); porGrade.get(kg)!.push(prod); }
+      }
     }
     for (const it of itens.values()) {
       const v = vl.get(it.cod);
-      const ex = exatos.get(it.chave);
+      const ex = exatos.get(it.chave) ?? porGrade.get(`${String(it.chave).split('|')[0]}|${andamento.cbPorChave.get(it.chave) ?? corBaseDaChave(it.chave)}`);
       if (!ex && v?.ignorar) { ignorados++; continue; }
       let pid: string | null = null;
       if (ex?.length === 1) pid = ex[0];
@@ -491,6 +502,20 @@ const chaveItem = (codigo: unknown, variacao: unknown, extra = '') => `${codNorm
 // esse diferencial. Para itens que so variam por cor a chave continua igual (codigo|cor).
 const separarNumeros = (s: string) => s.replace(/(\d)([A-Z])/g, '$1 $2').replace(/([A-Z])(\d)/g, '$1 $2');
 const TAMANHOS = new Set(['PP', 'P', 'M', 'G', 'GG', 'XG', 'XGG', 'EG', 'EGG', 'U', 'UN', 'UNICO', 'INFANTIL', 'ADULTO', 'MINI', 'PEQUENO', 'MEDIO', 'GRANDE']);
+// "Cor" de uma variacao sem o tamanho: "38CM (TRADICIONAL)" -> "", "AZUL P" -> "AZUL", "COR 3" -> "COR 3".
+// Remove medidas (numero + unidade), tamanhos (P, M, G...) e textos entre parenteses; numero solto fica (COR 3).
+function corBase(desc: unknown) {
+  const t = separarNumeros(limpa(String(desc ?? '').replace(/\([^)]*\)/g, ' '))).split(' ').filter(Boolean);
+  const out: string[] = [];
+  for (let i = 0; i < t.length; i++) {
+    if (TAMANHOS.has(t[i])) continue;
+    if (/^\d+$/.test(t[i]) && i + 1 < t.length && /^(CM|MM|M|ML|L|G|KG|POL)$/.test(t[i + 1])) { i++; continue; }
+    out.push(t[i]);
+  }
+  return out.join(' ');
+}
+// corBase a partir da chave do item (CODIGO|DESCRICAO[|extra])
+const corBaseDaChave = (chave: string) => corBase(String(chave ?? '').split('|')[1] ?? '');
 // tokens para comparar variacoes: mantem letras soltas (P, M, G) e separa numero de unidade (18CM -> 18 CM)
 const tokensVar = (s: unknown) => new Set(separarNumeros(limpa(s)).split(' ').filter(Boolean));
 // so os pedacos que indicam tamanho/medida (para nao exigir que o codigo da referencia apareca no nome do produto)
@@ -546,7 +571,7 @@ function montarCatalogo(lista: any[]) {
       const k = iv.chave;
       const c = itens.get(k) ?? { chave: k, codigo: String(i.codigo ?? '').trim(), vezes: 0, qtdTotal: 0, lojas: new Set<string>(), descricoes: new Set<string>() };
       Object.assign(c, {
-        idProduto: i.idProduto, descricao: i.descricaoProduto, variacao: varDesc, variacaoDescricao: iv.descricaoVar, tamanho: [...iv.tamanho], referencia: i.variacao?.referencia || null,
+        idProduto: i.idProduto, descricao: i.descricaoProduto, variacao: varDesc, variacaoDescricao: iv.descricaoVar, corBase: corBase(iv.descricaoVar), tamanho: [...iv.tamanho], referencia: i.variacao?.referencia || null,
         categoria: i.categoriaProduto, fornecedorId: fid, fornecedorNome: p.fornecedor?.nome ?? '',
         preco: pu, qtdMinima: Number(i.qtdMinima) || 1, qtdMaxima: Number(i.qtdMaxima) || null,
         fatorConversao: Number(i.fatorConversao) || 1, prazo: String(i.prazo ?? '').trim() || c.prazo || null,
@@ -646,8 +671,10 @@ async function gerarPedidoSugerido(apiBase: string, lojasTokens: Record<string, 
       produtoId: r.produtoId, descricaoLoja: r.descricao, codigoSistema: r.codigoSistema,
       riscoRuptura: r.riscoRuptura, vendaMediaDiaria: r.vendaMediaDiaria, estoqueAtual: r.estoqueAtual, emAndamento: r.emAndamento,
       qtdRecomendadaUnidades: r.qtdRecomendadaCompra, qtd, valor: r2(qtd * esc.preco), via, ajustes, variacaoIncerta,
-      central: { chave: esc.chave, codigo: esc.codigo, idProduto: esc.idProduto, descricao: esc.descricao, variacao: esc.variacao, variacaoDescricao: esc.variacaoDescricao ?? esc.variacao, referencia: esc.referencia, categoria: esc.categoria, preco: esc.preco, qtdMinima: esc.qtdMinima, qtdMaxima: esc.qtdMaxima, fatorConversao: fator, prazo: esc.prazo, emEstoque: esc.emEstoque, ultimaCompra: esc.ultimaCompra },
+      central: { chave: esc.chave, codigo: esc.codigo, idProduto: esc.idProduto, descricao: esc.descricao, variacao: esc.variacao, variacaoDescricao: esc.variacaoDescricao ?? esc.variacao, corBase: esc.corBase ?? corBase(esc.variacaoDescricao ?? esc.variacao), referencia: esc.referencia, categoria: esc.categoria, preco: esc.preco, qtdMinima: esc.qtdMinima, qtdMaxima: esc.qtdMaxima, fatorConversao: fator, prazo: esc.prazo, emEstoque: esc.emEstoque, ultimaCompra: esc.ultimaCompra },
       alternativas: m.alternativas.map(resumoItemCentral),
+      // vinculo a grade: o painel distribui a quantidade entre os tamanhos pela proporcao da rede
+      distribuirGrade: !!(m as any).grade && tamanhosDaGrade(idx, esc).length > 1,
       // grade: todas as variacoes (cores/tamanhos) do mesmo codigo e fornecedor, para pedir varios tamanhos
       grade: !fornecedorTemGrade(esc.fornecedorNome) ? [] : (idx.porCodigo.get(codNorm(esc.codigo)) ?? []).filter((x: any) => x.fornecedorId === esc.fornecedorId && codNorm(x.codigo) === codNorm(esc.codigo)).slice(0, 80).map(resumoItemCentral),
       fornecedorId: esc.fornecedorId, fornecedorNome: esc.fornecedorNome,
@@ -1315,7 +1342,7 @@ const chaveProduto = (r: { codigoSistema?: unknown; produtoId?: unknown }) => {
   const c = codNorm(r.codigoSistema);
   return c ? `C:${c}` : `I:${String(r.produtoId ?? '')}`;
 };
-const resumoItemCentral = (c: any) => ({ chave: c.chave, codigo: c.codigo, descricao: c.descricao, variacao: c.variacao, variacaoDescricao: c.variacaoDescricao ?? c.variacao, preco: c.preco, qtdMinima: c.qtdMinima, qtdMaxima: c.qtdMaxima, fatorConversao: c.fatorConversao, idProduto: c.idProduto, emEstoque: c.emEstoque, fornecedorId: c.fornecedorId, fornecedorNome: c.fornecedorNome, categoria: c.categoria, ultimaCompra: c.ultimaCompra, qtdRede: c.qtdTotal ?? 0 });
+const resumoItemCentral = (c: any) => ({ chave: c.chave, codigo: c.codigo, descricao: c.descricao, variacao: c.variacao, variacaoDescricao: c.variacaoDescricao ?? c.variacao, corBase: c.corBase ?? corBase(c.variacaoDescricao ?? c.variacao), preco: c.preco, qtdMinima: c.qtdMinima, qtdMaxima: c.qtdMaxima, fatorConversao: c.fatorConversao, idProduto: c.idProduto, emEstoque: c.emEstoque, fornecedorId: c.fornecedorId, fornecedorNome: c.fornecedorNome, categoria: c.categoria, ultimaCompra: c.ultimaCompra, qtdRede: c.qtdTotal ?? 0 });
 
 function indexarCatalogo(cat: any) {
   const porCodigo = new Map<string, any[]>(), porDesc = new Map<string, any[]>(), porChave = new Map<string, any>();
@@ -1334,7 +1361,9 @@ function indexarCatalogo(cat: any) {
 async function carregarVinculosLoja(loja: string) {
   const novos = new Map<string, any>(), antigos = new Map<string, string>();
   let tabelaNova = true;
-  const r1 = await sb().from(TABELA_VINCULOS).select('produto_chave, produto_id, chave_central, codigo_central, variacao, ignorar, motivo, loja_origem, atualizado_por, atualizado_em');
+  let r1: any = await sb().from(TABELA_VINCULOS).select('produto_chave, produto_id, chave_central, codigo_central, variacao, ignorar, grade, motivo, loja_origem, atualizado_por, atualizado_em');
+  // antes de rodar o SQL da grade a coluna nao existe: le sem ela
+  if (r1.error && /grade/i.test(r1.error.message)) r1 = await sb().from(TABELA_VINCULOS).select('produto_chave, produto_id, chave_central, codigo_central, variacao, ignorar, motivo, loja_origem, atualizado_por, atualizado_em');
   if (r1.error) tabelaNova = false; else for (const v of r1.data ?? []) novos.set(String(v.produto_chave), v);
   // vinculos antigos (por codigo da Central) continuam como reserva, so da propria loja
   const r2 = await sb().from('pedidos_vinculos').select('loja, codigo_central, produto_id, ignorar').eq('loja', loja);
@@ -1348,7 +1377,7 @@ function casarProduto(r: any, idx: ReturnType<typeof indexarCatalogo>, vinc: { n
   if (vn?.ignorar) return { via: 'ignorado', item: null, variacaoIncerta: false, alternativas: [] as any[], motivo: vn.motivo ?? null };
   if (vn?.chave_central) {
     const it = idx.porChave.get(vn.chave_central);
-    if (it) return { via: 'vínculo', item: it, variacaoIncerta: false, alternativas: (idx.porCodigo.get(codNorm(it.codigo)) ?? []).filter((x: any) => x !== it).slice(0, 5) };
+    if (it) return { via: 'vínculo', item: it, variacaoIncerta: false, grade: !!vn.grade, alternativas: (idx.porCodigo.get(codNorm(it.codigo)) ?? []).filter((x: any) => x !== it).slice(0, 5) };
     // item vinculado sumiu do catalogo (sem pedidos no periodo): cai para as outras regras, avisando
   }
   let cands: any[] = [], via = '';
@@ -1382,6 +1411,13 @@ function casarProduto(r: any, idx: ReturnType<typeof indexarCatalogo>, vinc: { n
   const pont = cands.map((c) => ({ c, sc: pontuar(c) })).sort((a, b) => b.sc - a.sc || b.c.vezes - a.c.vezes);
   const variacaoIncerta = cands.length > 1 && pont[0].sc < 1 && (pont.length < 2 || pont[0].sc - pont[1].sc < 0.15);
   return { via, item: pont[0].c, variacaoIncerta, alternativas: pont.slice(1, 6).map((x) => x.c), vinculoQuebrado: !!vn?.chave_central };
+}
+
+// Tamanhos do mesmo codigo, fornecedor e cor (so para fornecedores com grade).
+function tamanhosDaGrade(idx: ReturnType<typeof indexarCatalogo>, it: any): any[] {
+  if (!it || !fornecedorTemGrade(it.fornecedorNome)) return [];
+  const cb = it.corBase ?? corBase(it.variacaoDescricao ?? it.variacao);
+  return (idx.porCodigo.get(codNorm(it.codigo)) ?? []).filter((x: any) => x.fornecedorId === it.fornecedorId && codNorm(x.codigo) === codNorm(it.codigo) && (x.corBase ?? corBase(x.variacaoDescricao ?? x.variacao)) === cb);
 }
 
 // ---- Tela de vinculos ----
@@ -1430,7 +1466,7 @@ async function moduloVinculos(body: any, apiBase?: string, lojasTokens?: Record<
       if (!termos.every((t) => alvo.includes(t))) return null;
       const sc = (codNorm(it.codigo) === cod ? 100 : 0) + (codNorm(it.codigo).startsWith(cod) ? 20 : 0) + Math.min(it.vezes, 20);
       return { it, sc };
-    }).filter(Boolean).sort((a: any, b: any) => b.sc - a.sc).slice(0, 40).map((x: any) => resumoItemCentral(x.it));
+    }).filter(Boolean).sort((a: any, b: any) => b.sc - a.sc).slice(0, 40).map((x: any) => ({ ...resumoItemCentral(x.it), tamanhosGrade: tamanhosDaGrade(idx, x.it).length }));
     return { itens: res };
   }
 
@@ -1447,6 +1483,8 @@ async function moduloVinculos(body: any, apiBase?: string, lojasTokens?: Record<
         produtoId: r.produtoId, descricao: r.descricao, codigoSistema: r.codigoSistema ?? null, codigoInterno: r.codigoInterno ?? null,
         vendaMediaDiaria: r.vendaMediaDiaria ?? 0, estoqueAtual: r.estoqueAtual ?? null,
         via: m.via, variacaoIncerta: m.variacaoIncerta, vinculoQuebrado: !!(m as any).vinculoQuebrado, motivo: (m as any).motivo ?? null,
+        grade: !!(m as any).grade,
+        gradeDisponivel: (() => { const t = tamanhosDaGrade(idx, m.item); return t.length > 1 ? { chave: m.item.chave, codigo: m.item.codigo, tamanhos: t.map((x: any) => x.variacao) } : null; })(),
         central: m.item ? resumoItemCentral(m.item) : null,
         alternativas: m.alternativas.map(resumoItemCentral),
         atualizadoPor: vn?.atualizado_por ?? null, atualizadoEm: vn?.atualizado_em ?? null, lojaOrigem: vn?.loja_origem ?? null,
@@ -1468,8 +1506,13 @@ async function moduloVinculos(body: any, apiBase?: string, lojasTokens?: Record<
       if (!it) throw new Error(`Item da Central "${v.chave}" nao existe no catalogo.`);
       return { produto_chave: chaveProduto(v), produto_id: String(v.produtoId), codigo_sistema: v.codigoSistema ? String(v.codigoSistema) : null, descricao_produto: v.descricaoLoja ?? null,
         chave_central: it.chave, codigo_central: it.codigo, variacao: it.variacao || null, fornecedor_id: it.fornecedorId, descricao_central: it.descricao,
-        ignorar: false, motivo: null, loja_origem: loja, atualizado_por: quem, atualizado_em: new Date().toISOString() };
+        ignorar: false, motivo: null, loja_origem: loja, atualizado_por: quem, atualizado_em: new Date().toISOString(),
+        ...(v.grade === true ? { grade: tamanhosDaGrade(idx, it).length > 1 } : (v.grade === false ? { grade: false } : {})) };
     });
+    if (linhas.some((l: any) => l.grade === true)) {
+      const t = await s.from(TABELA_VINCULOS).select('grade').limit(1);
+      if (t.error) throw new Error('Para vincular a grade, rode antes o SQL 20261105000001_vinculos_grade.sql no Supabase.');
+    }
     for (let i = 0; i < linhas.length; i += 200) {
       const { error } = await s.from(TABELA_VINCULOS).upsert(linhas.slice(i, i + 200), { onConflict: 'produto_chave' });
       if (error) throw new Error(`Erro ao salvar vinculos: ${error.message}`);
