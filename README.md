@@ -66,6 +66,7 @@ Detalhes em [`docs/MODULOS.md`](docs/MODULOS.md).
 | `20261104000003_vinculos_produto_rede.sql` | vínculos produto ↔ item da Central (rede) |
 | `20261105000001_vinculos_grade.sql` | vínculo à grade (produto → todos os tamanhos) |
 | `20261105000002_usuarios_painel.sql` | usuários do painel (papel e lojas de cada um) |
+| `20261105000003_catalogo_central.sql` | catálogo fixo da Central (itens dos pedidos + planilha) |
 
 Todos usam `if not exists`: rodar de novo não apaga nada.
 Tabelas que já existiam antes (`lojas_config`, `pedidos_vinculos`, `metas_faturamento`, `perfil_lojas`) não estão aqui.

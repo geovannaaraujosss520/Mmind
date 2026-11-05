@@ -16,8 +16,9 @@ Lê as vendas em janelas paralelas e o estoque da unidade (com diagnóstico de c
 1. Etapa 1: necessidade da loja (Compra Recorrente).
 2. Etapa 2: converte em itens da Central usando os **Vínculos**, separa por fornecedor, aplica mínimo/máximo/embalagem.
 3. Revisão: quantidades, variação, **grade de tamanhos** (fornecedores em `FORNECEDORES_GRADE`) com distribuição pela proporção da rede.
-4. Aprovação (com trava de duplicidade e limite de valor).
-5. Envio pela API `POST /api/v3/cart/finishOrders` com conferência de frete, pagamento e preço; ou lançamento manual com confirmação automática quando o pedido aparece na Central.
+4. **Retorno do pedido**: quanto volta em vendas (preço médio cobrado pela loja), lucro bruto e margem, venda em risco se não pedir (e quanto o pedido protege), quanto a loja perde por dia com itens zerados e até o pedido chegar — no total e por fornecedor, recalculado a cada ajuste.
+5. Aprovação (com trava de duplicidade e limite de valor).
+6. Envio pela API `POST /api/v3/cart/finishOrders` com conferência de frete, pagamento e preço; ou lançamento manual com confirmação automática quando o pedido aparece na Central.
 
 ## Vínculos de produtos
 Produto da VarejOnline (código do sistema) ↔ item da Central (código + variação + tamanho), **válido para a rede inteira**.
@@ -26,6 +27,9 @@ Status: Confirmado · Por código · Conferir · Sem vínculo · Fora da Central
 **Vínculo à grade** (fornecedores em `FORNECEDORES_GRADE`): quando a loja tem um produto só e a Central tem vários tamanhos (ex.: colar 35/38/42/45/50 cm), o produto é ligado a todos os tamanhos da mesma cor; o pedido distribui a quantidade pela proporção da rede e os pedidos em andamento de qualquer tamanho são descontados.
 
 **Vínculo a todas as letras** (qualquer fornecedor): quando a Central tem o mesmo produto de A a Z, cada letra com código próprio (ex.: COLAR CHOKER DE CRISTAL 38CM E PINGENTE LETRA A…Z, Glamour), e a loja tem um produto só ("LETRA ALFABETO"), o produto é ligado a todas as letras da mesma cor. O pedido distribui a quantidade entre as letras pela proporção da rede e desconta pedidos em andamento de qualquer letra.
+
+**Catálogo fixo** (`catalogo_central`): todo item visto nos pedidos fica guardado (com idProduto/unidade para o envio pela API), e a planilha "Peças da Central" pode ser importada na tela de Vínculos — importar de novo só acrescenta os novos e atualiza o custo. Itens que só vieram da planilha entram no pedido sugerido, mas o envio pela API exige que o item já tenha aparecido em algum pedido (senão, lançamento manual).
+**Importar vínculos conferidos**: a planilha de conferência (coluna Aprovar = SIM) é carregada em lote na mesma tela.
 
 ## Vendedores
 Por vendedor e loja, em período de/até: faturamento, atendimentos, PA, ticket, preço médio da peça, % de peças abaixo do preço-limite (alerta a partir de 60%), atendimentos de 1 peça, desconto, % de vendas com cliente identificado e cadastros novos completos (nome completo, telefone, CPF válido, CEP).
