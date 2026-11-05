@@ -1288,7 +1288,7 @@ async function moduloLojaEditar(body: any) {
 
   const propagado: string[] = [], naoPropagado: string[] = [];
   if (patch.nome) {
-    for (const [tabela, coluna] of [['pedidos_vinculos', 'loja'], ['pedidos_sugeridos', 'loja'], ['metas', 'loja'], ['metas_lojas', 'loja'], ['perfil_lojas', 'loja'], ['perfil_lojas', 'nome_loja']]) {
+    for (const [tabela, coluna] of [['metas_faturamento', 'loja'], ['perfil_lojas', 'loja'], ['pedidos_vinculos', 'loja'], ['pedidos_sugeridos', 'loja']]) {
       const { error, count } = await s.from(tabela).update({ [coluna]: patch.nome }, { count: 'exact' }).eq(coluna, nomeAtual);
       if (!error) { if (count) propagado.push(`${tabela} (${count})`); }
       else if (!/does not exist|could not find|schema cache/i.test(error.message)) naoPropagado.push(`${tabela}: ${error.message}`);

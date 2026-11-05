@@ -5,3 +5,6 @@ project_id = "cyxerqtlkhubrkcjqcmx"
 # O painel valida o acesso pelo header x-app-passcode (secret APP_PASSCODE),
 # por isso a verificação de JWT do Supabase fica desligada nesta função.
 verify_jwt = false
+
+[functions.sss-mastermind]
+verify_jwt = false

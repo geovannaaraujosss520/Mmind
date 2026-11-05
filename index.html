@@ -701,6 +701,90 @@ async function recorrentePorLoja(payload, onProgresso) {
   return { parametros: ok[0].parametros, pedidos: ok[0].pedidos, lojas: lojas.sort((a, b) => a.nomeLoja.localeCompare(b.nomeLoja)),
     valorTotalEstimadoCompraRede: lojas.reduce((s, l) => s + (l.valorTotalEstimadoCompra || 0), 0) };
 }
+
+// =====================================================================
+// sss-mastermind LOJA A LOJA (Estoque, Financeiro, Sazonal, Benchmark)
+// Uma chamada por loja (3 em paralelo) e o painel junta — evita o erro 546.
+// =====================================================================
+const MODULOS_POR_LOJA = ['estoque', 'financeiro', 'sazonal', 'benchmark'];
+async function consultarModulo(payload, onProgresso) {
+  const modulo = payload.modulo;
+  if (!MODULOS_POR_LOJA.includes(modulo)) return chamarEdge(payload, EDGE_URL);
+  const nomes = payload.lojas && payload.lojas.length ? payload.lojas : await lojasConfiguradas();
+  let feitas = 0;
+  const extra = modulo === 'sazonal' ? { topNRede: 400 } : modulo === 'benchmark' ? { modo: 'loja' } : {};
+  const res = await emParalelo(nomes, 3, async (nome) => {
+    let r;
+    try { r = await chamarEdge({ ...payload, ...extra, lojas: [nome] }, EDGE_URL); }
+    catch (e) { r = { erroLoja: e.message, nome }; }
+    feitas++; onProgresso && onProgresso(feitas, nomes.length);
+    return r;
+  });
+  const ok = res.filter(r => !r.erroLoja);
+  if (!ok.length) throw new Error(res[0]?.erroLoja || 'Nenhuma loja respondeu.');
+  const erros = res.filter(r => r.erroLoja);
+  if (modulo === 'estoque') return juntarEstoque(ok, erros);
+  if (modulo === 'financeiro') return juntarFinanceiro(ok, erros);
+  if (modulo === 'sazonal') return juntarSazonal(ok, erros, Number(payload.topN || 30));
+  return juntarBenchmark(ok, erros);
+}
+const ordenarLojas = l => l.sort((a, b) => String(a.nomeLoja ?? a.loja).localeCompare(String(b.nomeLoja ?? b.loja), 'pt-BR'));
+
+function juntarEstoque(ok, erros) {
+  const lojas = ok.flatMap(r => r.lojas).concat(erros.map(e => ({ nomeLoja: e.nome, erro: e.erroLoja, alertasBaixo: [], alertasAlto: [], semMovimento: [] })));
+  return { parametros: ok[0].parametros, lojas: ordenarLojas(lojas) };
+}
+
+function juntarFinanceiro(ok, erros) {
+  const lojas = ok.flatMap(r => r.lojas).concat(erros.map(e => ({ nomeLoja: e.nome, erro: e.erroLoja })));
+  const v = lojas.filter(l => l.dre);
+  const soma = c => Math.round(v.reduce((s, l) => s + (Number(l.dre[c]) || 0), 0) * 100) / 100;
+  const cats = new Map(), band = new Map();
+  for (const l of v) for (const d of l.dre.despesasPorCategoria || []) cats.set(d.categoria, (cats.get(d.categoria) || 0) + d.valor);
+  for (const r of ok) for (const b of r.porBandeiraRede || []) { const x = band.get(b.bandeira) || { bandeira: b.bandeira, quantidade: 0, valor: 0 }; x.quantidade += b.quantidade; x.valor += b.valor; band.set(b.bandeira, x); }
+  const totBand = [...band.values()].reduce((s, b) => s + b.valor, 0);
+  const rl = soma('receitaLiquida'), lb = soma('lucroBruto'), ro = soma('resultadoOperacional');
+  return {
+    parametros: ok[0].parametros, lojas: ordenarLojas(lojas),
+    redeConsolidado: {
+      receitaBruta: soma('receitaBruta'), devolucoes: soma('devolucoes'), receitaLiquida: rl, cmv: soma('cmv'), lucroBruto: lb,
+      totalDespesasOperacionais: soma('totalDespesasOperacionais'), resultadoOperacional: ro,
+      margemBrutaPercent: rl ? Number((lb / rl * 100).toFixed(1)) : 0, margemOperacionalPercent: rl ? Number((ro / rl * 100).toFixed(1)) : 0,
+      despesasPorCategoria: [...cats.entries()].map(([categoria, valor]) => ({ categoria, valor: Math.round(valor * 100) / 100 })).sort((a, b) => b.valor - a.valor),
+    },
+    porBandeiraRede: [...band.values()].map(b => ({ ...b, valor: Math.round(b.valor * 100) / 100, percentual: totBand ? Number((b.valor / totBand * 100).toFixed(1)) : 0 })).sort((a, b) => b.percentual - a.percentual),
+  };
+}
+
+function juntarSazonal(ok, erros, topN) {
+  const chave = p => p.codigoSistema ? 'C:' + String(p.codigoSistema).trim().toUpperCase() : 'D:' + String(p.descricao || '').trim().toUpperCase();
+  const somar = (listas) => {
+    const m = new Map();
+    for (const lista of listas) for (const p of lista || []) {
+      const k = chave(p), x = m.get(k) || { produtoId: p.produtoId, descricao: p.descricao, codigoSistema: p.codigoSistema, qtdVendida: 0, valorVendido: 0 };
+      x.qtdVendida += p.qtdVendida; x.valorVendido += p.valorVendido; m.set(k, x);
+    }
+    return [...m.values()].map(x => ({ ...x, valorVendido: Math.round(x.valorVendido * 100) / 100 })).sort((a, b) => b.qtdVendida - a.qtdVendida).slice(0, topN);
+  };
+  const base = ok[0];
+  const porAno = base.porAno.map((a0, k) => {
+    const anos = ok.map(r => r.porAno[k]);
+    return {
+      ano: a0.ano, periodo: a0.periodo,
+      topProdutosRede: somar(anos.map(a => a.topProdutosRede)),
+      totalUnidadesRede: anos.reduce((s, a) => s + a.totalUnidadesRede, 0),
+      totalValorRede: Math.round(anos.reduce((s, a) => s + a.totalValorRede, 0) * 100) / 100,
+      porLoja: anos.flatMap(a => a.porLoja).concat(erros.map(e => ({ loja: e.nome, topProdutos: [], totalUnidades: 0, totalValor: 0, erro: e.erroLoja }))).sort((a, b) => a.loja.localeCompare(b.loja, 'pt-BR')),
+    };
+  });
+  return { parametros: { ...base.parametros, topN }, porAno, topProdutosCombinadoTodosAnos: somar(ok.map(r => r.topProdutosCombinadoTodosAnos)) };
+}
+
+async function juntarBenchmark(ok, erros) {
+  const metricas = ok.flatMap(r => r.lojas).concat(erros.map(e => ({ nomeLoja: e.nome, erro: e.erroLoja })));
+  return chamarEdge({ modulo: 'benchmark', acao: 'agrupar', metricas, parametros: ok[0].parametros }, EDGE_URL);
+}
+
 async function vendedoresPorLoja(payload, onProgresso) {
   const res = await porLoja(payload, onProgresso);
   const ok = res.filter(r => !r.erroLoja);
@@ -825,7 +909,7 @@ async function rodarModulo(modulo) {
 
     const data = modulo === 'recorrente'
       ? await recorrentePorLoja(payload, (f, t, msg) => { status.textContent = msg || `Consultando VarejOnline… ${f}/${t} lojas`; })
-      : await chamarEdge(payload, EDGE_URL);
+      : await consultarModulo(payload, (f, t) => { status.textContent = `Consultando VarejOnline… ${f}/${t} lojas`; });
     status.textContent = `Concluído às ${new Date().toLocaleTimeString('pt-BR')}`;
 
     if (modulo === 'recorrente') renderRecorrente(data, resultBox);
@@ -1573,10 +1657,10 @@ async function rodarCentral() {
     recorrente: () => recorrentePorLoja({ modulo: 'recorrente',
       diasHistorico: Number($('rec_diasHistorico').value || 90), diasPeriodoAlvo: Number($('rec_diasPeriodo').value || 30),
       percentCrescimento: Number($('rec_crescimento').value || 0), diasSeguranca: Number($('rec_seguranca').value || 7), lojas }),
-    estoque: () => chamarEdge({ modulo: 'estoque', diasHistorico: Number($('est_diasHistorico').value || 90),
+    estoque: () => consultarModulo({ modulo: 'estoque', diasHistorico: Number($('est_diasHistorico').value || 90),
       limiteBaixoDias: Number($('est_limiteBaixo').value || 7), limiteAltoDias: Number($('est_limiteAlto').value || 90), lojas }),
     financeiro: async () => {
-      const d = await chamarEdge({ modulo: 'financeiro', desde, ate, lojas });
+      const d = await consultarModulo({ modulo: 'financeiro', desde, ate, lojas });
       const ano = hoje.getFullYear(), mes = hoje.getMonth() + 1;
       let metas = { metas: [] };
       try { metas = await chamarEdge({ modulo: 'metas', acao: 'listar', ano, mes }); } catch (e) { /* segue sem metas */ }
@@ -1586,7 +1670,7 @@ async function rodarCentral() {
     },
   };
   if ($('cen_vend').checked) fontes.vendedores = () => vendedoresPorLoja(payloadVendedores(lojas));
-  if ($('cen_bench').checked) fontes.benchmark = () => chamarEdge({ modulo: 'benchmark', diasJanela: Number($('bench_diasJanela').value || 365), lojas });
+  if ($('cen_bench').checked) fontes.benchmark = () => consultarModulo({ modulo: 'benchmark', diasJanela: Number($('bench_diasJanela').value || 365), lojas });
 
   const nomesFonte = { recorrente: 'Compras', estoque: 'Estoque', financeiro: 'DRE + metas', vendedores: 'Vendedores', benchmark: 'Benchmark' };
   const estado = {};
