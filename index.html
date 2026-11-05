@@ -422,8 +422,8 @@
         <strong>1. Catálogo da Central</strong> — a planilha "Peças da Central" (Fornecedor, Código, Nome, Variações, Custo). Os itens ficam guardados de vez: importar de novo só acrescenta os novos e atualiza o custo.<br>
         <strong>2. Vínculos conferidos</strong> — a planilha de conferência com a coluna Aprovar; só as linhas com SIM são carregadas.</div>
       <div class="actions" style="flex-wrap:wrap">
-        <label class="secondary" style="cursor:pointer; padding:8px 14px; border:1px solid var(--line); border-radius:10px; font-size:12.5px; text-transform:none; letter-spacing:0; margin:0">Catálogo da Central (.xlsx)<input type="file" id="vin_imp_cat" accept=".xlsx,.xls,.csv" style="display:none"></label>
-        <label class="secondary" style="cursor:pointer; padding:8px 14px; border:1px solid var(--line); border-radius:10px; font-size:12.5px; text-transform:none; letter-spacing:0; margin:0">Vínculos conferidos (.xlsx)<input type="file" id="vin_imp_vin" accept=".xlsx,.xls" style="display:none"></label>
+        <label class="secondary" style="cursor:pointer; padding:8px 14px; border:1px solid var(--line); border-radius:10px; font-size:12.5px; text-transform:none; letter-spacing:0; margin:0">Catálogo da Central (.xlsx)<input type="file" id="vin_imp_cat" accept=".xlsx" style="display:none"></label>
+        <label class="secondary" style="cursor:pointer; padding:8px 14px; border:1px solid var(--line); border-radius:10px; font-size:12.5px; text-transform:none; letter-spacing:0; margin:0">Vínculos conferidos (.xlsx)<input type="file" id="vin_imp_vin" accept=".xlsx" style="display:none"></label>
         <span class="status" id="vin_imp_status"></span>
       </div>
       <div id="vin_imp_erros"></div>
@@ -3105,16 +3105,59 @@ const vinCall = payload => chamarEdge({ modulo: 'vinculos', usuario: $('vin_usua
 $('vin_carregar').addEventListener('click', () => carregarVinculos());
 
 // ---- Importação das planilhas (catálogo da Central e vínculos conferidos) ----
-let _xlsxLib = null;
-function carregarXLSX() {
-  if (_xlsxLib) return _xlsxLib;
-  _xlsxLib = new Promise((ok, falha) => { const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; sc.onload = () => ok(window.XLSX); sc.onerror = () => { _xlsxLib = null; falha(new Error('Não consegui carregar o leitor de planilhas.')); }; document.head.appendChild(sc); });
-  return _xlsxLib;
-}
+// Leitor de .xlsx próprio: lê só as abas e textos (ignora fotos), sem biblioteca externa.
+// A planilha "Peças da Central" tem milhares de imagens (80+ MB) — abrir tudo travava o navegador.
 async function lerPlanilha(arquivo) {
-  const X = await carregarXLSX();
-  const wb = X.read(await arquivo.arrayBuffer(), { type: 'array' });
-  return wb.SheetNames.map(n => ({ nome: n, linhas: X.utils.sheet_to_json(wb.Sheets[n], { defval: '', raw: false }) }));
+  const buf = await arquivo.arrayBuffer(), dv = new DataView(buf), u8 = new Uint8Array(buf), td = new TextDecoder();
+  let fim = -1;
+  for (let i = u8.length - 22; i >= Math.max(0, u8.length - 70000); i--) if (dv.getUint32(i, true) === 0x06054b50) { fim = i; break; }
+  if (fim < 0) throw new Error('O arquivo não é um .xlsx válido (salve como "Pasta de Trabalho do Excel").');
+  const total = dv.getUint16(fim + 10, true);
+  let off = dv.getUint32(fim + 16, true);
+  const ent = {};
+  for (let k = 0; k < total && dv.getUint32(off, true) === 0x02014b50; k++) {
+    const nl = dv.getUint16(off + 28, true), xl = dv.getUint16(off + 30, true), cl = dv.getUint16(off + 32, true);
+    ent[td.decode(u8.subarray(off + 46, off + 46 + nl))] = { metodo: dv.getUint16(off + 10, true), tam: dv.getUint32(off + 20, true), loc: dv.getUint32(off + 42, true) };
+    off += 46 + nl + xl + cl;
+  }
+  const ler = async nome => {
+    const e = ent[nome]; if (!e) return null;
+    const ini = e.loc + 30 + dv.getUint16(e.loc + 26, true) + dv.getUint16(e.loc + 28, true), dados = u8.subarray(ini, ini + e.tam);
+    if (e.metodo === 0) return td.decode(dados);
+    return await new Response(new Blob([dados]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text();
+  };
+  const xml = t => new DOMParser().parseFromString(t, 'application/xml');
+  const filhos = (el, nome) => [...el.getElementsByTagName('*')].filter(x => x.localName === nome);
+  const shared = [];
+  const ss = await ler('xl/sharedStrings.xml');
+  if (ss) for (const si of filhos(xml(ss).documentElement, 'si')) shared.push(filhos(si, 't').map(t => t.textContent).join(''));
+  const rels = {};
+  const rx = await ler('xl/_rels/workbook.xml.rels');
+  if (rx) for (const r of filhos(xml(rx).documentElement, 'Relationship')) rels[r.getAttribute('Id')] = r.getAttribute('Target');
+  const wb = xml(await ler('xl/workbook.xml') || '<workbook/>');
+  const abas = filhos(wb.documentElement, 'sheet').map(sh => {
+    const rid = [...sh.attributes].find(a => a.localName === 'id' && a.name !== 'sheetId')?.value;
+    let alvo = rels[rid] || ''; alvo = alvo.startsWith('/') ? alvo.slice(1) : 'xl/' + alvo.replace(/^\.\//, '');
+    return { nome: sh.getAttribute('name'), arq: alvo };
+  });
+  const colNum = ref => { let n = 0; for (const ch of ref.replace(/\d+$/, '')) n = n * 26 + ch.charCodeAt(0) - 64; return n - 1; };
+  const out = [];
+  for (const a of abas) {
+    const t = await ler(a.arq); if (!t) continue;
+    const linhas = filhos(xml(t).documentElement, 'row').map(row => {
+      const vals = [];
+      for (const c of filhos(row, 'c')) {
+        const tipo = c.getAttribute('t'), v = filhos(c, 'v')[0]?.textContent ?? '';
+        const txt = tipo === 's' ? (shared[Number(v)] ?? '') : tipo === 'inlineStr' ? filhos(c, 't').map(x => x.textContent).join('') : v;
+        vals[c.getAttribute('r') ? colNum(c.getAttribute('r')) : vals.length] = txt;
+      }
+      return vals;
+    });
+    if (!linhas.length) { out.push({ nome: a.nome, linhas: [] }); continue; }
+    const cab = Array.from(linhas[0], x => x ?? '');
+    out.push({ nome: a.nome, linhas: linhas.slice(1).filter(l => l.some(x => x !== undefined && x !== '')).map(l => Object.fromEntries(cab.map((h, k) => [h || `col${k}`, l[k] ?? '']))) });
+  }
+  return out;
 }
 const normCab = t => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
 const campo = (lin, ...nomes) => { for (const k of Object.keys(lin)) if (nomes.includes(normCab(k))) return String(lin[k] ?? '').trim(); return ''; };
