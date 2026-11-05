@@ -65,6 +65,7 @@ Detalhes em [`docs/MODULOS.md`](docs/MODULOS.md).
 | `20261104000002_central_cache_dias.sql` | cache diário dos pedidos da Central |
 | `20261104000003_vinculos_produto_rede.sql` | vínculos produto ↔ item da Central (rede) |
 | `20261105000001_vinculos_grade.sql` | vínculo à grade (produto → todos os tamanhos) |
+| `20261105000002_usuarios_painel.sql` | usuários do painel (papel e lojas de cada um) |
 
 Todos usam `if not exists`: rodar de novo não apaga nada.
 Tabelas que já existiam antes (`lojas_config`, `pedidos_vinculos`, `metas_faturamento`, `perfil_lojas`) não estão aqui.
@@ -73,7 +74,8 @@ Tabelas que já existiam antes (`lojas_config`, `pedidos_vinculos`, `metas_fatur
 | Secret | Obrigatório | Para quê |
 |---|---|---|
 | `VAREJONLINE_API_BASE` | sim | URL base da API da VarejOnline |
-| `APP_PASSCODE` | sim | senha de acesso do painel |
+| `APP_PASSCODE` | sim | senha do time (entrada provisória até todos terem login) |
+| `LOGIN_OBRIGATORIO` | depois | `true` desliga a senha do time: só entra com e-mail e senha |
 | `PEDIDOS_API_KEY` | sim | chave da API da Central (leitura de pedidos) |
 | `ALLOWED_ORIGIN` | recomendado | endereço do painel (bloqueia chamadas de outros sites) |
 | `CENTRAL_ENVIO_HABILITADO` | para enviar pedidos | `true` libera o envio à Central |
@@ -94,7 +96,9 @@ Depois de publicar, quem usa o app instalado deve fechar e abrir de novo (ou Ctr
 ---
 
 ## Segurança — leia antes de abrir para as lojas
-- O acesso é por **uma senha única** (`APP_PASSCODE`). Quem tiver a senha vê todas as lojas, dados de vendedores e clientes, e pode aprovar/enviar pedidos. Próximo passo recomendado: login por usuário (Supabase Auth) com permissão por loja.
+- Acesso por **e-mail e senha** (Supabase Auth). Papéis: **Administrador** (tudo, inclusive Usuários e Lojas), **Equipe** (rede toda, sem Usuários/Lojas), **Franqueado** (só as lojas marcadas — vê, aprova e envia os pedidos delas; dados de vendedores só da própria loja). A permissão é conferida no servidor, não só na tela.
+- Usuários são criados pelo administrador na tela **Usuários**, com senha temporária trocada no 1º acesso. Desative o cadastro público em Supabase → Authentication → Sign In / Providers → *Allow new users to sign up* = off.
+- Enquanto `LOGIN_OBRIGATORIO` não for `true`, a senha do time (`APP_PASSCODE`) continua entrando como administrador.
 - Configure `ALLOWED_ORIGIN` = `https://geovannaaraujosss520.github.io` (sem `/Mmind` no final).
 - O envio de pedidos à Central só funciona com `CENTRAL_ENVIO_HABILITADO=true`, sempre com confirmação humana e trava contra duplicidade.
 

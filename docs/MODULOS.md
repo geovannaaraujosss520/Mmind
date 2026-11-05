@@ -39,3 +39,9 @@ Cadastro, edição (nome, CNPJ, token testado antes de salvar; renomear propaga 
 ## Cache e limites
 - Pedidos da Central ficam em `central_cache_dias` (validade de 5 min a 24 h conforme a idade do dia). A primeira carga é feita em partes.
 - Consultas pesadas são feitas loja a loja pelo painel, para respeitar o limite de tempo/memória das Edge Functions (erro 546).
+
+## Usuários e acesso
+- Login por e-mail e senha; senha temporária gerada pelo administrador e trocada no 1º acesso.
+- **Administrador**: tudo. **Equipe**: rede toda, sem Usuários e Lojas. **Franqueado**: só as lojas dele (Central de Decisão, compras, pedidos, estoque, financeiro, vendedores); sem Benchmark, Vínculos, Lojas e Usuários.
+- Quem aprova/envia um pedido fica registrado com o nome do usuário logado.
+- `LOGIN_OBRIGATORIO=true` desliga a senha do time.
