@@ -42,16 +42,57 @@ function getSupabaseAdmin() {
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   return createClient(url, key);
 }
+const clienteAcesso = getSupabaseAdmin;
+
+// =====================================================================
+// ACESSO — login por usuário (Supabase Auth) + senha do time (transição)
+// Papéis: admin (tudo), equipe (rede toda), franqueado (só as lojas liberadas).
+// Secret LOGIN_OBRIGATORIO=true desliga a senha do time.
+// (bloco idêntico em sss-compras e sss-mastermind)
+// =====================================================================
+type Acesso = { tipo: 'usuario' | 'senha'; userId?: string; email?: string; nome: string; papel: 'admin' | 'equipe' | 'franqueado'; lojas: string[]; todas: boolean; trocarSenha?: boolean };
+class ErroAcesso extends Error { constructor(msg: string, public status = 403) { super(msg); } }
+const cacheAcesso = new Map<string, { quando: number; acesso: Acesso }>();
+
+async function obterAcesso(req: Request): Promise<Acesso> {
+  const auth = req.headers.get('authorization') ?? '';
+  const jwt = /^bearer /i.test(auth) ? auth.slice(7).trim() : '';
+  const chavesPublicas = [Deno.env.get('SUPABASE_ANON_KEY'), Deno.env.get('SUPABASE_PUBLISHABLE_KEY')].filter(Boolean);
+  if (jwt && !chavesPublicas.includes(jwt)) {
+    const c = cacheAcesso.get(jwt);
+    if (c && Date.now() - c.quando < 60000) return c.acesso;
+    const adm = clienteAcesso();
+    const { data, error } = await adm.auth.getUser(jwt);
+    if (error || !data?.user) throw new ErroAcesso('Sua sessão expirou. Entre de novo.', 401);
+    const { data: p, error: e2 } = await adm.from('usuarios_painel').select('nome, papel, lojas, ativo, trocar_senha').eq('user_id', data.user.id).maybeSingle();
+    if (e2) throw new ErroAcesso(`Erro ao ler o perfil do usuário: ${e2.message}`, 500);
+    if (!p || !p.ativo) throw new ErroAcesso('Seu usuário não tem acesso ao painel. Fale com o administrador.', 403);
+    const papel = (['admin', 'equipe', 'franqueado'].includes(p.papel) ? p.papel : 'franqueado') as Acesso['papel'];
+    const acesso: Acesso = { tipo: 'usuario', userId: data.user.id, email: data.user.email ?? '', nome: p.nome || data.user.email || 'usuário', papel, lojas: p.lojas ?? [], todas: papel !== 'franqueado', trocarSenha: !!p.trocar_senha };
+    cacheAcesso.set(jwt, { quando: Date.now(), acesso });
+    return acesso;
+  }
+  const obrigatorio = String(Deno.env.get('LOGIN_OBRIGATORIO') ?? '').toLowerCase() === 'true';
+  const esperado = Deno.env.get('APP_PASSCODE');
+  if (!obrigatorio && esperado && (req.headers.get('x-app-passcode') ?? '') === esperado) return { tipo: 'senha', nome: 'Senha do time', papel: 'admin', lojas: [], todas: true };
+  if (!obrigatorio && !esperado) return { tipo: 'senha', nome: 'Acesso livre', papel: 'admin', lojas: [], todas: true };
+  throw new ErroAcesso(obrigatorio ? 'Entre com seu e-mail e senha.' : 'Senha de acesso inválida ou ausente.', 401);
+}
+// Lojas que o usuário pode consultar (null = todas). Franqueado: só as liberadas.
+function lojasDoAcesso(a: Acesso, pedidas: unknown): string[] | null {
+  const lista = Array.isArray(pedidas) ? pedidas.map(String).filter(Boolean) : [];
+  if (a.todas) return lista.length ? lista : null;
+  const ok = (lista.length ? lista : a.lojas).filter((l) => a.lojas.includes(l));
+  if (!ok.length) throw new ErroAcesso(a.lojas.length ? 'Sem acesso a esta loja.' : 'Nenhuma loja liberada para o seu usuário. Fale com o administrador.', 403);
+  return ok;
+}
+function exigirPapel(a: Acesso, ...papeis: Acesso['papel'][]) { if (!papeis.includes(a.papel)) throw new ErroAcesso('Seu usuário não tem permissão para esta ação.', 403); }
+function exigirLoja(a: Acesso, loja: unknown) { if (!a.todas && !a.lojas.includes(String(loja ?? ''))) throw new ErroAcesso('Sem acesso a esta loja.', 403); }
+const respostaErroAcesso = (e: ErroAcesso, headers: Record<string, string>) => new Response(JSON.stringify({ error: e.message, acesso: e.status === 401 ? 'login' : 'negado' }), { status: e.status, headers: { ...headers, 'Content-Type': 'application/json' } });
+
 
 // ---------- Utilidades comuns ----------
 
-function checarSenha(req: Request): string | null {
-  const esperado = Deno.env.get("APP_PASSCODE");
-  if (!esperado) return null;
-  const recebido = req.headers.get("x-app-passcode") ?? "";
-  if (recebido !== esperado) return "Senha de acesso inválida ou ausente.";
-  return null;
-}
 
 // As lojas (nome, CNPJ, token) ficam guardadas na tabela lojas_config (ver lojas_config.sql),
 // não mais só no secret VAREJONLINE_LOJAS — assim dá pra cadastrar loja nova pelo próprio painel,
@@ -973,20 +1014,20 @@ serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
-  const erroSenha = checarSenha(req);
-  if (erroSenha) {
-    return new Response(JSON.stringify({ error: erroSenha }), {
-      status: 401,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+  let acesso: Acesso;
+  try { acesso = await obterAcesso(req); } catch (e) {
+    if (e instanceof ErroAcesso) return respostaErroAcesso(e, corsHeaders);
+    throw e;
   }
+  const json = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   const apiBase = Deno.env.get("VAREJONLINE_API_BASE")!;
 
   if (req.method === "GET") {
     try {
       const lojasTokens = await getLojasTokens();
-      return new Response(JSON.stringify({ lojas: Object.keys(lojasTokens) }), {
+      const nomes = Object.keys(lojasTokens).filter((n) => acesso.todas || acesso.lojas.includes(n));
+      return new Response(JSON.stringify({ lojas: nomes }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     } catch (err) {
@@ -1000,6 +1041,18 @@ serve(async (req) => {
   try {
     const body = await req.json().catch(() => ({}));
     const modulo = String(body.modulo ?? "");
+    if (acesso.trocarSenha) throw new ErroAcesso("Troque a senha temporária antes de continuar.", 403);
+    // Franqueado: só as lojas liberadas; benchmark e cadastro de lojas são da equipe.
+    if (["recorrente", "sazonal", "estoque", "financeiro"].includes(modulo)) body.lojas = lojasDoAcesso(acesso, body.lojas);
+    if (modulo === "benchmark") exigirPapel(acesso, "admin", "equipe");
+    if (modulo === "lojas") { if (String(body.acao ?? "listar") === "listar") exigirPapel(acesso, "admin", "equipe"); else exigirPapel(acesso, "admin"); }
+    if (modulo === "metas") {
+      if (String(body.acao ?? "listar") === "salvar") { exigirPapel(acesso, "admin", "equipe"); }
+      else if (!acesso.todas) {
+        const r: any = await moduloMetas(body);
+        return json({ metas: (r.metas ?? []).filter((m: any) => acesso.lojas.includes(m.loja)) });
+      }
+    }
 
     // Benchmark: agrupa métricas já calculadas loja a loja (não consulta a VarejOnline).
     if (modulo === "benchmark" && body.acao === "agrupar") {
@@ -1050,6 +1103,7 @@ serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
+    if (err instanceof ErroAcesso) return respostaErroAcesso(err, corsHeaders);
     return new Response(JSON.stringify({ error: semToken(err) }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

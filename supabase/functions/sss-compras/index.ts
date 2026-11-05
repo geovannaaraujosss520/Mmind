@@ -8,8 +8,55 @@ const cors = {
   'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') || '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-app-passcode',
 };
+// =====================================================================
+// ACESSO — login por usuário (Supabase Auth) + senha do time (transição)
+// Papéis: admin (tudo), equipe (rede toda), franqueado (só as lojas liberadas).
+// Secret LOGIN_OBRIGATORIO=true desliga a senha do time.
+// (bloco idêntico em sss-compras e sss-mastermind)
+// =====================================================================
+type Acesso = { tipo: 'usuario' | 'senha'; userId?: string; email?: string; nome: string; papel: 'admin' | 'equipe' | 'franqueado'; lojas: string[]; todas: boolean; trocarSenha?: boolean };
+class ErroAcesso extends Error { constructor(msg: string, public status = 403) { super(msg); } }
+const cacheAcesso = new Map<string, { quando: number; acesso: Acesso }>();
+
+async function obterAcesso(req: Request): Promise<Acesso> {
+  const auth = req.headers.get('authorization') ?? '';
+  const jwt = /^bearer /i.test(auth) ? auth.slice(7).trim() : '';
+  const chavesPublicas = [Deno.env.get('SUPABASE_ANON_KEY'), Deno.env.get('SUPABASE_PUBLISHABLE_KEY')].filter(Boolean);
+  if (jwt && !chavesPublicas.includes(jwt)) {
+    const c = cacheAcesso.get(jwt);
+    if (c && Date.now() - c.quando < 60000) return c.acesso;
+    const adm = clienteAcesso();
+    const { data, error } = await adm.auth.getUser(jwt);
+    if (error || !data?.user) throw new ErroAcesso('Sua sessão expirou. Entre de novo.', 401);
+    const { data: p, error: e2 } = await adm.from('usuarios_painel').select('nome, papel, lojas, ativo, trocar_senha').eq('user_id', data.user.id).maybeSingle();
+    if (e2) throw new ErroAcesso(`Erro ao ler o perfil do usuário: ${e2.message}`, 500);
+    if (!p || !p.ativo) throw new ErroAcesso('Seu usuário não tem acesso ao painel. Fale com o administrador.', 403);
+    const papel = (['admin', 'equipe', 'franqueado'].includes(p.papel) ? p.papel : 'franqueado') as Acesso['papel'];
+    const acesso: Acesso = { tipo: 'usuario', userId: data.user.id, email: data.user.email ?? '', nome: p.nome || data.user.email || 'usuário', papel, lojas: p.lojas ?? [], todas: papel !== 'franqueado', trocarSenha: !!p.trocar_senha };
+    cacheAcesso.set(jwt, { quando: Date.now(), acesso });
+    return acesso;
+  }
+  const obrigatorio = String(Deno.env.get('LOGIN_OBRIGATORIO') ?? '').toLowerCase() === 'true';
+  const esperado = Deno.env.get('APP_PASSCODE');
+  if (!obrigatorio && esperado && (req.headers.get('x-app-passcode') ?? '') === esperado) return { tipo: 'senha', nome: 'Senha do time', papel: 'admin', lojas: [], todas: true };
+  if (!obrigatorio && !esperado) return { tipo: 'senha', nome: 'Acesso livre', papel: 'admin', lojas: [], todas: true };
+  throw new ErroAcesso(obrigatorio ? 'Entre com seu e-mail e senha.' : 'Senha de acesso inválida ou ausente.', 401);
+}
+// Lojas que o usuário pode consultar (null = todas). Franqueado: só as liberadas.
+function lojasDoAcesso(a: Acesso, pedidas: unknown): string[] | null {
+  const lista = Array.isArray(pedidas) ? pedidas.map(String).filter(Boolean) : [];
+  if (a.todas) return lista.length ? lista : null;
+  const ok = (lista.length ? lista : a.lojas).filter((l) => a.lojas.includes(l));
+  if (!ok.length) throw new ErroAcesso(a.lojas.length ? 'Sem acesso a esta loja.' : 'Nenhuma loja liberada para o seu usuário. Fale com o administrador.', 403);
+  return ok;
+}
+function exigirPapel(a: Acesso, ...papeis: Acesso['papel'][]) { if (!papeis.includes(a.papel)) throw new ErroAcesso('Seu usuário não tem permissão para esta ação.', 403); }
+function exigirLoja(a: Acesso, loja: unknown) { if (!a.todas && !a.lojas.includes(String(loja ?? ''))) throw new ErroAcesso('Sem acesso a esta loja.', 403); }
+const respostaErroAcesso = (e: ErroAcesso, headers: Record<string, string>) => new Response(JSON.stringify({ error: e.message, acesso: e.status === 401 ? 'login' : 'negado' }), { status: e.status, headers: { ...headers, 'Content-Type': 'application/json' } });
+
 const resp = (o: unknown, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { ...cors, 'Content-Type': 'application/json' } });
 const sb = () => createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+const clienteAcesso = sb;
 
 const limpa = (s: unknown) => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
 const normLoja = (s: unknown) => limpa(String(s ?? '').replace(/^\s*\d+\s*-?\s*/, '')).replace(/\bSSS\b/g, '').replace(/\s+/g, ' ').trim();
@@ -898,6 +945,7 @@ async function moduloPedidoSugerido(apiBase: string, lojasTokens: Record<string,
   if (acao === 'listar') {
     let q = s.from('pedidos_sugeridos').select('*').order('criado_em', { ascending: false }).limit(Number(body.limite ?? 60));
     if (body.loja) q = q.eq('loja', body.loja);
+    else if (Array.isArray(body.lojasPermitidas)) q = q.in('loja', body.lojasPermitidas);
     const { data, error } = await q;
     if (error) throw new Error(`Erro ao listar pedidos: ${error.message}. A tabela pedidos_sugeridos foi criada?`);
     const lista = data ?? [];
@@ -1321,6 +1369,11 @@ async function moduloLojaEditar(body: any) {
       else if (!/does not exist|could not find|schema cache/i.test(error.message)) naoPropagado.push(`${tabela}: ${error.message}`);
     }
   }
+  if (patch.nome) {
+    const { data: us } = await s.from('usuarios_painel').select('user_id, lojas').contains('lojas', [nomeAtual]);
+    for (const u of us ?? []) await s.from('usuarios_painel').update({ lojas: (u.lojas ?? []).map((l: string) => l === nomeAtual ? patch.nome : l) }).eq('user_id', u.user_id);
+    if (us?.length) propagado.push(`usuarios_painel (${us.length})`);
+  }
   return { ok: true, alterado: true, campos: Object.keys(patch).filter((k) => k !== 'token').concat(patch.token ? ['token'] : []), propagado, naoPropagado };
 }
 
@@ -1570,33 +1623,159 @@ async function moduloDiagnosticoCentral(body: any) {
   };
 }
 
+
+// =====================================================================
+// USUÁRIOS DO PAINEL (somente admin, exceto meuPerfil / senhaTrocada)
+// Tabela usuarios_painel (SQL 20261105000002_usuarios_painel.sql)
+// =====================================================================
+function gerarSenhaTemporaria() {
+  const letras = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz', nums = '23456789';
+  const b = crypto.getRandomValues(new Uint8Array(12));
+  let s = '';
+  for (let i = 0; i < 10; i++) s += letras[b[i] % letras.length];
+  return s.slice(0, 5) + nums[b[10] % nums.length] + nums[b[11] % nums.length] + s.slice(5);
+}
+async function moduloUsuarios(body: any, a: Acesso) {
+  const acao = String(body.acao ?? '');
+  const s = sb();
+  if (acao === 'meuPerfil') {
+    let lojas: string[] = a.lojas;
+    if (a.todas) { const { data } = await s.from('lojas_config').select('nome').eq('ativo', true); lojas = (data ?? []).map((l: any) => l.nome).sort(); }
+    return { tipo: a.tipo, nome: a.nome, email: a.email ?? null, papel: a.papel, todas: a.todas, lojas, trocarSenha: !!a.trocarSenha,
+      loginObrigatorio: String(Deno.env.get('LOGIN_OBRIGATORIO') ?? '').toLowerCase() === 'true' };
+  }
+  if (acao === 'senhaTrocada') {
+    if (a.tipo !== 'usuario') return { ok: true };
+    await s.from('usuarios_painel').update({ trocar_senha: false, atualizado_em: new Date().toISOString() }).eq('user_id', a.userId);
+    cacheAcesso.clear();
+    return { ok: true };
+  }
+  exigirPapel(a, 'admin');
+  const tab = await s.from('usuarios_painel').select('user_id').limit(1);
+  if (tab.error) throw new Error('Tabela usuarios_painel nao encontrada. Rode o SQL 20261105000002_usuarios_painel.sql no Supabase.');
+  const papelOk = (p: unknown) => { if (!['admin', 'equipe', 'franqueado'].includes(String(p))) throw new Error('Papel invalido: use admin, equipe ou franqueado.'); return String(p); };
+  const validarLojas = async (lojas: unknown) => {
+    const l = Array.isArray(lojas) ? [...new Set(lojas.map(String).filter(Boolean))] : [];
+    if (!l.length) return l;
+    const { data } = await s.from('lojas_config').select('nome').in('nome', l);
+    const existe = new Set((data ?? []).map((x: any) => x.nome));
+    const faltam = l.filter((x) => !existe.has(x));
+    if (faltam.length) throw new Error(`Loja(s) nao cadastrada(s): ${faltam.join(', ')}`);
+    return l;
+  };
+
+  if (acao === 'listar') {
+    const { data, error } = await s.from('usuarios_painel').select('*').order('nome');
+    if (error) throw new Error(error.message);
+    const ultimos = new Map<string, string | null>();
+    try { const r = await s.auth.admin.listUsers({ page: 1, perPage: 1000 }); for (const u of r.data?.users ?? []) ultimos.set(u.id, u.last_sign_in_at ?? null); } catch { /* opcional */ }
+    return { usuarios: (data ?? []).map((u: any) => ({ userId: u.user_id, email: u.email, nome: u.nome, papel: u.papel, lojas: u.lojas ?? [], ativo: u.ativo, trocarSenha: u.trocar_senha, criadoEm: u.criado_em, criadoPor: u.criado_por, ultimoAcesso: ultimos.get(u.user_id) ?? null })) };
+  }
+  if (acao === 'criar') {
+    const email = String(body.email ?? '').trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('E-mail invalido.');
+    const nome = String(body.nome ?? '').trim();
+    if (!nome) throw new Error('Informe o nome.');
+    const papel = papelOk(body.papel);
+    const lojas = await validarLojas(body.lojas);
+    if (papel === 'franqueado' && !lojas.length) throw new Error('Escolha pelo menos uma loja para o franqueado.');
+    const senha = gerarSenhaTemporaria();
+    let userId: string | null = null;
+    const cr = await s.auth.admin.createUser({ email, password: senha, email_confirm: true, user_metadata: { nome } });
+    if (cr.error) {
+      if (!/already|registered|exists/i.test(cr.error.message)) throw new Error(`Erro ao criar o usuario: ${cr.error.message}`);
+      const r = await s.auth.admin.listUsers({ page: 1, perPage: 1000 });
+      const u = (r.data?.users ?? []).find((x: any) => String(x.email).toLowerCase() === email);
+      if (!u) throw new Error('E-mail ja cadastrado no Supabase, mas nao encontrado. Tente de novo.');
+      userId = u.id;
+      const up = await s.auth.admin.updateUserById(u.id, { password: senha });
+      if (up.error) throw new Error(`Erro ao definir a senha: ${up.error.message}`);
+    } else userId = cr.data.user!.id;
+    const { error } = await s.from('usuarios_painel').upsert({ user_id: userId, email, nome, papel, lojas, ativo: true, trocar_senha: true, criado_por: a.nome, atualizado_em: new Date().toISOString() }, { onConflict: 'user_id' });
+    if (error) throw new Error(`Erro ao salvar o perfil: ${error.message}`);
+    return { ok: true, userId, email, senhaTemporaria: senha };
+  }
+  const alvo = String(body.userId ?? '');
+  if (!alvo) throw new Error('Informe o usuario.');
+  if (acao === 'atualizar') {
+    const patch: Record<string, unknown> = { atualizado_em: new Date().toISOString() };
+    if (body.nome !== undefined) patch.nome = String(body.nome).trim();
+    if (body.papel !== undefined) patch.papel = papelOk(body.papel);
+    if (body.lojas !== undefined) patch.lojas = await validarLojas(body.lojas);
+    if (body.ativo !== undefined) patch.ativo = !!body.ativo;
+    if (a.userId === alvo && (patch.papel && patch.papel !== 'admin' || patch.ativo === false)) throw new Error('Voce nao pode tirar o seu proprio acesso de administrador.');
+    if (patch.papel === 'franqueado' || (patch.lojas !== undefined)) {
+      const { data: atual } = await s.from('usuarios_painel').select('papel, lojas').eq('user_id', alvo).maybeSingle();
+      const papelFinal = (patch.papel ?? atual?.papel), lojasFinal = (patch.lojas ?? atual?.lojas ?? []) as string[];
+      if (papelFinal === 'franqueado' && !lojasFinal.length) throw new Error('Franqueado precisa de pelo menos uma loja.');
+    }
+    const { error } = await s.from('usuarios_painel').update(patch).eq('user_id', alvo);
+    if (error) throw new Error(error.message);
+    cacheAcesso.clear();
+    return { ok: true };
+  }
+  if (acao === 'redefinirSenha') {
+    const senha = gerarSenhaTemporaria();
+    const up = await s.auth.admin.updateUserById(alvo, { password: senha });
+    if (up.error) throw new Error(`Erro ao redefinir: ${up.error.message}`);
+    await s.from('usuarios_painel').update({ trocar_senha: true, atualizado_em: new Date().toISOString() }).eq('user_id', alvo);
+    cacheAcesso.clear();
+    return { ok: true, senhaTemporaria: senha };
+  }
+  throw new Error('Acao invalida: use meuPerfil, senhaTrocada, listar, criar, atualizar ou redefinirSenha.');
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
-  const esperado = Deno.env.get('APP_PASSCODE');
-  if (esperado && (req.headers.get('x-app-passcode') ?? '') !== esperado) return resp({ error: 'Senha de acesso invalida ou ausente.' }, 401);
-  if (req.method === 'GET') return resp({ ok: true, modulos: ['recorrente', 'vinculo', 'diagnosticoCentral', 'catalogoCentral', 'pedidoSugerido', 'vendedores', 'compatibilidade', 'lojaEditar', 'sincronizarCentral', 'vinculos'] });
+  // Configuração pública do login (URL do projeto + chave pública do Supabase Auth — feita para ficar no navegador).
+  if (req.method === 'GET' && new URL(req.url).searchParams.has('config')) {
+    return resp({ supabaseUrl: Deno.env.get('SUPABASE_URL'), anonKey: Deno.env.get('SUPABASE_ANON_KEY') ?? Deno.env.get('SUPABASE_PUBLISHABLE_KEY') ?? null,
+      loginObrigatorio: String(Deno.env.get('LOGIN_OBRIGATORIO') ?? '').toLowerCase() === 'true' });
+  }
+  let a: Acesso;
+  try { a = await obterAcesso(req); } catch (e) { if (e instanceof ErroAcesso) return respostaErroAcesso(e, cors); throw e; }
+  if (req.method === 'GET') return resp({ ok: true, modulos: ['recorrente', 'vinculo', 'diagnosticoCentral', 'catalogoCentral', 'pedidoSugerido', 'vendedores', 'compatibilidade', 'lojaEditar', 'sincronizarCentral', 'vinculos', 'usuarios'] });
   try {
     const body = await req.json().catch(() => ({}));
     const modulo = String(body.modulo ?? '');
-    if (modulo === 'vinculo') return resp(await moduloVinculo(body));
-    if (modulo === 'diagnosticoCentral') return resp(await moduloDiagnosticoCentral(body));
-    if (modulo === 'catalogoCentral') return resp(await moduloCatalogoCentral(body));
-    if (modulo === 'vinculos') return resp(String(body.acao) === 'produtosVendidos' ? await moduloVinculos(body, Deno.env.get('VAREJONLINE_API_BASE')!, await getLojasTokens()) : await moduloVinculos(body));
+    if (modulo === 'usuarios') return resp(await moduloUsuarios(body, a));
+    if (a.trocarSenha) throw new ErroAcesso('Troque a senha temporária antes de continuar.', 403);
+    // o nome registrado em aprovações/vínculos é sempre o do usuário logado
+    if (a.tipo === 'usuario') { body.aprovadoPor = a.nome; body.enviadoPor = a.nome; body.usuario = a.nome; }
+    const equipe = () => exigirPapel(a, 'admin', 'equipe');
+
+    if (modulo === 'vinculo') { exigirLoja(a, body.loja); return resp(await moduloVinculo(body)); }
+    if (modulo === 'diagnosticoCentral') { equipe(); return resp(await moduloDiagnosticoCentral(body)); }
+    if (modulo === 'catalogoCentral') { equipe(); return resp(await moduloCatalogoCentral(body)); }
+    if (modulo === 'vinculos') {
+      const acao = String(body.acao ?? '');
+      if (['salvar', 'salvarLote', 'ignorar', 'remover'].includes(acao)) equipe(); // vínculos valem para a rede inteira
+      if (acao === 'produtosVendidos') { exigirLoja(a, body.loja); return resp(await moduloVinculos(body, Deno.env.get('VAREJONLINE_API_BASE')!, await getLojasTokens())); }
+      return resp(await moduloVinculos(body));
+    }
     if (modulo === 'sincronizarCentral') return resp(await moduloSincronizarCentral(body));
-    if (modulo === 'lojaEditar') return resp(await moduloLojaEditar(body));
-    if (modulo === 'compatibilidade') return resp(await moduloCompatibilidade(Deno.env.get('VAREJONLINE_API_BASE')!, await getLojasTokens(), body));
-    if (modulo === 'vendedores') return resp(await moduloVendedores(Deno.env.get('VAREJONLINE_API_BASE')!, await getLojasTokens(), body));
+    if (modulo === 'lojaEditar') { exigirPapel(a, 'admin'); return resp(await moduloLojaEditar(body)); }
+    if (modulo === 'compatibilidade') { equipe(); return resp(await moduloCompatibilidade(Deno.env.get('VAREJONLINE_API_BASE')!, await getLojasTokens(), body)); }
+    if (modulo === 'vendedores') { body.lojas = lojasDoAcesso(a, body.lojas); return resp(await moduloVendedores(Deno.env.get('VAREJONLINE_API_BASE')!, await getLojasTokens(), body)); }
     if (modulo === 'pedidoSugerido') {
       const acao = String(body.acao ?? 'gerar');
+      if (acao === 'gerar' || acao === 'aprovar') exigirLoja(a, body.loja);
+      if (acao === 'listar') { if (body.loja) exigirLoja(a, body.loja); else if (!a.todas) body.lojasPermitidas = a.lojas; }
+      if (['status', 'opcoesEnvio', 'enviar'].includes(acao)) {
+        const { data: ped } = await sb().from('pedidos_sugeridos').select('loja').eq('id', body.id ?? '').maybeSingle();
+        if (ped) exigirLoja(a, ped.loja);
+      }
       const precisaVarejo = acao === 'gerar';
       return resp(await moduloPedidoSugerido(precisaVarejo ? Deno.env.get('VAREJONLINE_API_BASE')! : '', precisaVarejo ? await getLojasTokens() : {}, body));
     }
     if (modulo === 'recorrente') {
+      body.lojas = lojasDoAcesso(a, body.lojas);
       const apiBase = Deno.env.get('VAREJONLINE_API_BASE')!;
       return resp(await moduloRecorrente(apiBase, await getLojasTokens(), body));
     }
-    return resp({ error: `Modulo desconhecido: "${modulo}". Use recorrente, vinculo, diagnosticoCentral, catalogoCentral, pedidoSugerido, vendedores, compatibilidade ou lojaEditar.` }, 400);
+    return resp({ error: `Modulo desconhecido: "${modulo}".` }, 400);
   } catch (e) {
+    if (e instanceof ErroAcesso) return respostaErroAcesso(e, cors);
     if (e instanceof ConfirmacaoNecessaria) return resp({ error: e.message, confirmar: e.tipo }, 409);
     const msg = e instanceof Error ? e.message : String(e);
     return resp({ error: msg.replace(/token=[^&\s)]+/g, 'token=***') }, 500);

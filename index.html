@@ -262,6 +262,29 @@
   /* números alinhados nas tabelas e indicadores */
   td, th, .kpi .value, .kpi .delta, .barra-linha .v, .imp, .score, input[type="number"] { font-variant-numeric: tabular-nums; }
   .eyebrow { letter-spacing: .06em; font-weight: 600; }
+  /* ===== Login / usuário ===== */
+  .caixa-usuario{ display:flex; flex-direction:column; align-items:flex-end; gap:2px; flex-shrink:0; min-width:150px; text-align:right; }
+  .caixa-usuario .u-nome{ font-size:13px; font-weight:600; color:var(--accent-deep); max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .caixa-usuario .u-papel{ font-size:11px; color:var(--muted); }
+  .caixa-usuario a{ color:var(--accent); text-decoration:none; font-weight:600; }
+  .tela-login{ position:fixed; inset:0; z-index:200; background:var(--bg); display:flex; align-items:center; justify-content:center; padding:16px; overflow:auto; }
+  .tela-login[hidden]{ display:none; }
+  .cartao-login{ width:100%; max-width:380px; background:var(--panel); border:1px solid var(--line); border-radius:16px; box-shadow:var(--shadow-soft); padding:28px 26px; }
+  .cartao-login .topo{ display:flex; align-items:center; gap:12px; margin-bottom:20px; }
+  .cartao-login .topo img{ width:44px; height:44px; }
+  .cartao-login h2{ margin:0; font-size:19px; color:var(--accent-deep); }
+  .cartao-login .sub{ font-size:12.5px; color:var(--muted); margin:0 0 16px; }
+  .cartao-login label{ display:block; margin:12px 0 5px; }
+  .cartao-login input{ width:100%; }
+  .cartao-login button{ width:100%; margin-top:18px; padding:11px; }
+  .cartao-login .msg{ margin-top:12px; font-size:12.5px; color:var(--danger); min-height:16px; }
+  .cartao-login .links{ margin-top:14px; display:flex; justify-content:space-between; gap:10px; font-size:12px; flex-wrap:wrap; }
+  .cartao-login .links a{ color:var(--accent); text-decoration:none; }
+  .senha-temp{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; background:var(--gold-tint); border:1px solid var(--gold); border-radius:10px; padding:12px 14px; margin-top:12px; font-size:13px; }
+  .senha-temp code{ font-family:'Inter', sans-serif; font-size:17px; font-weight:700; letter-spacing:.06em; background:#fff; padding:4px 10px; border-radius:6px; border:1px solid var(--line); }
+  .lojas-check{ display:flex; flex-wrap:wrap; gap:6px 14px; max-height:180px; overflow:auto; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:var(--panel); }
+  .lojas-check label{ display:flex; align-items:center; gap:6px; font-size:12.5px; text-transform:none; letter-spacing:0; color:var(--text); margin:0; }
+  .lojas-check input{ width:auto; }
 </style>
 </head>
 <body>
@@ -287,11 +310,13 @@
   <div class="nav-item" data-view="vendedores"><span class="dot"></span> Vendedores</div>
   <div class="nav-item" data-view="benchmark"><span class="dot"></span> Benchmark</div>
   <div class="nav-item" data-view="lojas"><span class="dot"></span> Lojas</div>
+  <div class="nav-item" data-view="usuarios"><span class="dot"></span> Usuários</div>
   </div>
 
-  <div class="senha-box">
-    <label for="senhaAcesso">Senha de acesso</label>
-    <input id="senhaAcesso" type="password" placeholder="senha do time">
+  <div class="caixa-usuario" id="caixaUsuario">
+    <input id="senhaAcesso" type="hidden" autocomplete="off" value="">
+    <div class="u-nome" id="usuarioNome">—</div>
+    <div class="u-papel"><span id="usuarioPapel"></span> · <a href="#" id="btnSair">Sair</a></div>
   </div>
 </div>
 
@@ -535,6 +560,29 @@
   </div>
 
   <!-- ===================== CADASTRO DE LOJAS ===================== -->
+  <!-- ===================== USUÁRIOS ===================== -->
+  <div class="view" id="view-usuarios">
+    <header class="view-header">
+      <div class="eyebrow">Módulo · Acesso</div>
+      <h1>Usuários</h1>
+      <div class="sub">Quem entra no painel e o que vê. <strong>Administrador</strong>: tudo, inclusive usuários e lojas. <strong>Equipe</strong>: a rede toda (compras, pedidos, vínculos, financeiro, benchmark). <strong>Franqueado</strong>: só as lojas marcadas — inclusive aprovar e enviar os pedidos delas.</div>
+    </header>
+    <div class="panel">
+      <div style="font-size:14px; font-weight:650; margin-bottom:10px">Novo usuário</div>
+      <div class="grid">
+        <div><label>Nome</label><input id="usr_nome" placeholder="Nome e sobrenome"></div>
+        <div><label>E-mail</label><input id="usr_email" type="email" placeholder="email@exemplo.com"></div>
+        <div><label>Papel</label><select id="usr_papel"><option value="franqueado">Franqueado</option><option value="equipe">Equipe</option><option value="admin">Administrador</option></select></div>
+      </div>
+      <div id="usr_lojasBox" style="margin-top:12px"><label>Lojas do franqueado</label><div class="lojas-check" id="usr_lojas"></div></div>
+      <div class="actions"><button id="usr_criar">Criar usuário</button><span class="status" id="usr_status"></span></div>
+      <div id="usr_resultado"></div>
+    </div>
+    <div class="panel" id="usr_loginInfo"></div>
+    <div class="subsecao-titulo">Usuários cadastrados</div>
+    <div class="panel" style="overflow-x:auto" id="usr_lista"><div class="empty">Carregando…</div></div>
+  </div>
+
   <div class="view" id="view-lojas">
     <header class="view-header">
       <div class="eyebrow">Módulo · Configuração</div>
@@ -579,6 +627,39 @@
 
 </div>
 
+<!-- ===================== LOGIN ===================== -->
+<div class="tela-login" id="telaLogin" hidden>
+  <div class="cartao-login">
+    <div class="topo"><img id="login_logo" alt=""><div><div style="font-size:11px; color:var(--muted); letter-spacing:.08em">SSS · MASTERMIND</div><h2>Painel Operacional</h2></div></div>
+    <form id="login_form" autocomplete="on">
+      <div id="login_modoUsuario">
+        <p class="sub">Entre com o seu e-mail e senha.</p>
+        <label for="login_email">E-mail</label><input id="login_email" type="email" autocomplete="username" required>
+        <label for="login_senha">Senha</label><input id="login_senha" type="password" autocomplete="current-password" required>
+      </div>
+      <div id="login_modoTime" style="display:none">
+        <p class="sub">Acesso temporário com a senha única do time (até todos terem login próprio).</p>
+        <label for="login_passcode">Senha do time</label><input id="login_passcode" type="password" autocomplete="off">
+      </div>
+      <button type="submit" id="login_entrar">Entrar</button>
+      <div class="msg" id="login_msg"></div>
+      <div class="links">
+        <a href="#" id="login_esqueci">Esqueci minha senha</a>
+        <a href="#" id="login_trocaModo">Usar a senha do time</a>
+      </div>
+    </form>
+    <form id="troca_form" style="display:none" autocomplete="off">
+      <p class="sub"><strong>Crie a sua senha.</strong> Você entrou com uma senha temporária; escolha uma senha nova (mínimo 8 caracteres) para continuar.</p>
+      <label for="troca_nova">Nova senha</label><input id="troca_nova" type="password" autocomplete="new-password" minlength="8" required>
+      <label for="troca_conf">Repita a nova senha</label><input id="troca_conf" type="password" autocomplete="new-password" minlength="8" required>
+      <button type="submit">Salvar senha e entrar</button>
+      <div class="msg" id="troca_msg"></div>
+      <div class="links"><a href="#" id="troca_sair">Sair</a></div>
+    </form>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 
@@ -595,8 +676,13 @@ const senhaSalva = localStorage.getItem('sss_senha_mastermind');
 if (senhaSalva) $('senhaAcesso').value = senhaSalva;
 $('senhaAcesso').addEventListener('change', () => localStorage.setItem('sss_senha_mastermind', $('senhaAcesso').value));
 
+// Com login: token do usuário (Authorization). Sem login: senha do time (transição).
+let tokenAcesso = null;
 function headersComSenha(){
-  return { 'Content-Type': 'application/json', 'x-app-passcode': $('senhaAcesso').value.trim() };
+  const h = { 'Content-Type': 'application/json' };
+  if (tokenAcesso) h['Authorization'] = 'Bearer ' + tokenAcesso;
+  else h['x-app-passcode'] = $('senhaAcesso').value.trim();
+  return h;
 }
 
 // ---------- Navegação do menu ----------
@@ -3182,6 +3268,203 @@ async function irParaVinculo(loja, produtoId, descricao) {
   if ([...sel.options].some(o => o.value === loja)) sel.value = loja;
   await carregarVinculos(abrir);
 }
+
+// =====================================================================
+// LOGIN POR USUÁRIO (Supabase Auth) + perfis
+// =====================================================================
+let sbAuth = null, perfilAtual = null, modoSenhaTime = false, loginObrigatorio = false;
+const ROTULO_PAPEL = { admin: 'Administrador', equipe: 'Equipe', franqueado: 'Franqueado' };
+// avisa o login quando o servidor diz que a sessão acabou
+const _fetchOriginal = window.fetch.bind(window);
+window.fetch = async (...args) => {
+  const r = await _fetchOriginal(...args);
+  if (r.status === 401 && String(args[0]).includes('/functions/v1/')) r.clone().json().then(d => { if (d && d.acesso === 'login') mostrarLogin(d.error); }).catch(() => {});
+  return r;
+};
+function mostrarLogin(msg) {
+  $('telaLogin').hidden = false; $('login_form').style.display = ''; $('troca_form').style.display = 'none';
+  $('login_msg').textContent = msg || '';
+  $('login_modoUsuario').style.display = modoSenhaTime ? 'none' : ''; $('login_modoTime').style.display = modoSenhaTime ? '' : 'none';
+  $('login_email').required = !modoSenhaTime; $('login_senha').required = !modoSenhaTime;
+  $('login_trocaModo').style.display = loginObrigatorio || !sbAuth ? 'none' : '';
+  $('login_trocaModo').textContent = modoSenhaTime ? 'Entrar com e-mail e senha' : 'Usar a senha do time';
+  if (!sbAuth) { modoSenhaTime = true; $('login_modoUsuario').style.display = 'none'; $('login_modoTime').style.display = ''; $('login_email').required = $('login_senha').required = false; }
+  setTimeout(() => (modoSenhaTime ? $('login_passcode') : $('login_email')).focus(), 50);
+}
+function mostrarTrocaSenha() { $('telaLogin').hidden = false; $('login_form').style.display = 'none'; $('troca_form').style.display = ''; $('troca_msg').textContent = ''; setTimeout(() => $('troca_nova').focus(), 50); }
+function esconderLogin() { $('telaLogin').hidden = true; }
+
+async function carregarPerfil() {
+  try {
+    const p = await chamarEdge({ modulo: 'usuarios', acao: 'meuPerfil' }, EDGE_COMPRAS_URL);
+    perfilAtual = p;
+    aplicarPerfil(p);
+    if (p.trocarSenha) { mostrarTrocaSenha(); return true; }
+    esconderLogin();
+    return true;
+  } catch (e) {
+    if (tokenAcesso && sbAuth) { try { await sbAuth.auth.signOut(); } catch { } tokenAcesso = null; }
+    $('senhaAcesso').value = '';
+    mostrarLogin(e.message);
+    return false;
+  }
+}
+
+function aplicarPerfil(p) {
+  $('usuarioNome').textContent = p.nome || '—';
+  $('usuarioPapel').textContent = p.tipo === 'senha' ? 'senha do time' : (ROTULO_PAPEL[p.papel] || p.papel) + (p.papel === 'franqueado' ? ` · ${p.lojas.length} loja(s)` : '');
+  const ocultar = new Set(p.papel === 'franqueado' ? ['benchmark', 'lojas', 'vinculos', 'usuarios'] : p.papel === 'equipe' ? ['lojas', 'usuarios'] : []);
+  if (p.tipo === 'senha') ocultar.delete('usuarios'); // a senha do time cria o 1º administrador
+  document.querySelectorAll('.nav-item[data-view]').forEach(n => { n.style.display = ocultar.has(n.dataset.view) ? 'none' : ''; });
+  const bench = $('cen_bench'); if (bench) { bench.closest('label').style.display = p.papel === 'franqueado' ? 'none' : ''; if (p.papel === 'franqueado') bench.checked = false; }
+  const ativa = document.querySelector('.nav-item.active');
+  if (ativa && ocultar.has(ativa.dataset.view)) document.querySelector('.nav-item[data-view="central"]').click();
+  for (const id of ['ped_aprovador', 'vin_usuario']) { const el = $(id); if (!el) continue; if (p.tipo === 'usuario') { el.value = p.nome; el.readOnly = true; } else el.readOnly = false; }
+  if (p.papel === 'franqueado') document.querySelectorAll('input[id$="_lojas"]').forEach(i => { i.placeholder = 'suas lojas: ' + p.lojas.join(', '); });
+  _lojasConfig = null; document.querySelectorAll('select[data-ok]').forEach(s => delete s.dataset.ok);
+}
+
+async function iniciarAcesso() {
+  $('senhaAcesso').value = ''; // o navegador pode restaurar campos ao recarregar; só vale o que for definido aqui
+  try { const lg = document.querySelector('.brand-mark'); if (lg) $('login_logo').src = lg.src; } catch { }
+  let cfg = null;
+  try { const r = await _fetchOriginal(EDGE_COMPRAS_URL + '?config=1'); if (r.ok) cfg = await r.json(); } catch { }
+  loginObrigatorio = !!cfg?.loginObrigatorio;
+  if (cfg?.anonKey && window.supabase?.createClient) {
+    sbAuth = window.supabase.createClient(cfg.supabaseUrl, cfg.anonKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, storageKey: 'sss-mastermind-auth' } });
+    sbAuth.auth.onAuthStateChange((ev, session) => { tokenAcesso = session?.access_token || null; });
+    const { data } = await sbAuth.auth.getSession();
+    tokenAcesso = data.session?.access_token || null;
+    if (tokenAcesso) $('senhaAcesso').value = 'login';
+  }
+  if (!tokenAcesso && !loginObrigatorio) { try { const s = sessionStorage.getItem('sss_passcode'); if (s) { $('senhaAcesso').value = s; modoSenhaTime = true; } } catch { } }
+  if (tokenAcesso || $('senhaAcesso').value) { if (await carregarPerfil()) return; }
+  mostrarLogin();
+}
+
+$('login_trocaModo').addEventListener('click', ev => { ev.preventDefault(); modoSenhaTime = !modoSenhaTime; mostrarLogin(); });
+$('login_esqueci').addEventListener('click', ev => { ev.preventDefault(); $('login_msg').style.color = 'var(--muted)'; $('login_msg').textContent = 'Peça ao administrador do painel uma senha temporária nova (tela Usuários → Redefinir senha).'; setTimeout(() => $('login_msg').style.color = '', 8000); });
+$('login_form').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  const btn = $('login_entrar'); btn.disabled = true; $('login_msg').textContent = '';
+  try {
+    if (modoSenhaTime || !sbAuth) {
+      const pass = $('login_passcode').value.trim();
+      if (!pass) { $('login_msg').textContent = 'Digite a senha do time.'; return; }
+      tokenAcesso = null; $('senhaAcesso').value = pass;
+      try { sessionStorage.setItem('sss_passcode', pass); } catch { }
+    } else {
+      const { data, error } = await sbAuth.auth.signInWithPassword({ email: $('login_email').value.trim(), password: $('login_senha').value });
+      if (error) { $('login_msg').textContent = /invalid login/i.test(error.message) ? 'E-mail ou senha incorretos.' : error.message; return; }
+      tokenAcesso = data.session.access_token; $('senhaAcesso').value = 'login';
+      try { sessionStorage.removeItem('sss_passcode'); } catch { }
+    }
+    $('senhaAcesso').dispatchEvent(new Event('change'));
+    await carregarPerfil();
+  } finally { btn.disabled = false; }
+});
+$('troca_form').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  const a = $('troca_nova').value, b = $('troca_conf').value;
+  if (a.length < 8) { $('troca_msg').textContent = 'A senha precisa ter pelo menos 8 caracteres.'; return; }
+  if (a !== b) { $('troca_msg').textContent = 'As duas senhas não são iguais.'; return; }
+  const { error } = await sbAuth.auth.updateUser({ password: a });
+  if (error) { $('troca_msg').textContent = /different from the old/i.test(error.message) ? 'A nova senha precisa ser diferente da temporária.' : error.message; return; }
+  await chamarEdge({ modulo: 'usuarios', acao: 'senhaTrocada' }, EDGE_COMPRAS_URL);
+  $('troca_nova').value = $('troca_conf').value = '';
+  await carregarPerfil();
+});
+async function sair(ev) {
+  ev && ev.preventDefault();
+  try { sessionStorage.removeItem('sss_passcode'); } catch { }
+  if (sbAuth && tokenAcesso) { try { await sbAuth.auth.signOut(); } catch { } }
+  location.reload();
+}
+$('btnSair').addEventListener('click', sair);
+$('troca_sair').addEventListener('click', sair);
+
+// ---------- Tela Usuários (administrador) ----------
+function lojasCheckHTML(selecionadas, prefixo) {
+  const todas = (perfilAtual?.lojas || []);
+  return todas.length ? todas.map(l => `<label><input type="checkbox" data-${prefixo}-loja value="${esc(l)}" ${selecionadas.includes(l) ? 'checked' : ''}> ${esc(l)}</label>`).join('') : '<span style="font-size:12px; color:var(--muted)">Nenhuma loja ativa cadastrada.</span>';
+}
+const lojasMarcadas = (cont, prefixo) => [...cont.querySelectorAll(`[data-${prefixo}-loja]:checked`)].map(c => c.value);
+function caixaSenhaTemp(email, senha) {
+  return `<div class="senha-temp"><div style="flex:1; min-width:220px">Senha temporária de <strong>${esc(email)}</strong>:<br><span style="font-size:11.5px; color:var(--muted)">Passe para a pessoa por um canal seguro. Ela vai criar a própria senha no 1º acesso. Esta senha não aparece de novo.</span></div><code>${esc(senha)}</code><button class="secondary" data-copiar-senha="${esc(senha)}" style="padding:6px 12px; font-size:12px">Copiar</button></div>`;
+}
+function ligarCopiar(cont) { cont.querySelectorAll('[data-copiar-senha]').forEach(b => b.addEventListener('click', async () => { try { await navigator.clipboard.writeText(b.dataset.copiarSenha); b.textContent = 'Copiado'; } catch { b.textContent = 'Copie manualmente'; } })); }
+
+$('usr_papel').addEventListener('change', () => { $('usr_lojasBox').style.display = $('usr_papel').value === 'franqueado' ? '' : 'none'; });
+document.querySelector('.nav-item[data-view="usuarios"]').addEventListener('click', carregarUsuarios);
+async function carregarUsuarios() {
+  $('usr_lojas').innerHTML = lojasCheckHTML([], 'novo');
+  $('usr_lojasBox').style.display = $('usr_papel').value === 'franqueado' ? '' : 'none';
+  $('usr_loginInfo').innerHTML = perfilAtual?.tipo === 'senha'
+    ? `<div style="font-size:13px"><strong>Você entrou com a senha do time.</strong> Crie primeiro o <strong>seu</strong> usuário como <em>Administrador</em>, saia e entre com ele. Depois crie os demais. Quando todos tiverem login, crie no Supabase o secret <code>LOGIN_OBRIGATORIO</code> = <code>true</code> para desligar a senha do time.</div>`
+    : `<div style="font-size:12.5px; color:var(--muted)">Login obrigatório: <strong>${perfilAtual?.loginObrigatorio ? 'sim — a senha do time está desligada' : 'ainda não — a senha do time continua funcionando'}</strong>.${perfilAtual?.loginObrigatorio ? '' : ' Para desligar: Supabase → Edge Functions → Secrets → <code>LOGIN_OBRIGATORIO</code> = <code>true</code>.'}</div>`;
+  const box = $('usr_lista');
+  try {
+    const d = await chamarEdge({ modulo: 'usuarios', acao: 'listar' }, EDGE_COMPRAS_URL);
+    if (!d.usuarios.length) { box.innerHTML = '<div class="empty">Nenhum usuário cadastrado ainda.</div>'; return; }
+    box.innerHTML = `<table class="no-tools"><thead><tr><th>Nome</th><th>E-mail</th><th>Papel</th><th>Lojas</th><th>Situação</th><th>Último acesso</th><th></th></tr></thead><tbody>
+      ${d.usuarios.map(u => `<tr data-usr="${esc(u.userId)}">
+        <td class="prod-name">${esc(u.nome)}</td><td style="font-size:12.5px">${esc(u.email)}</td>
+        <td>${esc(ROTULO_PAPEL[u.papel] || u.papel)}</td>
+        <td class="prod-name" style="font-size:12px; max-width:260px">${u.papel === 'franqueado' ? esc(u.lojas.join(', ') || '—') : '<span style="color:var(--muted)">todas</span>'}</td>
+        <td>${u.ativo ? (u.trocarSenha ? '<span class="tag-alto">aguardando 1º acesso</span>' : '<span class="tag-ok">ativo</span>') : '<span class="tag-risco">desativado</span>'}</td>
+        <td style="font-size:12px">${u.ultimoAcesso ? new Date(u.ultimoAcesso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+        <td style="white-space:nowrap"><button class="secondary" style="padding:5px 10px; font-size:11px" data-usr-editar="${esc(u.userId)}">Editar</button>
+          <button class="secondary" style="padding:5px 10px; font-size:11px" data-usr-senha="${esc(u.userId)}">Redefinir senha</button>
+          <button class="secondary" style="padding:5px 10px; font-size:11px" data-usr-ativo="${esc(u.userId)}" data-ativo="${u.ativo ? 1 : 0}">${u.ativo ? 'Desativar' : 'Reativar'}</button></td></tr>
+      <tr data-usr-form="${esc(u.userId)}" style="display:none"><td colspan="7" style="background:var(--panel-2); padding:14px">
+        <div class="grid"><div><label>Nome</label><input data-ed-nome value="${esc(u.nome)}"></div>
+        <div><label>Papel</label><select data-ed-papel>${['franqueado', 'equipe', 'admin'].map(p => `<option value="${p}" ${u.papel === p ? 'selected' : ''}>${ROTULO_PAPEL[p]}</option>`).join('')}</select></div></div>
+        <div data-ed-lojasbox style="margin-top:10px; display:${u.papel === 'franqueado' ? '' : 'none'}"><label>Lojas</label><div class="lojas-check">${lojasCheckHTML(u.lojas, 'ed')}</div></div>
+        <div class="actions"><button data-ed-salvar>Salvar</button><button class="secondary" data-ed-cancelar>Cancelar</button><span class="status" data-ed-status></span></div></td></tr>
+      <tr data-usr-senhabox="${esc(u.userId)}" style="display:none"><td colspan="7"></td></tr>`).join('')}
+      </tbody></table>`;
+    const linhaForm = id => box.querySelector(`[data-usr-form="${CSS.escape(id)}"]`);
+    box.querySelectorAll('[data-usr-editar]').forEach(b => b.addEventListener('click', () => { const f = linhaForm(b.dataset.usrEditar); f.style.display = f.style.display === 'none' ? '' : 'none'; }));
+    box.querySelectorAll('[data-usr-form]').forEach(f => {
+      const id = f.dataset.usrForm, st = f.querySelector('[data-ed-status]');
+      f.querySelector('[data-ed-papel]').addEventListener('change', e => { f.querySelector('[data-ed-lojasbox]').style.display = e.target.value === 'franqueado' ? '' : 'none'; });
+      f.querySelector('[data-ed-cancelar]').addEventListener('click', () => { f.style.display = 'none'; });
+      f.querySelector('[data-ed-salvar]').addEventListener('click', async ev => {
+        ev.target.disabled = true; st.textContent = 'Salvando…';
+        try { await chamarEdge({ modulo: 'usuarios', acao: 'atualizar', userId: id, nome: f.querySelector('[data-ed-nome]').value, papel: f.querySelector('[data-ed-papel]').value, lojas: lojasMarcadas(f, 'ed') }, EDGE_COMPRAS_URL); carregarUsuarios(); }
+        catch (e) { st.textContent = 'Erro: ' + e.message; ev.target.disabled = false; }
+      });
+    });
+    box.querySelectorAll('[data-usr-ativo]').forEach(b => b.addEventListener('click', async () => {
+      const ativar = b.dataset.ativo !== '1';
+      if (!ativar && !confirm('Desativar este usuário? Ele perde o acesso ao painel na hora.')) return;
+      try { await chamarEdge({ modulo: 'usuarios', acao: 'atualizar', userId: b.dataset.usrAtivo, ativo: ativar }, EDGE_COMPRAS_URL); carregarUsuarios(); } catch (e) { alert(e.message); }
+    }));
+    box.querySelectorAll('[data-usr-senha]').forEach(b => b.addEventListener('click', async () => {
+      if (!confirm('Gerar uma nova senha temporária? A senha atual deixa de funcionar.')) return;
+      try {
+        const r = await chamarEdge({ modulo: 'usuarios', acao: 'redefinirSenha', userId: b.dataset.usrSenha }, EDGE_COMPRAS_URL);
+        const linha = box.querySelector(`[data-usr-senhabox="${CSS.escape(b.dataset.usrSenha)}"]`), u = d.usuarios.find(x => x.userId === b.dataset.usrSenha);
+        linha.style.display = ''; linha.firstElementChild.innerHTML = caixaSenhaTemp(u.email, r.senhaTemporaria); ligarCopiar(linha);
+      } catch (e) { alert(e.message); }
+    }));
+  } catch (e) { box.innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+}
+$('usr_criar').addEventListener('click', async ev => {
+  const st = $('usr_status'), out = $('usr_resultado');
+  const papel = $('usr_papel').value, lojas = papel === 'franqueado' ? lojasMarcadas($('usr_lojas'), 'novo') : [];
+  if (!$('usr_nome').value.trim() || !$('usr_email').value.trim()) { st.textContent = 'Preencha nome e e-mail.'; return; }
+  if (papel === 'franqueado' && !lojas.length) { st.textContent = 'Marque pelo menos uma loja.'; return; }
+  ev.target.disabled = true; st.textContent = 'Criando…'; out.innerHTML = '';
+  try {
+    const r = await chamarEdge({ modulo: 'usuarios', acao: 'criar', nome: $('usr_nome').value, email: $('usr_email').value, papel, lojas }, EDGE_COMPRAS_URL);
+    st.textContent = '✓ Usuário criado.'; out.innerHTML = caixaSenhaTemp(r.email, r.senhaTemporaria); ligarCopiar(out);
+    $('usr_nome').value = $('usr_email').value = ''; carregarUsuarios();
+  } catch (e) { st.textContent = 'Erro: ' + e.message; }
+  finally { ev.target.disabled = false; }
+});
+
+iniciarAcesso();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
