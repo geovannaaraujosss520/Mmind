@@ -11,7 +11,8 @@ const ORIGENS_PERMITIDAS = String(Deno.env.get('ALLOWED_ORIGIN') || '*').split('
 function origemPermitida(req: Request): string {
   if (ORIGENS_PERMITIDAS.includes('*')) return '*';
   const o = (req.headers.get('origin') ?? '').replace(/\/+$/, '');
-  if (o && (ORIGENS_PERMITIDAS.includes(o) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o))) return o;
+  // dominio da rede (ex.: https://insight.santosantosantofranquia.com.br) sempre pode
+  if (o && (ORIGENS_PERMITIDAS.includes(o) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o) || /^https:\/\/([a-z0-9-]+\.)*santosantosantofranquia\.com\.br$/.test(o))) return o;
   return ORIGENS_PERMITIDAS[0];
 }
 const cors: Record<string, string> = {
