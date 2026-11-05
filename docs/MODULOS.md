@@ -23,6 +23,7 @@ Lê as vendas em janelas paralelas e o estoque da unidade (com diagnóstico de c
 Produto da VarejOnline (código do sistema) ↔ item da Central (código + variação + tamanho), **válido para a rede inteira**.
 Ordem de ligação: vínculo confirmado → vínculo antigo por código → código igual → descrição igual. Variações por cor e tamanho (referência da variação, P/M/G, medidas).
 Status: Confirmado · Por código · Conferir · Sem vínculo · Fora da Central.
+**Vínculo à grade** (fornecedores em `FORNECEDORES_GRADE`): quando a loja tem um produto só e a Central tem vários tamanhos (ex.: colar 35/38/42/45/50 cm), o produto é ligado a todos os tamanhos da mesma cor; o pedido distribui a quantidade pela proporção da rede e os pedidos em andamento de qualquer tamanho são descontados.
 
 ## Vendedores
 Por vendedor e loja, em período de/até: faturamento, atendimentos, PA, ticket, preço médio da peça, % de peças abaixo do preço-limite (alerta a partir de 60%), atendimentos de 1 peça, desconto, % de vendas com cliente identificado e cadastros novos completos (nome completo, telefone, CPF válido, CEP).
