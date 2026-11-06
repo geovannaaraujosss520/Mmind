@@ -12,7 +12,7 @@ on:
 jobs:
   aquecer:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 75
     steps:
       - name: Aquecer (repete até completar)
         env:
@@ -20,10 +20,10 @@ jobs:
           URL: https://cyxerqtlkhubrkcjqcmx.supabase.co/functions/v1/sss-compras
         run: |
           if [ -z "$AQUECER_CHAVE" ]; then echo "::warning::Secret AQUECER_CHAVE não configurado — nada a fazer."; exit 0; fi
-          for i in $(seq 1 10); do
+          for i in $(seq 1 25); do
             r=$(curl -sS -m 160 -X POST "$URL" -H "Content-Type: application/json" -H "x-aquecer-chave: $AQUECER_CHAVE" -d '{"dias":120}' || echo '{}')
             echo "Rodada $i: $(echo "$r" | jq -c '{completo, prontas: (.prontas|length?), pendentes: (.pendentes|length?), erros, central, ms, error}' 2>/dev/null || echo "$r" | head -c 300)"
             if [ "$(echo "$r" | jq -r '.completo' 2>/dev/null)" = "true" ]; then echo "Completo."; exit 0; fi
             sleep 5
           done
-          echo "::warning::Não completou em 10 rodadas (as lojas que faltaram ficam para a próxima vez)."
+          echo "::warning::Não completou em 25 rodadas (as lojas que faltaram ficam para a próxima vez)."

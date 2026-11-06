@@ -77,12 +77,15 @@ let tabelaOk: boolean | null = null;
 type Opcoes = {
   sb: () => any; buscarPaginas: BuscarPaginas; apiBase: string; token: string; loja: string | null;
   dIni: Date; dFim: Date; onSaida: (sd: any) => void; janelaDias?: number; conc?: number;
+  prazo?: number; // (pre-aquecimento) não começa janelas novas depois deste horário; devolve completo=false
 };
 
-export async function saidasComCache(o: Opcoes) {
+export async function saidasComCache(o: Opcoes): Promise<boolean> {
   const janelaDias = o.janelaDias ?? 15, conc = o.conc ?? 4;
   const ini = iso(o.dIni), fim = iso(o.dFim);
-  if (ini > fim) return;
+  if (ini > fim) return true;
+  let completo = true;
+  const noPrazo = () => !o.prazo || Date.now() < o.prazo;
   const vistos = new Set<string>();
   const emitir = (sd: any) => {
     const k = sd.id != null ? `i${sd.id}` : `d${sd.numeroDocumento}|${sd.data ?? ''}|${sd.entidade?.id ?? ''}`;
@@ -97,7 +100,7 @@ export async function saidasComCache(o: Opcoes) {
   };
   const emParalelo = async (tarefas: (() => Promise<void>)[]) => {
     let i = 0;
-    await Promise.all(Array.from({ length: Math.min(conc, tarefas.length) }, async () => { while (i < tarefas.length) await tarefas[i++](); }));
+    await Promise.all(Array.from({ length: Math.min(conc, tarefas.length) }, async () => { while (i < tarefas.length) { if (!noPrazo()) { completo = false; return; } await tarefas[i++](); } }));
   };
   const janelas = (de: string, ate: string) => {
     const out: [string, string][] = [];
@@ -161,11 +164,12 @@ export async function saidasComCache(o: Opcoes) {
 
   // 2) Ontem e hoje (ou tudo, sem cache): ao vivo
   const inicioVivo = usarCache && tabelaOk ? (fimFechado < ini ? ini : maisDias(fimFechado, 1)) : ini;
-  if (inicioVivo <= fim) {
+  if (inicioVivo <= fim && !o.prazo) {
     let dias = 0; for (let d = inicioVivo; d <= fim; d = maisDias(d, 1)) dias++;
     medicao.cache.diasAoVivo += dias;
     await emParalelo(janelas(inicioVivo, fim).map(([a, b]) => () => baixar(a, b, (sd) => emitir(compactarVenda(sd)))));
   }
+  return completo && (!usarCache || tabelaOk !== false);
 }
 
 // ---- Estoque (saldos) guardado 10 minutos na memória da função ----
