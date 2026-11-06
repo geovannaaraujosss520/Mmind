@@ -502,6 +502,18 @@
         <span class="status" id="status-financeiro"></span>
       </div>
     </div>
+    <div class="panel" id="dre_import">
+      <div style="font-size:13px; font-weight:650; margin-bottom:4px">Importar DRE por planilha</div>
+      <div class="sub" style="font-size:12px; max-width:none">Planilha de fluxo de caixa / DRE gerencial da loja (ex.: aba "DFC 2026", com uma coluna por mês). As linhas que o sistema não tem entram no DRE da loja; quando a mesma linha tem valor diferente, os dois aparecem lado a lado com a diferença. Importar de novo o mesmo mês substitui o anterior.</div>
+      <div class="grid" style="margin-top:10px">
+        <div><label>Loja do DRE</label><select id="dre_loja"><option value="">Escolha a planilha primeiro</option></select></div>
+        <div style="display:flex; align-items:flex-end; gap:10px">
+          <label class="secondary" style="cursor:pointer; padding:9px 14px; border:1px solid var(--line); border-radius:10px; font-size:12.5px; text-transform:none; letter-spacing:0; margin:0">Escolher planilha (.xlsx)<input type="file" id="dre_arquivo" accept=".xlsx" style="display:none"></label>
+          <button id="dre_importar" disabled>Importar DRE</button>
+        </div>
+      </div>
+      <div class="status" id="dre_status" style="margin-top:8px"></div>
+    </div>
     <div id="listaLojas-financeiro"></div>
     <div id="erro-financeiro"></div>
     <div id="resultado-financeiro"></div>
@@ -1325,6 +1337,148 @@ function montarBlocoDRE(dre) {
   return html;
 }
 
+// ===================== DRE importado por planilha =====================
+const MESES_PT = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'];
+const nomeMes = c => `${MESES_PT[Number(c.slice(5, 7)) - 1].toLowerCase()}/${c.slice(2, 4)}`;
+function celulaParaMes(v) {
+  if (v === undefined || v === null || v === '') return null;
+  const n = Number(v);
+  if (Number.isFinite(n) && n > 30000 && n < 80000) return new Date(Math.round((n - 25569) * 864e5)).toISOString().slice(0, 7);
+  const t = String(v).trim().toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const iso = t.match(/^(\d{4})-(\d{2})/); if (iso) return `${iso[1]}-${iso[2]}`;
+  const m = t.match(/^(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)[A-Z]*[\/\-. ]*(\d{2}|\d{4})$/);
+  if (m) return `${m[2].length === 2 ? '20' + m[2] : m[2]}-${String(MESES_PT.indexOf(m[1]) + 1).padStart(2, '0')}`;
+  return null;
+}
+// Acha a aba com uma coluna por mês (DFC/DRE) e lê linha × mês.
+function extrairDRE(abas) {
+  let melhor = null;
+  for (const a of abas) {
+    const M = a.matriz || [];
+    for (let r = 0; r < Math.min(M.length, 15); r++) {
+      const cols = [];
+      (M[r] || []).forEach((v, c) => { const mes = celulaParaMes(v); if (mes && !cols.some(x => x.mes === mes)) cols.push({ c, mes }); });
+      if (cols.length < 2) continue;
+      const prox = Array.from(M[r + 1] || [], x => String(x ?? '').toUpperCase());
+      const nota = cols.length + (/D\.?\s*F\.?\s*C|DRE|RESULTADO/i.test(a.nome) ? 100 : 0) + (prox.some(x => x.includes('VALOR')) ? 50 : 0) - (/1º|TRI/i.test(a.nome) ? 20 : 0);
+      if (!melhor || nota > melhor.nota) melhor = { aba: a, r, cols, nota };
+      break;
+    }
+  }
+  if (!melhor) throw new Error('Não achei uma aba com os meses nas colunas (ex.: "DFC 2026").');
+  const M = melhor.aba.matriz, primeiraCol = Math.min(...melhor.cols.map(x => x.c));
+  const meses = new Map(melhor.cols.map(x => [x.mes, []]));
+  for (let r = melhor.r + 1; r < M.length; r++) {
+    const row = M[r] || [];
+    const rotulo = Array.from(row.slice(0, primeiraCol), x => String(x ?? '').trim()).find(x => x && !/^[-\d.,]+$/.test(x));
+    if (!rotulo) continue;
+    if (/PONTO DE EQUIL/i.test(rotulo)) break;
+    if (/LUCRATIVIDADE|\(%\)|^VALOR/i.test(rotulo)) continue;
+    const tipo = /^\(\s*[-=+]\s*\)|^LUCRO\s*\/\s*PREJU/i.test(rotulo) ? 'total' : 'item';
+    for (const { c, mes } of melhor.cols) {
+      const v = row[c]; if (v === undefined || v === '') continue;
+      const n = Number(String(v).replace(',', '.')); if (!Number.isFinite(n)) continue;
+      meses.get(mes).push({ ordem: r, linha: rotulo.replace(/\s+/g, ' '), tipo, valor: n });
+    }
+  }
+  const lista = [...meses.entries()].filter(([, ls]) => ls.some(l => l.tipo === 'item' && Math.abs(l.valor) > 0.005)).map(([competencia, linhas]) => ({ competencia, linhas })).sort((a, b) => a.competencia.localeCompare(b.competencia));
+  if (!lista.length) throw new Error('A planilha não tem nenhum mês com valores.');
+  return { aba: melhor.aba.nome, meses: lista };
+}
+const tokensDRE = t => new Set(String(t).normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\([^)]*\)/g, ' ').split(/[^A-Z0-9]+/).filter(w => w.length >= 3 && !['DAS', 'DOS', 'COM', 'PARA', 'TOTAL', 'TOTAIS', 'DESPESA', 'DESPESAS'].includes(w)));
+function casaLinha(a, b) {
+  const A = tokensDRE(a), B = tokensDRE(b); if (!A.size || !B.size) return 0;
+  let comum = 0;
+  for (const w of A) if (B.has(w) || [...B].some(x => x.length >= 5 && w.length >= 5 && (x.startsWith(w.slice(0, 5)) || w.startsWith(x.slice(0, 5))))) comum++;
+  return comum / Math.min(A.size, B.size);
+}
+let _dreArquivo = null;
+const _dreCache = new Map();
+$('dre_arquivo').addEventListener('change', async e => {
+  const arq = e.target.files[0]; e.target.value = ''; if (!arq) return;
+  $('dre_importar').disabled = true; _dreArquivo = null;
+  try {
+    $('dre_status').textContent = 'Lendo a planilha…';
+    const dre = extrairDRE(await lerPlanilha(arq));
+    const lojas = await lojasConfiguradas().catch(() => []);
+    const semAcento = t => String(t).normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
+    const nomeArq = semAcento(arq.name).replace(/[^A-Z0-9]/g, '');
+    const sugerida = lojas.find(l => { const ws = semAcento(l).replace(/^SSS\s*/, '').split(/[^A-Z0-9]+/).filter(w => w.length >= 4); return ws.length && ws.every(w => nomeArq.includes(w)); });
+    $('dre_loja').innerHTML = `<option value="">— escolha a loja —</option>` + lojas.map(l => `<option ${l === sugerida ? 'selected' : ''}>${esc(l)}</option>`).join('');
+    _dreArquivo = { nome: arq.name, ...dre };
+    const n = dre.meses.reduce((s, m) => s + m.linhas.length, 0);
+    $('dre_status').textContent = `Aba "${dre.aba}": ${dre.meses.length} mês(es) com valores (${nomeMes(dre.meses[0].competencia)} a ${nomeMes(dre.meses.at(-1).competencia)}), ${n} valores.${sugerida ? ` Loja reconhecida pelo nome do arquivo: ${sugerida}.` : ' Escolha a loja.'}`;
+    $('dre_importar').disabled = false;
+  } catch (err) { $('dre_status').textContent = 'Erro: ' + err.message; }
+});
+$('dre_importar').addEventListener('click', async () => {
+  if (!_dreArquivo) return;
+  const loja = $('dre_loja').value; if (!loja) { $('dre_status').textContent = 'Escolha a loja do DRE.'; return; }
+  const mm = _dreArquivo.meses;
+  if (!confirm(`Importar o DRE de ${loja}: ${mm.length} mês(es), de ${nomeMes(mm[0].competencia)} a ${nomeMes(mm.at(-1).competencia)}?\nSe esses meses já foram importados antes, serão substituídos.`)) return;
+  $('dre_importar').disabled = true;
+  try {
+    const r = await chamarEdge({ modulo: 'dre', acao: 'importar', loja, arquivo: _dreArquivo.nome, meses: mm }, EDGE_COMPRAS_URL);
+    $('dre_status').textContent = `✓ DRE importado: ${loja}, ${r.meses.map(nomeMes).join(', ')} (${r.linhas} valores). Gere o DRE do período e abra "DRE por Loja" para comparar.`;
+    _dreCache.clear();
+  } catch (err) { $('dre_status').textContent = 'Erro: ' + err.message; $('dre_importar').disabled = false; }
+});
+
+async function desenharComparacaoDRE(loja, periodo) {
+  const box = $('fin_dre_comparacao'); if (!box || !loja?.dre) return;
+  const desde = String(periodo?.desde ?? '').slice(0, 7), ate = String(periodo?.ate ?? '').slice(0, 7);
+  const chave = `${loja.nomeLoja}|${desde}|${ate}`;
+  box.innerHTML = '<div class="status" style="margin-top:12px">Procurando DRE importado…</div>';
+  let linhas;
+  try {
+    if (!_dreCache.has(chave)) _dreCache.set(chave, (await chamarEdge({ modulo: 'dre', acao: 'listar', lojas: [loja.nomeLoja], desde, ate }, EDGE_COMPRAS_URL)).linhas || []);
+    linhas = _dreCache.get(chave);
+  } catch (e) { box.innerHTML = /SQL/.test(e.message) ? '' : `<div class="status" style="margin-top:12px">${esc(e.message)}</div>`; return; }
+  if ($('fin_seletorLoja') && $('fin_seletorLoja').value !== loja.nomeLoja) return; // trocou de loja enquanto buscava
+  if (!linhas.length) { box.innerHTML = `<div class="status" style="margin-top:12px">Nenhum DRE importado desta loja no período. Use "Importar DRE por planilha" acima.</div>`; return; }
+  // soma por linha no período
+  const porLinha = new Map(), comps = new Set();
+  for (const l of linhas) {
+    comps.add(l.competencia);
+    const x = porLinha.get(l.linha) ?? { linha: l.linha, tipo: l.tipo, ordem: l.ordem, valor: 0 };
+    x.valor += Number(l.valor); porLinha.set(l.linha, x);
+  }
+  const plan = [...porLinha.values()].sort((a, b) => a.ordem - b.ordem);
+  const d = loja.dre;
+  const sistema = [{ linha: 'Receita bruta de vendas', valor: d.receitaBruta, vendas: true }, ...(d.despesasPorCategoria || []).map(x => ({ linha: x.categoria, valor: x.valor }))];
+  const usados = new Set();
+  const parDe = p => {
+    let melhor = null, nota = 0;
+    for (const s of sistema) {
+      if (usados.has(s)) continue;
+      const n = s.vendas ? (/^VENDAS/i.test(p.linha) ? 1 : 0) : casaLinha(p.linha, s.linha);
+      if (n > nota) { nota = n; melhor = s; }
+    }
+    return nota >= 0.5 ? melhor : null;
+  };
+  const diverge = (a, b) => Math.abs(b - a) > Math.max(1, Math.abs(a) * 0.01);
+  const fmtDif = (a, b) => !diverge(a, b) ? '<span style="color:var(--good)">igual</span>' : `<strong style="color:var(--danger)">${b - a > 0 ? '+' : ''}${fmtMoeda(b - a)}</strong>`;
+  let corpo = '', divergentes = 0, inseridas = 0;
+  for (const p of plan) {
+    const ehTotal = p.tipo === 'total';
+    const s = ehTotal ? null : parDe(p);
+    if (!s && !ehTotal && Math.abs(p.valor) < 0.005) continue; // linha zerada que só a planilha tem: não polui
+    if (s) { usados.add(s); if (diverge(s.valor, p.valor)) divergentes++; }
+    else if (!ehTotal) inseridas++;
+    corpo += `<tr style="${ehTotal ? 'font-weight:650; background:var(--panel-2)' : ''}"><td class="prod-name">${esc(p.linha)}${s && s.linha.toUpperCase() !== p.linha.toUpperCase() ? `<div style="font-size:11px; color:var(--muted); font-weight:400">no sistema: ${esc(s.linha)}</div>` : ''}</td>
+      <td class="num">${s ? fmtMoeda(s.valor) : '<span style="color:var(--muted)">—</span>'}</td><td class="num">${fmtMoeda(p.valor)}</td>
+      <td class="num">${s ? fmtDif(s.valor, p.valor) : ehTotal ? '' : '<span class="pill" style="font-size:10.5px">só na planilha</span>'}</td></tr>`;
+  }
+  const soSistema = sistema.filter(s => !usados.has(s) && Math.abs(s.valor) > 0.005);
+  for (const s of soSistema) corpo += `<tr><td class="prod-name">${esc(s.linha)}</td><td class="num">${fmtMoeda(s.valor)}</td><td class="num"><span style="color:var(--muted)">—</span></td><td class="num"><span class="pill" style="font-size:10.5px">só no sistema</span></td></tr>`;
+  const info = linhas[0];
+  box.innerHTML = `<div class="subsecao-titulo">DRE da planilha × sistema — ${[...comps].sort().map(nomeMes).join(', ')}</div>
+    <div class="panel" style="padding:12px 16px">
+      <div style="font-size:12px; color:var(--muted); margin-bottom:8px">${divergentes} linha(s) com valor diferente · ${inseridas} linha(s) que só a planilha tem · ${soSistema.length} só no sistema. Importado de ${esc(info.arquivo || 'planilha')}${info.importado_por ? ` por ${esc(info.importado_por)}` : ''}. Diferença = planilha − sistema (tolerância de 1%). A planilha é de caixa (pagamentos do mês) e o sistema é por competência: parte das diferenças vem disso.</div>
+      <div style="overflow-x:auto"><table class="no-tools"><thead><tr><th>Linha</th><th class="num">Sistema (VarejOnline)</th><th class="num">Planilha</th><th class="num">Diferença</th></tr></thead><tbody>${corpo}</tbody></table></div>
+    </div>`;
+}
+
 function renderFinanceiro(data, box) {
   if (!data.lojas.length) { box.innerHTML = '<div class="empty">Nenhuma loja retornou dados.</div>'; return; }
 
@@ -1365,6 +1519,7 @@ function renderFinanceiro(data, box) {
       </div>
 
       <div id="fin_dre_loja"></div>
+      <div id="fin_dre_comparacao"></div>
       <div class="subsecao-titulo">% por bandeira de cartão — nesta loja</div>
       <div class="panel"><div class="empty">Em investigação — a API da VarejOnline ainda não confirmou o endpoint correto para essa informação. Assim que confirmado, essa seção volta a aparecer.</div></div>
     </div>
@@ -1402,6 +1557,7 @@ function renderFinanceiro(data, box) {
       : '';
     dreBox.innerHTML = montarBlocoDRE(loja.dre) +
       `<div style="margin-top:10px; font-size:11px; color:var(--muted)">Campo de data usado para filtrar as despesas: <span style="font-family:var(--mono)">${loja.campoDataUsadoDespesas}</span></div>`;
+    desenharComparacaoDRE(loja, data.parametros.periodo);
 
     const faturamento = loja.dre.receitaBruta;
     const metaAtual = (data.metasPorLoja || {})[loja.nomeLoja] || 0;
@@ -3157,9 +3313,9 @@ async function lerPlanilha(arquivo) {
       }
       return vals;
     });
-    if (!linhas.length) { out.push({ nome: a.nome, linhas: [] }); continue; }
+    if (!linhas.length) { out.push({ nome: a.nome, linhas: [], matriz: [] }); continue; }
     const cab = Array.from(linhas[0], x => x ?? '');
-    out.push({ nome: a.nome, linhas: linhas.slice(1).filter(l => l.some(x => x !== undefined && x !== '')).map(l => Object.fromEntries(cab.map((h, k) => [h || `col${k}`, l[k] ?? '']))) });
+    out.push({ nome: a.nome, matriz: linhas, linhas: linhas.slice(1).filter(l => l.some(x => x !== undefined && x !== '')).map(l => Object.fromEntries(cab.map((h, k) => [h || `col${k}`, l[k] ?? '']))) });
   }
   return out;
 }

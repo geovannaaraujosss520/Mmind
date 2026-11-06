@@ -51,3 +51,8 @@ Cadastro, edição (nome, CNPJ, token testado antes de salvar; renomear propaga 
 - **Administrador**: tudo. **Equipe**: rede toda, sem Usuários e Lojas. **Franqueado**: só as lojas dele (Central de Decisão, compras, pedidos, estoque, financeiro, vendedores); sem Benchmark, Vínculos, Lojas e Usuários.
 - Quem aprova/envia um pedido fica registrado com o nome do usuário logado.
 - `LOGIN_OBRIGATORIO=true` desliga a senha do time.
+
+## DRE importado (Financeiro)
+- Importa a planilha de fluxo de caixa / DRE gerencial da loja (aba com uma coluna por mês, ex.: "DFC 2026"); a loja é reconhecida pelo nome do arquivo.
+- Cada mês importado substitui o anterior daquela loja. Meses sem valores são ignorados.
+- No "DRE por Loja", a planilha é comparada linha a linha com o DRE do sistema: linhas iguais, diferentes (lado a lado, com a diferença) e as que só existem na planilha ou só no sistema.
