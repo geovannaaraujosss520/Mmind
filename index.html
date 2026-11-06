@@ -758,8 +758,37 @@ async function chamarEdge(payload, url = EDGE_URL) {
   try { data = await resp.json(); }
   catch (e) { throw new Error(resp.status === 546 ? 'Erro 546: a consulta passou do limite de tempo/memória do Supabase.' : `Erro HTTP ${resp.status} (resposta inválida do servidor).`); }
   if (!resp.ok || data.error) throw new Error(data.error || `Erro HTTP ${resp.status}`);
+  if (data._desempenho) { _temposExec.push(data._desempenho); delete data._desempenho; }
   return data;
 }
+// Desempenho das consultas (o servidor devolve _desempenho em cada resposta)
+let _temposExec = [];
+function resumoDesempenho(inicio) {
+  const t = _temposExec, soma = k => t.reduce((s, x) => s + (Number(x[k]) || 0), 0);
+  const seg = ms => (ms / 1000).toFixed(1).replace('.', ',') + ' s';
+  const partes = [`em ${seg(Date.now() - inicio)}`];
+  if (soma('varejoChamadas')) partes.push(`VarejOnline ${seg(soma('varejoMs'))}${t.length > 1 ? ' somando as lojas' : ''} (${soma('varejoPaginas')} páginas)`);
+  const doCache = soma('diasDoCache'), baixados = soma('diasBaixados'), vivo = soma('diasAoVivo');
+  if (doCache + baixados + vivo) partes.push(`vendas: ${doCache} dia(s) do cache, ${baixados} baixado(s), ${vivo} ao vivo`);
+  if (soma('centralMs') > 200) partes.push(`Central ${seg(soma('centralMs'))}`);
+  return partes.join(' · ');
+}
+
+// Último resultado de cada tela (aparece na hora ao reabrir; some em 24 h ou ao sair)
+let _usuarioCache = '';
+const _chaveUltimo = (modulo, payload) => `sss_ultimo_${modulo}|${_usuarioCache}|${JSON.stringify(payload)}`;
+function lerUltimo(modulo, payload) {
+  try { const x = JSON.parse(localStorage.getItem(_chaveUltimo(modulo, payload)) || 'null'); return x && Date.now() - x.t < 24 * 3600_000 ? x : null; } catch { return null; }
+}
+function guardarUltimo(modulo, payload, data) {
+  try {
+    const txt = JSON.stringify({ t: Date.now(), data });
+    if (txt.length > 1_500_000) return;
+    for (const k of Object.keys(localStorage)) if (k.startsWith(`sss_ultimo_${modulo}|`)) localStorage.removeItem(k);
+    localStorage.setItem(_chaveUltimo(modulo, payload), txt);
+  } catch { /* sem espaço: segue sem guardar */ }
+}
+function limparUltimos() { try { for (const k of Object.keys(localStorage)) if (k.startsWith('sss_ultimo_')) localStorage.removeItem(k); } catch { } }
 
 // =====================================================================
 // CONSULTA LOJA A LOJA — evita o erro 546 (limite de CPU/memória do Supabase)
@@ -976,6 +1005,8 @@ async function rodarModulo(modulo) {
   btn.disabled = true;
   status.textContent = 'Consultando VarejOnline...';
   resultBox.innerHTML = '';
+  const inicioExec = Date.now(); _temposExec = [];
+  let mostrandoCache = false;
 
   try {
     let payload = { modulo };
@@ -1021,28 +1052,41 @@ async function rodarModulo(modulo) {
       };
     }
 
-    const data = modulo === 'recorrente'
-      ? await recorrentePorLoja(payload, (f, t, msg) => { status.textContent = msg || `Consultando VarejOnline… ${f}/${t} lojas`; })
-      : await consultarModulo(payload, (f, t) => { status.textContent = `Consultando VarejOnline… ${f}/${t} lojas`; });
-    status.textContent = `Concluído às ${new Date().toLocaleTimeString('pt-BR')}`;
-
+    const desenhar = async (data) => {
     if (modulo === 'recorrente') renderRecorrente(data, resultBox);
     else if (modulo === 'sazonal') { renderSazonal(data, resultBox); extrasSazonal(data, resultBox); }
     else if (modulo === 'estoque') renderEstoque(data, resultBox);
     else if (modulo === 'financeiro') {
-      const [dd, mm, yyyy] = data.parametros.periodo.desde.split('-').map(Number);
-      let metasData = { metas: [] };
-      try { metasData = await chamarEdge({ modulo: 'metas', acao: 'listar', ano: yyyy, mes: mm }); } catch (e) { /* segue sem metas se falhar */ }
-      data.metaAno = yyyy;
-      data.metaMes = mm;
-      data.metasPorLoja = Object.fromEntries((metasData.metas || []).map(m => [m.loja, Number(m.meta)]));
+      data.metasPorLoja = data.metasPorLoja || {};
       renderFinanceiro(data, resultBox);
       extrasFinanceiro(data, resultBox);
     }
     else if (modulo === 'benchmark') renderBenchmark(data, resultBox);
+    };
+    // Mostra na hora o último resultado igual (mesmos filtros) enquanto busca o atualizado
+    const ultimo = lerUltimo(modulo, payload);
+    if (ultimo) {
+      try { await desenhar(ultimo.data); mostrandoCache = true; } catch { resultBox.innerHTML = ''; }
+    }
+    const aviso = msg => mostrandoCache ? `Mostrando o resultado de ${new Date(ultimo.t).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} · atualizando: ${msg}` : msg;
+    status.textContent = aviso('Consultando VarejOnline...');
+    const data = modulo === 'recorrente'
+      ? await recorrentePorLoja(payload, (f, t, msg) => { status.textContent = aviso(msg || `Consultando VarejOnline… ${f}/${t} lojas`); })
+      : await consultarModulo(payload, (f, t) => { status.textContent = aviso(`Consultando VarejOnline… ${f}/${t} lojas`); });
+    if (modulo === 'financeiro') { // metas entram no dado guardado
+      const [dd, mm, yyyy] = data.parametros.periodo.desde.split('-').map(Number);
+      let metasData = { metas: [] };
+      try { metasData = await chamarEdge({ modulo: 'metas', acao: 'listar', ano: yyyy, mes: mm }); } catch (e) { /* segue sem metas se falhar */ }
+      data.metaAno = yyyy; data.metaMes = mm;
+      data.metasPorLoja = Object.fromEntries((metasData.metas || []).map(m => [m.loja, Number(m.meta)]));
+    }
+    status.textContent = `Concluído às ${new Date().toLocaleTimeString('pt-BR')} ${resumoDesempenho(inicioExec)}`;
+    await desenhar(data);
+    guardarUltimo(modulo, payload, data);
   } catch (e) {
-    erroBox.innerHTML = `<div class="panel err">${e.message}</div>`;
-    status.textContent = '';
+    erroBox.innerHTML = `<div class="panel err">${esc(e.message)}${mostrandoCache ? '<br><span style="font-weight:400">O resultado na tela é o da última consulta.</span>' : ''}</div>`;
+    if (!mostrandoCache) status.textContent = '';
+    else status.textContent = status.textContent.replace(/ · atualizando:.*/, ' · não foi possível atualizar');
   } finally {
     btn.disabled = false;
   }
@@ -3685,6 +3729,7 @@ async function carregarPerfil() {
 }
 
 function aplicarPerfil(p) {
+  _usuarioCache = String(p.email || p.nome || '');
   $('usuarioNome').textContent = p.nome || '—';
   $('usuarioPapel').textContent = p.tipo === 'senha' ? 'senha do time' : (ROTULO_PAPEL[p.papel] || p.papel) + (p.papel === 'franqueado' ? ` · ${p.lojas.length} loja(s)` : '');
   const ocultar = new Set(p.papel === 'franqueado' ? ['benchmark', 'lojas', 'vinculos', 'usuarios'] : p.papel === 'equipe' ? ['lojas', 'usuarios'] : []);
@@ -3751,6 +3796,7 @@ $('troca_form').addEventListener('submit', async ev => {
 async function sair(ev) {
   ev && ev.preventDefault();
   try { sessionStorage.removeItem('sss_passcode'); } catch { }
+  limparUltimos();
   if (sbAuth && tokenAcesso) { try { await sbAuth.auth.signOut(); } catch { } }
   location.reload();
 }

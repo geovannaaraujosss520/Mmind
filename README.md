@@ -68,6 +68,7 @@ Detalhes em [`docs/MODULOS.md`](docs/MODULOS.md).
 | `20261105000002_usuarios_painel.sql` | usuários do painel (papel e lojas de cada um) |
 | `20261105000003_catalogo_central.sql` | catálogo fixo da Central (itens dos pedidos + planilha) |
 | `20261106000001_dre_importado.sql` | DRE / fluxo de caixa importado por planilha |
+| `20261106000002_vendas_cache_dias.sql` | cache das vendas da VarejOnline por loja e dia (acelera todas as telas) |
 
 Todos usam `if not exists`: rodar de novo não apaga nada.
 Tabelas que já existiam antes (`lojas_config`, `pedidos_vinculos`, `metas_faturamento`, `perfil_lojas`) não estão aqui.
@@ -78,6 +79,7 @@ Tabelas que já existiam antes (`lojas_config`, `pedidos_vinculos`, `metas_fatur
 | `VAREJONLINE_API_BASE` | sim | URL base da API da VarejOnline |
 | `APP_PASSCODE` | sim | senha do time (entrada provisória até todos terem login) |
 | `LOGIN_OBRIGATORIO` | depois | `true` desliga a senha do time: só entra com e-mail e senha |
+| `AQUECER_CHAVE` | recomendado | chave da tarefa que pré-carrega o cache às 5h (mesmo valor no secret do GitHub Actions `AQUECER_CHAVE`) |
 | `PEDIDOS_API_KEY` | sim | chave da API da Central (leitura de pedidos) |
 | `ALLOWED_ORIGIN` | recomendado | endereço(s) do painel separados por vírgula, sem barra no fim (ex.: `https://geovannaaraujosss520.github.io,https://seu-app.onrender.com`); localhost sempre funciona |
 | `CENTRAL_ENVIO_HABILITADO` | para enviar pedidos | `true` libera o envio à Central |

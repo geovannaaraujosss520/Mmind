@@ -43,6 +43,9 @@ Perfil comparado à média da própria loja: Destaque · Na média · Atenção 
 Cadastro, edição (nome, CNPJ, token testado antes de salvar; renomear propaga para metas, vínculos e pedidos), ativar/desativar e diagnóstico da API da Central.
 
 ## Cache e limites
+- Vendas da VarejOnline ficam em `vendas_cache_dias` por loja e dia: dia fechado não é baixado de novo; ontem e hoje sempre ao vivo; dias da última semana são relidos após 6 h. Pré-aquecimento diário às 5h17 (workflow *Aquecer cache do Insight*).
+- Estoque (saldos) reaproveitado por 10 minutos na memória da função.
+- O painel mostra na hora o último resultado de cada tela (mesmos filtros, até 24 h, apagado ao sair) enquanto atualiza, e o tempo de cada consulta (VarejOnline, cache, Central).
 - Pedidos da Central ficam em `central_cache_dias` (validade de 5 min a 24 h conforme a idade do dia). A primeira carga é feita em partes.
 - Consultas pesadas são feitas loja a loja pelo painel, para respeitar o limite de tempo/memória das Edge Functions (erro 546).
 
