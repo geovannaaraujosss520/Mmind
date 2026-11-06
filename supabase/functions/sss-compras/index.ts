@@ -1645,6 +1645,56 @@ async function importarCatalogoPlanilha(itens: any[]) {
   return { ok: true, produtos: itens.length, variacoes: todas.length, gravadas: gravar.length, jaVistasEmPedidos: dePedido.size };
 }
 
+// =====================================================================
+// DRE IMPORTADO POR PLANILHA (tabela dre_importado)
+// importar: { loja, arquivo, meses: [{ competencia:'AAAA-MM', linhas:[{ ordem, linha, tipo, valor }] }] }
+//           substitui os meses enviados daquela loja
+// listar:   { lojas?, desde:'AAAA-MM', ate:'AAAA-MM' } -> linhas por loja e mes
+// =====================================================================
+async function moduloDre(body: any, a: Acesso) {
+  const acao = String(body.acao ?? '');
+  const t = await sb().from('dre_importado').select('loja').limit(1);
+  if (t.error) throw new Error('Rode antes o SQL 20261106000001_dre_importado.sql no Supabase.');
+  if (acao === 'importar') {
+    const loja = String(body.loja ?? '').trim();
+    if (!loja) throw new Error('Escolha a loja do DRE.');
+    exigirLoja(a, loja);
+    const meses: any[] = Array.isArray(body.meses) ? body.meses : [];
+    if (!meses.length || meses.length > 24) throw new Error('Nenhum mês com valores na planilha.');
+    const agora = new Date().toISOString(), quem = a.nome || String(body.usuario ?? '') || null;
+    const linhas: any[] = [];
+    for (const m of meses) {
+      const comp = String(m.competencia ?? '');
+      if (!/^\d{4}-\d{2}$/.test(comp)) throw new Error(`Mês inválido: ${comp}`);
+      const vistos = new Set<string>();
+      for (const l of (m.linhas ?? []).slice(0, 300)) {
+        const nome = String(l.linha ?? '').trim().slice(0, 120); const valor = Number(l.valor);
+        if (!nome || !Number.isFinite(valor) || vistos.has(nome)) continue;
+        vistos.add(nome);
+        linhas.push({ loja, competencia: comp, ordem: Number(l.ordem) || 0, linha: nome, tipo: l.tipo === 'total' ? 'total' : 'item', valor: Math.round(valor * 100) / 100, arquivo: String(body.arquivo ?? '').slice(0, 200) || null, importado_por: quem, importado_em: agora });
+      }
+    }
+    const comps = [...new Set(linhas.map((l) => l.competencia))];
+    const del = await sb().from('dre_importado').delete().eq('loja', loja).in('competencia', comps);
+    if (del.error) throw new Error(`Erro ao limpar meses: ${del.error.message}`);
+    for (let k = 0; k < linhas.length; k += 500) {
+      const { error } = await sb().from('dre_importado').insert(linhas.slice(k, k + 500));
+      if (error) throw new Error(`Erro ao gravar o DRE: ${error.message}`);
+    }
+    return { ok: true, loja, meses: comps.sort(), linhas: linhas.length };
+  }
+  if (acao === 'listar') {
+    const lojas = lojasDoAcesso(a, Array.isArray(body.lojas) && body.lojas.length ? body.lojas : undefined);
+    let q = sb().from('dre_importado').select('loja, competencia, ordem, linha, tipo, valor, arquivo, importado_por, importado_em')
+      .gte('competencia', String(body.desde ?? '0000-00')).lte('competencia', String(body.ate ?? '9999-99')).order('ordem').limit(5000);
+    if (lojas) q = q.in('loja', lojas);
+    const r = await q;
+    if (r.error) throw new Error(r.error.message);
+    return { linhas: r.data ?? [] };
+  }
+  throw new Error('Ação de DRE desconhecida.');
+}
+
 // ---- Tela de vinculos ----
 let cacheCatalogo: { quando: number; idx: ReturnType<typeof indexarCatalogo>; cat: any } | null = null;
 async function catalogoIndexado() {
@@ -1963,6 +2013,7 @@ Deno.serve(async (req) => {
       if (acao === 'produtosVendidos') { exigirLoja(a, body.loja); return resp(await moduloVinculos(body, Deno.env.get('VAREJONLINE_API_BASE')!, await getLojasTokens())); }
       return resp(await moduloVinculos(body));
     }
+    if (modulo === 'dre') return resp(await moduloDre(body, a));
     if (modulo === 'sincronizarCentral') return resp(await moduloSincronizarCentral(body));
     if (modulo === 'lojaEditar') { exigirPapel(a, 'admin'); return resp(await moduloLojaEditar(body)); }
     if (modulo === 'compatibilidade') { equipe(); return resp(await moduloCompatibilidade(Deno.env.get('VAREJONLINE_API_BASE')!, await getLojasTokens(), body)); }
