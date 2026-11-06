@@ -30,6 +30,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { saidasComCache, saldosComCache, reiniciarMedicao, resumoMedicao } from "../_shared/vendas_cache.ts";
 
 
 // ALLOWED_ORIGIN aceita varios enderecos separados por virgula (ex.: GitHub Pages + servidor Node).
@@ -116,7 +117,7 @@ async function getLojasTokens(): Promise<Record<string, string>> {
     .eq("ativo", true);
   if (error) throw new Error(`Erro ao ler lojas_config: ${error.message}`);
   const mapa: Record<string, string> = {};
-  for (const row of data ?? []) mapa[row.nome] = row.token;
+  for (const row of data ?? []) { mapa[row.nome] = row.token; if (row.token) lojaPorToken.set(row.token, row.nome); }
   return mapa;
 }
 
@@ -187,27 +188,11 @@ async function fetchAllPages(url: string, token: string, onPage?: (items: any[])
 
 // Lê as saídas (vendas) em janelas de até 30 dias, 4 em paralelo — a paginação é sequencial e lenta
 // em períodos longos. Janelas se sobrepõem em 1 dia; vendas repetidas são descartadas pelo id.
+// Vendas de um periodo: dias fechados vem do cache (vendas_cache_dias); ontem e hoje, da VarejOnline.
 async function buscarSaidas(apiBase: string, token: string, dIni: Date, dFim: Date, onSaida: (s: any) => void, janelaDias = 30, conc = 4) {
-  const janelas: [Date, Date][] = [];
-  for (let a = new Date(dIni); a <= dFim; a = new Date(a.getTime() + janelaDias * 86400000)) {
-    janelas.push([a, new Date(Math.min(dFim.getTime(), a.getTime() + janelaDias * 86400000))]);
-  }
-  const vistos = new Set<string>();
-  let i = 0;
-  await Promise.all(Array.from({ length: Math.min(conc, janelas.length) }, async () => {
-    while (i < janelas.length) {
-      const [a, b] = janelas[i++];
-      await fetchAllPages(`${apiBase}/saidas?desde=${formatDateBR(a)}&ate=${formatDateBR(b)}`, token, (pg) => {
-        for (const sd of pg) {
-          const k = sd.id != null ? `i${sd.id}` : `d${sd.numeroDocumento}|${sd.data ?? ""}|${sd.entidade?.id ?? ""}`;
-          if (vistos.has(k)) continue;
-          vistos.add(k);
-          onSaida(sd);
-        }
-      });
-    }
-  }));
+  await saidasComCache({ sb: getSupabaseAdmin, buscarPaginas: fetchAllPages, apiBase, token, loja: lojaPorToken.get(token) ?? null, dIni, dFim, onSaida, janelaDias, conc });
 }
+const lojaPorToken = new Map<string, string>();
 const ehPedidoVenda = (s: any) => !s.cancelado && (!s.tipoSaida || s.tipoSaida === "PEDIDO_VENDA");
 
 // Estoque da UNIDADE: se o token enxerga mais de uma unidade (loja + depósito), usa só a(s) que
@@ -216,10 +201,10 @@ async function saldosDaUnidade(apiBase: string, token: string, entidadesVenda: S
   const enxuto = (sl: any) => ({ quantidade: sl.quantidade, entidade: sl.entidade ? { id: sl.entidade.id, nome: sl.entidade.nome } : undefined,
     produto: sl.produto ? { id: sl.produto.id, descricao: sl.produto.descricao, codigoSistema: sl.produto.codigoSistema } : undefined });
   let saldos: any[] = [];
-  await fetchAllPages(`${apiBase}/saldos-mercadorias`, token, (pg) => { for (const sl of pg) saldos.push(enxuto(sl)); });
+  await saldosComCache(fetchAllPages, `${apiBase}/saldos-mercadorias`, token, (pg) => { for (const sl of pg) saldos.push(enxuto(sl)); });
   let consultaComEntidade = false;
   if (!saldos.length && entidadesVenda.size) {
-    await fetchAllPages(`${apiBase}/saldos-mercadorias?entidades=${[...entidadesVenda].join(",")}`, token, (pg) => { for (const sl of pg) saldos.push(enxuto(sl)); });
+    await saldosComCache(fetchAllPages, `${apiBase}/saldos-mercadorias?entidades=${[...entidadesVenda].join(",")}`, token, (pg) => { for (const sl of pg) saldos.push(enxuto(sl)); });
     consultaComEntidade = true;
   }
   const unidades = new Set(saldos.map((sl) => String(sl.entidade?.id ?? "?")));
@@ -1034,6 +1019,7 @@ async function moduloLojas(body: any) {
 
 serve(async (req) => {
   corsHeaders["Access-Control-Allow-Origin"] = origemPermitida(req);
+  reiniciarMedicao();
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -1123,7 +1109,7 @@ serve(async (req) => {
         });
     }
 
-    return new Response(JSON.stringify(resultado), {
+    return new Response(JSON.stringify(resultado && typeof resultado === "object" && !Array.isArray(resultado) ? { ...resultado, _desempenho: resumoMedicao() } : resultado), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {

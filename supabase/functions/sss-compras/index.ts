@@ -3,6 +3,7 @@
 // Secrets: VAREJONLINE_API_BASE, APP_PASSCODE, PEDIDOS_API_KEY, ALLOWED_ORIGIN (opcional), LIMITE_PEDIDO_SEM_CONFIRMACAO (opcional, em R$).
 // Tabelas: lojas_config, pedidos_vinculos, pedidos_sugeridos.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { saidasComCache, saldosComCache, reiniciarMedicao, resumoMedicao, medicao } from '../_shared/vendas_cache.ts';
 
 
 // ALLOWED_ORIGIN aceita varios enderecos separados por virgula (ex.: GitHub Pages + servidor Node).
@@ -66,7 +67,8 @@ function exigirPapel(a: Acesso, ...papeis: Acesso['papel'][]) { if (!papeis.incl
 function exigirLoja(a: Acesso, loja: unknown) { if (!a.todas && !a.lojas.includes(String(loja ?? ''))) throw new ErroAcesso('Sem acesso a esta loja.', 403); }
 const respostaErroAcesso = (e: ErroAcesso, headers: Record<string, string>) => new Response(JSON.stringify({ error: e.message, acesso: e.status === 401 ? 'login' : 'negado' }), { status: e.status, headers: { ...headers, 'Content-Type': 'application/json' } });
 
-const resp = (o: unknown, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { ...cors, 'Content-Type': 'application/json' } });
+// Toda resposta de sucesso leva _desempenho (tempo total, VarejOnline, cache de vendas, Central) para o diagnostico do painel.
+const resp = (o: unknown, s = 200) => new Response(JSON.stringify(o && typeof o === 'object' && !Array.isArray(o) && s < 400 ? { ...(o as any), _desempenho: resumoMedicao() } : o), { status: s, headers: { ...cors, 'Content-Type': 'application/json' } });
 const sb = () => createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 const clienteAcesso = sb;
 
@@ -134,33 +136,17 @@ async function fetchAllPages(url: string, token: string, onPage?: (items: any[])
 
 // Le as vendas em janelas de ~15 dias em paralelo (a paginacao da VarejOnline e sequencial e lenta em lojas grandes).
 // As janelas se sobrepoem em 1 dia e as vendas repetidas sao descartadas pelo id.
+// Vendas de um periodo: dias fechados vem do cache (vendas_cache_dias); ontem e hoje, da VarejOnline.
 async function buscarSaidasParalelo(apiBase: string, token: string, dIni: Date, dFim: Date, onSaida: (sd: any) => void, janelaDias = 15, conc = 4) {
-  const janelas: [Date, Date][] = [];
-  for (let a = new Date(dIni); a <= dFim; a = new Date(a.getTime() + janelaDias * 86400000)) {
-    const b = new Date(Math.min(dFim.getTime(), a.getTime() + janelaDias * 86400000));
-    janelas.push([a, b]);
-  }
-  const vistos = new Set<string>();
-  let i = 0;
-  await Promise.all(Array.from({ length: Math.min(conc, janelas.length) }, async () => {
-    while (i < janelas.length) {
-      const [a, b] = janelas[i++];
-      await fetchAllPages(`${apiBase}/saidas?desde=${fmtBR(a)}&ate=${fmtBR(b)}`, token, (pg) => {
-        for (const sd of pg) {
-          const k = sd.id != null ? `i${sd.id}` : `d${sd.numeroDocumento}|${sd.data ?? sd.dataSaida ?? ''}|${sd.entidade?.id ?? ''}`;
-          if (vistos.has(k)) continue;
-          vistos.add(k); onSaida(sd);
-        }
-      });
-    }
-  }));
+  await saidasComCache({ sb, buscarPaginas: fetchAllPages, apiBase, token, loja: lojaPorToken.get(token) ?? null, dIni, dFim, onSaida, janelaDias, conc });
 }
 
+const lojaPorToken = new Map<string, string>();
 async function getLojasTokens(): Promise<Record<string, string>> {
   const { data, error } = await sb().from('lojas_config').select('nome, token').eq('ativo', true);
   if (error) throw new Error(`Erro ao ler lojas_config: ${error.message}`);
   const m: Record<string, string> = {};
-  for (const r of data ?? []) m[r.nome] = r.token;
+  for (const r of data ?? []) { m[r.nome] = r.token; if (r.token) lojaPorToken.set(r.token, r.nome); }
   return m;
 }
 
@@ -199,6 +185,10 @@ async function buscarDiaCentral(chave: string, dia: string): Promise<any[]> {
   return (Array.isArray(j) ? j : (j?.pedidos ?? [])).map(compactarPedidoCentral);
 }
 async function sincronizarCentralDias(nDias: number, orcamentoMs: number): Promise<ResultadoCentral> {
+  const t0Central = Date.now();
+  try { return await sincronizarCentralDiasInterno(nDias, orcamentoMs); } finally { medicao.centralMs += Date.now() - t0Central; }
+}
+async function sincronizarCentralDiasInterno(nDias: number, orcamentoMs: number): Promise<ResultadoCentral> {
   const chave = (Deno.env.get('PEDIDOS_API_KEY') ?? '').trim();
   if (!chave) return { lista: [], falhas: 0, erro: 'PEDIDOS_API_KEY nao configurada' };
   const t0 = Date.now();
@@ -348,7 +338,7 @@ async function moduloRecorrente(apiBase: string, lojasTokens: Record<string, str
         mercadorias: (sd.mercadorias ?? []).map((it: any) => ({ produto: it.produto ? { id: it.produto.id, descricao: it.produto.descricao, codigoSistema: it.produto.codigoSistema } : null, quantidade: it.quantidade, valorCusto: it.valorCusto, valorTotal: it.valorTotal })) });
       [, saldos] = await Promise.all([
         buscarSaidasParalelo(apiBase, token, ini, hoje, (sd) => { saidas.push(enxuta(sd)); }),
-        fetchAllPages(`${apiBase}/saldos-mercadorias`, token, (pg) => { for (const sl of pg) saldos.push(enxutoSaldo(sl)); })]);
+        saldosComCache(fetchAllPages, `${apiBase}/saldos-mercadorias`, token, (pg) => { for (const sl of pg) saldos.push(enxutoSaldo(sl)); })]);
     } catch (e) {
       return { nomeLoja, erro: String(e), totalProdutosAnalisados: 0, valorTotalEstimadoCompra: 0, recomendacoes: [] };
     }
@@ -382,7 +372,7 @@ async function moduloRecorrente(apiBase: string, lojasTokens: Record<string, str
     let consultaComEntidade = false;
     // Algumas contas devolvem lista vazia sem o parametro "entidades": refaz informando a unidade.
     if (!saldos.length && entVenda.size) {
-      try { await fetchAllPages(`${apiBase}/saldos-mercadorias?entidades=${[...entVenda.keys()].join(',')}`, token, (pg) => { for (const sl of pg) saldos.push(enxutoSaldo(sl)); }); consultaComEntidade = true; }
+      try { await saldosComCache(fetchAllPages, `${apiBase}/saldos-mercadorias?entidades=${[...entVenda.keys()].join(',')}`, token, (pg) => { for (const sl of pg) saldos.push(enxutoSaldo(sl)); }); consultaComEntidade = true; }
       catch (e) { /* segue sem estoque; aparece no diagnostico */ }
     }
     // Se o token enxerga varias unidades (loja + deposito...), fica so com a(s) que venderam.
@@ -1411,7 +1401,7 @@ async function moduloLojaEditar(body: any) {
 
   const propagado: string[] = [], naoPropagado: string[] = [];
   if (patch.nome) {
-    for (const [tabela, coluna] of [['metas_faturamento', 'loja'], ['perfil_lojas', 'loja'], ['pedidos_vinculos', 'loja'], ['pedidos_sugeridos', 'loja']]) {
+    for (const [tabela, coluna] of [['metas_faturamento', 'loja'], ['perfil_lojas', 'loja'], ['pedidos_vinculos', 'loja'], ['pedidos_sugeridos', 'loja'], ['vendas_cache_dias', 'loja'], ['dre_importado', 'loja']]) {
       const { error, count } = await s.from(tabela).update({ [coluna]: patch.nome }, { count: 'exact' }).eq(coluna, nomeAtual);
       if (!error) { if (count) propagado.push(`${tabela} (${count})`); }
       else if (!/does not exist|could not find|schema cache/i.test(error.message)) naoPropagado.push(`${tabela}: ${error.message}`);
@@ -1693,6 +1683,27 @@ async function moduloDre(body: any, a: Acesso) {
     return { linhas: r.data ?? [] };
   }
   throw new Error('Ação de DRE desconhecida.');
+}
+
+// Pre-aquecimento: para cada loja, garante no cache os ultimos N dias de vendas (so baixa o que falta)
+// e atualiza o cache dos pedidos da Central. Para de comecar lojas novas perto do limite de tempo;
+// a tarefa agendada chama de novo ate vir completo=true.
+async function aquecerCaches(body: any) {
+  const t0 = Date.now(), limite = 100_000;
+  const apiBase = Deno.env.get('VAREJONLINE_API_BASE');
+  if (!apiBase) throw new Error('VAREJONLINE_API_BASE não configurado.');
+  const dias = Math.min(400, Math.max(7, Number(body.dias ?? 120)));
+  const lojasTokens = await getLojasTokens();
+  const fim = new Date(), ini = new Date(fim); ini.setDate(ini.getDate() - (dias - 1));
+  const prontas: string[] = [], erros: any[] = [], pendentes: string[] = [];
+  for (const nome of Object.keys(lojasTokens)) {
+    if (Date.now() - t0 > limite) { pendentes.push(nome); continue; }
+    try { await buscarSaidasParalelo(apiBase, lojasTokens[nome], ini, fim, () => {}, 15, 3); prontas.push(nome); }
+    catch (e) { erros.push({ loja: nome, erro: e instanceof Error ? e.message : String(e) }); }
+  }
+  let central: any = null;
+  if (Date.now() - t0 < 120_000) { try { const r = await sincronizarCentralDias(180, Math.max(5_000, 140_000 - (Date.now() - t0))); central = { completo: !r.pendentes, pendentes: r.pendentes ?? 0, falhas: r.falhas }; } catch (e) { central = { erro: String(e) }; } }
+  return { completo: !pendentes.length && !!central?.completo, dias, prontas, pendentes, erros, central, ms: Date.now() - t0 };
 }
 
 // ---- Tela de vinculos ----
@@ -1986,11 +1997,19 @@ async function moduloUsuarios(body: any, a: Acesso) {
 
 Deno.serve(async (req) => {
   cors['Access-Control-Allow-Origin'] = origemPermitida(req);
+  reiniciarMedicao();
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   // Configuração pública do login (URL do projeto + chave pública do Supabase Auth — feita para ficar no navegador).
   if (req.method === 'GET' && new URL(req.url).searchParams.has('config')) {
     return resp({ supabaseUrl: Deno.env.get('SUPABASE_URL'), anonKey: Deno.env.get('SUPABASE_ANON_KEY') ?? Deno.env.get('SUPABASE_PUBLISHABLE_KEY') ?? null,
       loginObrigatorio: String(Deno.env.get('LOGIN_OBRIGATORIO') ?? '').toLowerCase() === 'true' });
+  }
+  // Pre-aquecimento (tarefa agendada no GitHub): baixa e guarda as vendas e os pedidos da Central antes do expediente.
+  // Protegido pelo secret AQUECER_CHAVE (cabecalho x-aquecer-chave); sem o secret, desligado.
+  if (req.method === 'POST' && req.headers.get('x-aquecer-chave')) {
+    const chave = Deno.env.get('AQUECER_CHAVE');
+    if (!chave || req.headers.get('x-aquecer-chave') !== chave) return resp({ error: 'Chave de aquecimento inválida.' }, 401);
+    try { return resp(await aquecerCaches(await req.json().catch(() => ({})))); } catch (e) { return resp({ error: e instanceof Error ? e.message : String(e) }, 500); }
   }
   let a: Acesso;
   try { a = await obterAcesso(req); } catch (e) { if (e instanceof ErroAcesso) return respostaErroAcesso(e, cors); throw e; }
