@@ -1689,18 +1689,26 @@ async function moduloDre(body: any, a: Acesso) {
 // e atualiza o cache dos pedidos da Central. Para de comecar lojas novas perto do limite de tempo;
 // a tarefa agendada chama de novo ate vir completo=true.
 async function aquecerCaches(body: any) {
-  const t0 = Date.now(), limite = 100_000;
+  const t0 = Date.now(), limite = 90_000;
   const apiBase = Deno.env.get('VAREJONLINE_API_BASE');
   if (!apiBase) throw new Error('VAREJONLINE_API_BASE não configurado.');
   const dias = Math.min(400, Math.max(7, Number(body.dias ?? 120)));
   const lojasTokens = await getLojasTokens();
   const fim = new Date(), ini = new Date(fim); ini.setDate(ini.getDate() - (dias - 1));
   const prontas: string[] = [], erros: any[] = [], pendentes: string[] = [];
-  for (const nome of Object.keys(lojasTokens)) {
-    if (Date.now() - t0 > limite) { pendentes.push(nome); continue; }
-    try { await buscarSaidasParalelo(apiBase, lojasTokens[nome], ini, fim, () => {}, 15, 3); prontas.push(nome); }
-    catch (e) { erros.push({ loja: nome, erro: e instanceof Error ? e.message : String(e) }); }
-  }
+  // 3 lojas ao mesmo tempo (tokens diferentes), cada uma com 3 janelas; ninguem comeca janela nova depois do prazo
+  const prazo = t0 + limite, nomes = Object.keys(lojasTokens);
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(3, nomes.length) }, async () => {
+    while (i < nomes.length) {
+      const nome = nomes[i++];
+      if (Date.now() > prazo) { pendentes.push(nome); continue; }
+      try {
+        const ok = await saidasComCache({ sb, buscarPaginas: fetchAllPages, apiBase, token: lojasTokens[nome], loja: nome, dIni: ini, dFim: fim, onSaida: () => {}, janelaDias: 15, conc: 3, prazo });
+        (ok ? prontas : pendentes).push(nome);
+      } catch (e) { erros.push({ loja: nome, erro: e instanceof Error ? e.message : String(e) }); }
+    }
+  }));
   let central: any = null;
   if (Date.now() - t0 < 120_000) { try { const r = await sincronizarCentralDias(180, Math.max(5_000, 140_000 - (Date.now() - t0))); central = { completo: !r.pendentes, pendentes: r.pendentes ?? 0, falhas: r.falhas }; } catch (e) { central = { erro: String(e) }; } }
   return { completo: !pendentes.length && !!central?.completo, dias, prontas, pendentes, erros, central, ms: Date.now() - t0 };
