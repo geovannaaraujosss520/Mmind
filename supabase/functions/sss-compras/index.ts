@@ -1050,7 +1050,8 @@ const compactarSaida = (sd: any) => ({
   id: sd.id, numeroDocumento: sd.numeroDocumento, cancelado: sd.cancelado, tipoSaida: sd.tipoSaida,
   data: sd.data ?? sd.dataSaida ?? sd.dataEmissao, entidade: sd.entidade ? { id: sd.entidade.id } : undefined,
   terceiro: sd.terceiro ? { id: sd.terceiro.id, nome: sd.terceiro.nome, documento: sd.terceiro.documento } : undefined,
-  mercadorias: (sd.mercadorias ?? []).map((it: any) => ({ quantidade: it.quantidade, valorTotal: it.valorTotal, valorTotalDesconto: it.valorTotalDesconto, valorDescontoItem: it.valorDescontoItem, idRepresentante: it.idRepresentante })),
+  mercadorias: (sd.mercadorias ?? []).map((it: any) => ({ quantidade: it.quantidade, valorTotal: it.valorTotal, valorTotalDesconto: it.valorTotalDesconto, valorDescontoItem: it.valorDescontoItem, idRepresentante: it.idRepresentante,
+    produto: it.produto ? { id: it.produto.id, descricao: it.produto.descricao, codigoSistema: it.produto.codigoSistema } : null })),
 });
 
 // =====================================================================
@@ -1095,6 +1096,8 @@ async function moduloVendedores(apiBase: string, lojasTokens: Record<string, str
     const acc = new Map<string, Acc>();
     const loja = { atend: 0, pecas: 0, fat: 0, desc: 0, pecasBaratas: 0, fatBarato: 0, atendCliente: 0 };
     const entidadesLoja = new Set<string>();
+    // pecas abaixo do preco-limite, por produto (quais sao e quem vende)
+    const baratos = new Map<string, { produtoId: any; descricao: string; codigoSistema: string | null; qtd: number; fat: number; vend: Map<string, number> }>();
     // primeira venda de cada cliente no periodo -> vendedor principal dessa venda
     const primeiraVenda = new Map<string, { data: number; vendedor: string }>();
     const parseData = (x: unknown) => { const m = String(x ?? '').match(/(\d{2})[-/](\d{2})[-/](\d{4})(?:\s+(\d{2}):(\d{2}))?/); return m ? Date.UTC(+m[3], +m[2] - 1, +m[1], +(m[4] ?? 0), +(m[5] ?? 0)) : 0; };
@@ -1117,7 +1120,12 @@ async function moduloVendedores(apiBase: string, lojasTokens: Record<string, str
         const vid = it.idRepresentante != null ? String(it.idRepresentante) : 'sem';
         const a = acc.get(vid) ?? { id: vid, atend: new Set(), atend1: 0, pecas: 0, fat: 0, desc: 0, pecasBaratas: 0, fatBarato: 0, dias: new Set(), atendCliente: new Set() };
         a.atend.add(idAt); a.pecas += q; a.fat += v; a.desc += d; if (dia) a.dias.add(dia);
-        if (unit < precoLimite) { a.pecasBaratas += q; a.fatBarato += v; loja.pecasBaratas += q; loja.fatBarato += v; }
+        if (unit < precoLimite) {
+          a.pecasBaratas += q; a.fatBarato += v; loja.pecasBaratas += q; loja.fatBarato += v;
+          const pr = it.produto, kb = pr?.id != null ? String(pr.id) : `d:${limpa(pr?.descricao)}`;
+          const b = baratos.get(kb) ?? { produtoId: pr?.id ?? null, descricao: String(pr?.descricao ?? '(produto sem descrição)'), codigoSistema: pr?.codigoSistema ?? null, qtd: 0, fat: 0, vend: new Map() };
+          b.qtd += q; b.fat += v; b.vend.set(vid, (b.vend.get(vid) ?? 0) + q); baratos.set(kb, b);
+        }
         acc.set(vid, a);
         porVend.set(vid, (porVend.get(vid) ?? 0) + q);
         valPorVend.set(vid, (valPorVend.get(vid) ?? 0) + v);
@@ -1211,6 +1219,15 @@ async function moduloVendedores(apiBase: string, lojasTokens: Record<string, str
         atendimentosComCliente: loja.atendCliente, percentClienteIdentificado: loja.atend ? r2(loja.atendCliente / loja.atend * 100) : 0,
       },
       vendedores,
+      pecasBaratas: {
+        produtos: baratos.size,
+        lista: [...baratos.values()].sort((x, y) => y.qtd - x.qtd).slice(0, 300).map((b) => {
+          const [vp, qp] = [...b.vend.entries()].sort((x, y) => y[1] - x[1])[0] ?? ['sem', 0];
+          return { produtoId: b.produtoId, descricao: b.descricao, codigoSistema: b.codigoSistema, pecas: r2(b.qtd), faturamento: r2(b.fat), precoMedio: b.qtd ? r2(b.fat / b.qtd) : 0,
+            percentDasBaratas: loja.pecasBaratas ? r2(b.qtd / loja.pecasBaratas * 100) : 0, vendedores: b.vend.size,
+            quemMaisVendeu: vp === 'sem' ? 'Sem vendedor informado' : (repInfo.get(vp)?.nome ?? `Vendedor ${vp}`), pecasQuemMaisVendeu: r2(qp) };
+        }),
+      },
     };
   }
 

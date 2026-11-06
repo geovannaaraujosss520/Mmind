@@ -3049,12 +3049,15 @@ function renderVendedores(d, box) {
       <div class="tab active" data-ven-tab="loja">Por loja</div>
       <div class="tab" data-ven-tab="rede">Ranking da rede (${todos.length})</div>
       <div class="tab" data-ven-tab="lojas">Comparativo de lojas</div>
+      <div class="tab" data-ven-tab="baratas">Peças &lt; ${limTxt} (rede)</div>
     </div>
+    <div id="ven_v_baratas" class="panel" style="display:none"></div>
     <div id="ven_v_loja" class="panel">
       <div class="loja-select"><label>Loja</label><select id="ven_sel">${d.lojas.map(l => `<option>${esc(l.nomeLoja)}</option>`).join('')}</select></div>
       <div id="ven_loja_resumo"></div>
       <div id="ven_loja_barras" style="margin:14px 0 18px"></div>
       <div id="ven_loja_tabela"></div>
+      <div id="ven_loja_baratas"></div>
       <div id="ven_loja_cadastros"></div>
     </div>
     <div id="ven_v_rede" class="panel" style="display:none; overflow-x:auto">
@@ -3077,7 +3080,7 @@ function renderVendedores(d, box) {
   `;
   box.querySelectorAll('[data-ven-tab]').forEach(t => t.addEventListener('click', () => {
     box.querySelectorAll('[data-ven-tab]').forEach(x => x.classList.remove('active')); t.classList.add('active');
-    ['loja', 'rede', 'lojas'].forEach(k => $('ven_v_' + k).style.display = t.dataset.venTab === k ? 'block' : 'none');
+    ['loja', 'rede', 'lojas', 'baratas'].forEach(k => $('ven_v_' + k).style.display = t.dataset.venTab === k ? 'block' : 'none');
   }));
   const desenhar = () => {
     const l = d.lojas.find(x => x.nomeLoja === $('ven_sel').value);
@@ -3098,6 +3101,8 @@ function renderVendedores(d, box) {
         <div class="barra-trilho"><div class="barra-fill" style="width:${(v.pecasPorAtendimento / esc0 * 100).toFixed(1)}%; background:${cor}"></div><div class="barra-ref" style="left:${(L.pecasPorAtendimento / esc0 * 100).toFixed(1)}%"></div></div>
         <span class="v">${fmtNum(v.pecasPorAtendimento)}</span></div>`; }).join('')}</div>` : '';
     $('ven_loja_tabela').innerHTML = `<div style="overflow-x:auto">${tabelaVendedores(l.vendedores, p, false)}</div>`;
+    $('ven_loja_baratas').innerHTML = tabelaPecasBaratas(l.pecasBaratas, L, p, `ven_bar_${l.nomeLoja}`);
+    ligarPecasBaratas($('ven_loja_baratas'));
     const C = l.cadastros || {};
     const falt = Object.entries(C.faltando || {}).filter(([, n]) => n > 0);
     $('ven_loja_cadastros').innerHTML = `<div class="subsecao-titulo" style="margin-top:24px">Cadastros de clientes no período</div>
@@ -3116,6 +3121,40 @@ function renderVendedores(d, box) {
   };
   $('ven_sel').addEventListener('change', desenhar);
   desenhar();
+  // Rede: soma por produto (código do sistema; sem código, pela descrição)
+  const rede = new Map();
+  for (const l of lojas) for (const b of l.pecasBaratas?.lista || []) {
+    const k = b.codigoSistema || b.descricao; const x = rede.get(k) ?? { descricao: b.descricao, codigoSistema: b.codigoSistema, pecas: 0, faturamento: 0, lojas: new Set() };
+    x.pecas += b.pecas; x.faturamento += b.faturamento; x.lojas.add(l.nomeLoja); rede.set(k, x);
+  }
+  const totalB = lojas.reduce((s2, l) => s2 + l.loja.pecas * l.loja.percentPecasAbaixoLimite / 100, 0);
+  const listaRede = [...rede.values()].sort((a, b) => b.pecas - a.pecas).map(x => ({ ...x, precoMedio: x.pecas ? x.faturamento / x.pecas : 0, percentDasBaratas: totalB ? x.pecas / totalB * 100 : 0, nLojas: x.lojas.size }));
+  $('ven_v_baratas').innerHTML = !listaRede.length ? '<div class="empty">Nenhuma peça abaixo do preço-limite no período.</div>' : `
+    <div class="sub" style="font-size:12px; margin-bottom:10px; max-width:none">Peças vendidas abaixo de ${limTxt} somando as lojas (até 300 produtos mais vendidos de cada loja). ${fmtNum(Math.round(totalB))} peças no período.</div>
+    <div style="overflow-x:auto"><table><thead><tr><th>Produto</th><th>Código</th><th class="num">Peças</th><th class="num">% das peças &lt; ${limTxt}</th><th class="num">Faturamento</th><th class="num">Preço médio</th><th class="num">Lojas</th></tr></thead><tbody>
+    ${listaRede.slice(0, 200).map(x => `<tr><td class="prod-name">${esc(x.descricao)}</td><td style="font-family:var(--mono); font-size:11.5px">${esc(x.codigoSistema || '—')}</td><td class="num">${fmtNum(x.pecas)}</td><td class="num">${fmtPct(x.percentDasBaratas, 1)}</td><td class="num">${fmtMoeda(x.faturamento)}</td><td class="num">${fmtMoeda(x.precoMedio)}</td><td class="num" title="${esc([...x.lojas].join(', '))}">${x.nLojas}</td></tr>`).join('')}
+    </tbody></table></div>`;
+}
+
+// Peças abaixo do preço-limite de uma loja: quais produtos, quanto representam e quem mais vende
+function tabelaPecasBaratas(pb, L, p, id) {
+  const limTxt = fmtMoeda(p.precoLimite);
+  if (!pb || !pb.lista?.length) return `<div class="subsecao-titulo" style="margin-top:24px">Peças abaixo de ${limTxt}</div><div class="empty">Nenhuma peça abaixo de ${limTxt} no período.</div>`;
+  const linhas = pb.lista.map((b, i) => `<tr ${i >= 25 ? `data-bar-extra="${esc(id)}" style="display:none"` : ''}><td class="prod-name">${esc(b.descricao)}</td><td style="font-family:var(--mono); font-size:11.5px">${esc(b.codigoSistema || '—')}</td>
+    <td class="num">${fmtNum(b.pecas)}</td><td class="num">${fmtPct(b.percentDasBaratas, 1)}</td><td class="num">${fmtMoeda(b.faturamento)}</td><td class="num">${fmtMoeda(b.precoMedio)}</td>
+    <td class="prod-name">${esc(b.quemMaisVendeu)} <span style="color:var(--muted); font-size:11.5px">(${fmtNum(b.pecasQuemMaisVendeu)})</span></td><td class="num">${b.vendedores}</td></tr>`).join('');
+  const top10 = pb.lista.slice(0, 10).reduce((s2, b) => s2 + b.percentDasBaratas, 0);
+  return `<div class="subsecao-titulo" style="margin-top:24px">Peças abaixo de ${limTxt} — o que está sendo vendido</div>
+    <div class="chips" style="margin-bottom:10px"><span class="chip ${L.alertaMixBarato ? 'fail' : ''}">${fmtPct(L.percentPecasAbaixoLimite, 1)} das peças · ${fmtPct(L.percentFaturamentoAbaixoLimite, 1)} do faturamento</span>
+      <span class="chip">${fmtNum(pb.produtos)} produtos diferentes</span><span class="chip">os 10 primeiros = ${fmtPct(top10, 0)} das peças baratas</span></div>
+    <div style="overflow-x:auto"><table><thead><tr><th>Produto</th><th>Código</th><th class="num">Peças</th><th class="num">% das peças &lt; ${limTxt}</th><th class="num">Faturamento</th><th class="num">Preço médio</th><th>Quem mais vendeu</th><th class="num">Vendedores</th></tr></thead>
+    <tbody>${linhas}</tbody></table></div>
+    ${pb.lista.length > 25 ? `<button class="secondary" data-bar-mais="${esc(id)}" style="margin-top:8px; padding:6px 12px; font-size:12px">Ver todos (${pb.lista.length})</button>` : ''}`;
+}
+function ligarPecasBaratas(box) {
+  box.querySelectorAll('[data-bar-mais]').forEach(b => b.addEventListener('click', () => {
+    box.querySelectorAll(`[data-bar-extra="${CSS.escape(b.dataset.barMais)}"]`).forEach(tr => tr.style.display = ''); b.remove();
+  }));
 }
 
 function tabelaVendedores(vs, p, comLoja) {
