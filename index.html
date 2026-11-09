@@ -3326,9 +3326,9 @@ const PERFIS = {
 };
 const tagPerfil = p => { const x = PERFIS[p] || { txt: p, cls: 'chip', dica: '' }; return `<span class="${x.cls}" title="${esc(x.dica)}" style="font-size:11px; padding:2px 8px; border-radius:20px">${x.txt}</span>`; };
 
-// Período padrão: últimos 30 dias até hoje (o usuário pode trocar as datas).
+// Período padrão: do dia 1º do mês até hoje — o mesmo período das metas (o usuário pode trocar as datas).
 (function () {
-  const hoje = new Date(), ini = new Date(); ini.setDate(hoje.getDate() - 29);
+  const hoje = new Date(), ini = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
   if (!$('ven_ate').value) $('ven_ate').value = isoData(hoje);
   if (!$('ven_desde').value) $('ven_desde').value = isoData(ini);
 })();
