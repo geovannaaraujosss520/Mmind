@@ -1080,17 +1080,21 @@ async function moduloVendedores(apiBase: string, lojasTokens: Record<string, str
 
   async function processar(nomeLoja: string) {
     const token = lojasTokens[nomeLoja];
-    let saidas: any[] = [], reps: any[] = [], novosClientes: any[] = [];
+    let saidas: any[] = [], reps: any[] = [], novosClientes: any[] = [], parceiros: any[] = [];
     let erroCadastros: string | null = null;
     try {
-      [, reps] = await Promise.all([
+      [, reps, parceiros] = await Promise.all([
         buscarSaidasParalelo(apiBase, token, dIni!, dFim!, (sd) => { if (ehVenda(sd)) saidas.push(compactarSaida(sd)); }),
         fetchAllPages(`${apiBase}/representantes`, token).catch(() => []),
+        // fornecedores e prestadores de servico: nao contam como cliente (nem cadastro nem venda identificada)
+        fetchAllPages(`${apiBase}/terceiros?classes=FORNECEDOR,PRESTADOR_SERVICO`, token).catch(() => []),
       ]);
-      try { novosClientes = await fetchAllPages(`${apiBase}/terceiros?filtroData=dataCriacao&desde=${desde.replace(/-/g, '/')}&ate=${ate.replace(/-/g, '/')}`, token); }
+      try { novosClientes = await fetchAllPages(`${apiBase}/terceiros?classes=CLIENTE&filtroData=dataCriacao&desde=${desde.replace(/-/g, '/')}&ate=${ate.replace(/-/g, '/')}`, token); }
       catch (e) { erroCadastros = e instanceof Error ? e.message : String(e); }
     } catch (e) { return { nomeLoja, erro: e instanceof Error ? e.message : String(e), vendedores: [] }; }
     const repInfo = new Map<string, any>(reps.map((r: any) => [String(r.id), r]));
+    const ehParceiro = (t: any) => (t?.classes ?? []).some((c: string) => /FORNECEDOR|PRESTADOR_SERVICO/.test(String(c)));
+    const idsParceiros = new Set<string>(parceiros.filter(ehParceiro).map((t: any) => String(t.id)));
 
     type Acc = { id: string; atend: Set<string>; atend1: number; atend1Barata: number; pecas: number; fat: number; desc: number; pecasBaratas: number; fatBarato: number; baratasSozinhas: number; baratasAcrescimo: number; dias: Set<string>; atendCliente: Set<string> };
     const acc = new Map<string, Acc>();
@@ -1109,7 +1113,7 @@ async function moduloVendedores(apiBase: string, lojasTokens: Record<string, str
       const porVend = new Map<string, number>(); // pecas por vendedor neste atendimento
       const valPorVend = new Map<string, number>();
       if (sd.entidade?.id != null) entidadesLoja.add(String(sd.entidade.id));
-      const comCliente = clienteIdentificado(sd.terceiro);
+      const comCliente = clienteIdentificado(sd.terceiro) && !idsParceiros.has(String(sd.terceiro?.id));
       let algum = false;
       // Contexto da peca barata neste atendimento: sozinha (1 peca so), acrescimo (junto de peca >= limite) ou so baratas
       const validos = (sd.mercadorias ?? []).filter((it: any) => Number(it.quantidade ?? 0) > 0);
@@ -1149,7 +1153,7 @@ async function moduloVendedores(apiBase: string, lojasTokens: Record<string, str
       if (algum) {
         loja.atend++;
         if (comCliente) loja.atendCliente++;
-        const tid = sd.terceiro?.id != null ? String(sd.terceiro.id) : null;
+        const tid = sd.terceiro?.id != null && !idsParceiros.has(String(sd.terceiro.id)) ? String(sd.terceiro.id) : null;
         if (tid) {
           const quando = parseData(sd.data ?? sd.dataSaida ?? sd.dataEmissao);
           const principal = [...valPorVend.entries()].sort((x, y) => y[1] - x[1])[0]?.[0] ?? 'sem';
@@ -1166,6 +1170,7 @@ async function moduloVendedores(apiBase: string, lojasTokens: Record<string, str
     const cadLoja = { novos: 0, completos: 0, semVenda: 0, falta: { 'nome completo': 0, telefone: 0, CPF: 0, CEP: 0 } as Record<string, number> };
     for (const t of novosClientes) {
       if (t.excluido) continue;
+      if (ehParceiro(t) || idsParceiros.has(String(t.id))) continue; // fornecedor/prestador nao e cadastro de cliente
       if (t.entidadeCadastro != null && entidadesLoja.size && !entidadesLoja.has(String(t.entidadeCadastro))) continue;
       if (CONSUMIDOR_FINAL.test(limpa(t.nome))) continue;
       const faltando = avaliarCadastro(t);
