@@ -328,7 +328,8 @@
 
   <button type="button" class="menu-botao" id="menuBotao" aria-expanded="false" aria-controls="navWrap">☰ <span id="menuAtual">Menu</span></button>
   <nav class="nav-wrap" id="navWrap">
-  <div class="nav-item active destaque" data-view="central"><span class="dot"></span> Central de Decisão</div>
+  <div class="nav-item active destaque" data-view="inicio"><span class="dot"></span> Início</div>
+  <div class="nav-item" data-view="central"><span class="dot"></span> Central de Decisão</div>
   <div class="nav-sep"></div>
   <div class="nav-grupo" data-grupo="compras">
     <button type="button" class="nav-grupo-titulo">Compras <span class="seta">▾</span></button>
@@ -367,7 +368,22 @@
 <div class="main">
 
   <!-- ===================== CENTRAL DE DECISÃO ===================== -->
-  <div class="view active" id="view-central">
+  <div class="view active" id="view-inicio">
+    <header class="view-header">
+      <div class="eyebrow">Início</div>
+      <h1 id="ini_titulo">Início</h1>
+      <div class="sub" id="ini_sub">Carregando…</div>
+    </header>
+    <div class="actions" style="margin:-6px 0 14px; flex-wrap:wrap; align-items:flex-end">
+      <div id="ini_loja_box" style="display:none; min-width:220px"><label>Loja</label><select id="ini_loja"></select></div>
+      <button class="secondary" id="ini_atualizar">Atualizar</button>
+      <span class="status" id="ini_status"></span>
+    </div>
+    <div id="ini_erro"></div>
+    <div id="ini_conteudo"></div>
+  </div>
+
+  <div class="view" id="view-central">
     <header class="view-header">
       <div class="eyebrow">Módulo · Decisão</div>
       <h1>Central de Decisão</h1>
@@ -762,6 +778,151 @@ document.querySelectorAll('.nav-item').forEach(item => {
     $('view-' + item.dataset.view).classList.add('active');
   });
 });
+
+// =====================================================================
+// INÍCIO: visão da rede (franqueadora) ou minha loja (franqueado)
+// =====================================================================
+let _papelAtual = null, _inicioDados = null, _inicioCarregando = false;
+const corPct = (p, bom = 100, medio = 90) => p == null ? 'inherit' : p >= bom ? 'var(--good)' : p >= medio ? 'var(--warn)' : 'var(--danger)';
+const dataCurta = iso => iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : '—';
+const haQuanto = iso => { if (!iso) return 'nunca'; const d = Math.floor((Date.now() - Date.parse(iso)) / 86400000); return d <= 0 ? 'hoje' : d === 1 ? 'ontem' : `há ${d} dias`; };
+
+async function carregarInicio(forcar = false) {
+  if (_inicioCarregando) return;
+  if (_inicioDados && !forcar) { desenharInicio(); return; }
+  _inicioCarregando = true;
+  const st = $('ini_status'); st.textContent = 'Carregando o mês…'; $('ini_erro').innerHTML = '';
+  const t0 = Date.now(); _temposExec = [];
+  try {
+    const ultimo = lerUltimo('inicio', { papel: _papelAtual });
+    if (ultimo && !_inicioDados) { _inicioDados = ultimo.data; desenharInicio(); st.textContent = `Mostrando ${new Date(ultimo.t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} · atualizando…`; }
+    const d = await chamarEdge({ modulo: 'painel' }, EDGE_COMPRAS_URL);
+    _inicioDados = d; guardarUltimo('inicio', { papel: _papelAtual }, d);
+    st.textContent = `Atualizado às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} ${resumoDesempenho(t0)}`;
+    desenharInicio();
+  } catch (e) { $('ini_erro').innerHTML = `<div class="panel err">${esc(e.message)}</div>`; st.textContent = ''; }
+  finally { _inicioCarregando = false; }
+}
+
+function desenharInicio() {
+  const d = _inicioDados; if (!d) return;
+  if (_papelAtual === 'franqueado') return desenharMinhaLoja(d);
+  desenharVisaoRede(d);
+}
+
+function desenharVisaoRede(d) {
+  $('ini_titulo').textContent = 'Visão da rede';
+  $('ini_sub').textContent = `Mês de ${['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'][d.mes - 1]}: ${d.dia} de ${d.diasNoMes} dias. Faturamento até agora, ritmo para a meta, compras na Central e quem está acompanhando a loja.`;
+  $('ini_loja_box').style.display = 'none';
+  const L = d.lojas.filter(l => !l.erro), R = d.rede;
+  const abaixo = L.filter(l => l.percentProjecao != null && l.percentProjecao < 95);
+  const semMeta = L.filter(l => !l.meta).length;
+  const semComprar = L.filter(l => l.diasSemComprar == null || l.diasSemComprar > 21);
+  const pend = L.filter(l => l.pedidosInsightPendentes > 0);
+  const semAcesso = L.filter(l => (l.franqueados || []).length && (!l.ultimoAcesso || Date.now() - Date.parse(l.ultimoAcesso) > 7 * 864e5));
+  const kpi = (lab, val, hint, cor) => `<div class="kpi"><div class="label">${lab}</div><div class="value" style="${cor ? 'color:' + cor : ''}">${val}</div><div class="hint">${hint}</div></div>`;
+  const alerta = (sev, tit, det, lista) => lista.length ? `<div class="acao ${sev}"><div class="sev ${sev}">${sev === 'critico' ? 'Crítico' : 'Atenção'}</div><div><div class="tit">${tit}</div><div class="det">${det}</div></div><div class="imp">${lista.length}<small>loja(s)</small></div></div>` : '';
+  $('ini_conteudo').innerHTML = `
+    <div class="kpis k4">
+      ${kpi('Faturado no mês — rede', fmtMoeda(R.faturadoMes), `ontem ${fmtMoeda(R.faturadoOntem)} · hoje ${fmtMoeda(R.faturadoHoje)}`)}
+      ${kpi('Meta da rede', R.percentMeta != null ? fmtPct(R.percentMeta, 0) : '—', R.meta ? `de ${fmtMoeda(R.meta)}${semMeta ? ` · ${semMeta} loja(s) sem meta` : ''}` : 'cadastre as metas no Financeiro', corPct(R.meta ? R.projecao / R.meta * 100 : null))}
+      ${kpi('Projeção de fechamento', fmtMoeda(R.projecao), R.meta ? `${fmtPct(R.projecao / R.meta * 100, 0)} da meta no ritmo atual` : 'no ritmo dos dias fechados', corPct(R.meta ? R.projecao / R.meta * 100 : null))}
+      ${kpi('Compras na Central no mês', fmtMoeda(R.comprasCentralMes), `${fmtPct(R.faturadoMes ? R.comprasCentralMes / R.faturadoMes * 100 : 0, 0)} do faturado${d.centralIncompleta ? ' · Central incompleta' : ''}`)}
+    </div>
+    <div class="acoes" style="margin-bottom:16px">
+      ${alerta('critico', 'Lojas abaixo do ritmo da meta', abaixo.map(l => `${esc(l.loja)} (${fmtPct(l.percentProjecao, 0)})`).join(' · '), abaixo)}
+      ${alerta('atencao', 'Sem comprar na Central há mais de 21 dias', semComprar.map(l => `${esc(l.loja)} (${l.diasSemComprar == null ? 'sem pedido em 60 dias' : l.diasSemComprar + ' dias'})`).join(' · '), semComprar)}
+      ${alerta('atencao', 'Pedidos aprovados no Insight e ainda não enviados', pend.map(l => `${esc(l.loja)} (${l.pedidosInsightPendentes}, ${fmtMoeda(l.valorInsightPendente)})`).join(' · '), pend)}
+      ${alerta('atencao', 'Franqueado sem entrar no Insight há mais de 7 dias', semAcesso.map(l => `${esc(l.loja)} (${haQuanto(l.ultimoAcesso)})`).join(' · '), semAcesso)}
+    </div>
+    <div class="panel" style="overflow-x:auto">
+      <table><thead><tr><th>Loja</th><th class="num">Faturado no mês</th><th class="num">Meta</th><th class="num">% meta</th><th class="num">Projeção</th><th class="num">Falta por dia</th><th class="num">Ontem</th><th class="num">Ticket</th><th class="num">PA</th><th>Última compra Central</th><th class="num">Pedidos a enviar</th><th>Franqueado · último acesso</th></tr></thead><tbody>
+      ${d.lojas.map(l => l.erro ? `<tr><td class="prod-name">${esc(l.loja)}</td><td colspan="11" style="color:var(--danger); font-size:12px">${esc(l.erro)}</td></tr>` : `<tr>
+        <td class="prod-name">${esc(l.loja)}</td><td class="num">${fmtMoeda(l.faturadoMes)}</td><td class="num">${l.meta ? fmtMoeda(l.meta) : '<span style="color:var(--muted)">sem meta</span>'}</td>
+        <td class="num" style="color:${corPct(l.percentProjecao)}; font-weight:600">${l.percentMeta != null ? fmtPct(l.percentMeta, 0) : '—'}</td>
+        <td class="num" style="color:${corPct(l.percentProjecao)}">${l.projecao != null ? fmtMoeda(l.projecao) : '—'}${l.percentProjecao != null ? `<br><span style="font-size:10.5px">${fmtPct(l.percentProjecao, 0)} da meta</span>` : ''}</td>
+        <td class="num">${l.faltaPorDia != null ? fmtMoeda(l.faltaPorDia) : '—'}</td><td class="num">${fmtMoeda(l.faturadoOntem)}</td><td class="num">${fmtMoeda(l.ticketMedio)}</td><td class="num">${fmtNum(l.pecasPorAtendimento)}</td>
+        <td style="color:${l.diasSemComprar == null || l.diasSemComprar > 21 ? 'var(--warn)' : 'inherit'}">${l.ultimaCompraCentral ? `${dataCurta(l.ultimaCompraCentral)} <span style="color:var(--muted); font-size:11px">(${l.diasSemComprar} d)</span>` : 'sem pedido em 60 d'}${l.pedidosCentralEmAndamento ? `<br><span style="font-size:10.5px; color:var(--muted)">${l.pedidosCentralEmAndamento} em andamento</span>` : ''}</td>
+        <td class="num">${l.pedidosInsightPendentes ? `<strong style="color:var(--warn)">${l.pedidosInsightPendentes}</strong>` : '—'}</td>
+        <td class="prod-name" style="font-size:12px">${(l.franqueados || []).length ? `${esc(l.franqueados.join(', '))}<br><span style="color:${!l.ultimoAcesso || Date.now() - Date.parse(l.ultimoAcesso) > 7 * 864e5 ? 'var(--warn)' : 'var(--muted)'}">${haQuanto(l.ultimoAcesso)}</span>` : '<span style="color:var(--muted)">sem login de franqueado</span>'}</td></tr>`).join('')}
+      </tbody></table>
+      <div class="sub" style="font-size:11px; margin-top:8px; max-width:none">Projeção = média dos dias fechados × dias do mês (hoje ainda em andamento fica fora). Falta por dia = quanto falta para a meta ÷ dias restantes, contando hoje. Compras na Central = pedidos não cancelados criados no mês.</div>
+    </div>`;
+}
+
+async function desenharMinhaLoja(d) {
+  const lojas = d.lojas;
+  const sel = $('ini_loja');
+  if (lojas.length > 1) {
+    $('ini_loja_box').style.display = '';
+    if (sel.options.length !== lojas.length) sel.innerHTML = lojas.map(l => `<option>${esc(l.loja)}</option>`).join('');
+  } else $('ini_loja_box').style.display = 'none';
+  const l = lojas.find(x => x.loja === sel.value) || lojas[0];
+  if (!l) { $('ini_conteudo').innerHTML = '<div class="empty">Nenhuma loja liberada para o seu usuário. Fale com a franqueadora.</div>'; return; }
+  $('ini_titulo').textContent = l.loja;
+  $('ini_sub').textContent = `Dia ${d.dia} de ${d.diasNoMes}. Como a loja está no mês e o que fazer hoje.`;
+  if (l.erro) { $('ini_conteudo').innerHTML = `<div class="panel err">${esc(l.erro)}</div>`; return; }
+  const pctBar = Math.min(100, l.percentMeta || 0), pctDia = d.dia / d.diasNoMes * 100;
+  $('ini_conteudo').innerHTML = `
+    <div class="panel" style="padding:18px 20px">
+      <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; align-items:flex-end">
+        <div><div class="label" style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em">Faturado no mês</div><div style="font-size:30px; font-weight:700; color:var(--accent-deep)">${fmtMoeda(l.faturadoMes)}</div>
+          <div style="font-size:12.5px; color:var(--muted)">${l.meta ? `de ${fmtMoeda(l.meta)} de meta · ${fmtPct(l.percentMeta, 0)}` : 'sem meta cadastrada para este mês'}</div></div>
+        ${l.meta ? `<div style="text-align:right"><div class="label" style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em">Para bater a meta</div><div style="font-size:24px; font-weight:700; color:${corPct(l.percentProjecao)}">${fmtMoeda(l.faltaPorDia)}<span style="font-size:13px; font-weight:500"> por dia</span></div><div style="font-size:12.5px; color:var(--muted)">até o fim do mês, contando hoje</div></div>` : ''}
+      </div>
+      ${l.meta ? `<div style="position:relative; height:12px; background:var(--panel-2); border-radius:8px; margin-top:14px; overflow:hidden" title="Faturado ${fmtPct(l.percentMeta, 0)} · mês ${fmtPct(pctDia, 0)}">
+        <div style="position:absolute; inset:0 auto 0 0; width:${pctBar}%; background:${corPct(l.percentProjecao)}; border-radius:8px"></div>
+        <div style="position:absolute; top:-2px; bottom:-2px; left:${pctDia}%; width:2px; background:var(--text)"></div></div>
+      <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--muted); margin-top:4px"><span>faturado ${fmtPct(l.percentMeta, 0)}</span><span>linha = dia ${d.dia} de ${d.diasNoMes}</span><span>projeção ${l.projecao != null ? fmtMoeda(l.projecao) : '—'}</span></div>` : ''}
+    </div>
+    <div class="kpis k4">
+      <div class="kpi"><div class="label">Ontem</div><div class="value">${fmtMoeda(l.faturadoOntem)}</div><div class="hint">hoje até agora: ${fmtMoeda(l.faturadoHoje)}</div></div>
+      <div class="kpi"><div class="label">Ticket médio</div><div class="value">${fmtMoeda(l.ticketMedio)}</div><div class="hint">${fmtNum(l.atendimentos)} atendimentos no mês</div></div>
+      <div class="kpi"><div class="label">Peças por atendimento</div><div class="value">${fmtNum(l.pecasPorAtendimento)}</div><div class="hint">quanto maior, melhor a venda</div></div>
+      <div class="kpi"><div class="label">Última compra na Central</div><div class="value" style="color:${l.diasSemComprar == null || l.diasSemComprar > 21 ? 'var(--warn)' : 'inherit'}">${l.ultimaCompraCentral ? dataCurta(l.ultimaCompraCentral) : '—'}</div><div class="hint">${l.diasSemComprar != null ? `${l.diasSemComprar} dia(s) atrás` : 'sem pedido nos últimos 60 dias'}${l.pedidosCentralEmAndamento ? ` · ${l.pedidosCentralEmAndamento} em andamento` : ''}</div></div>
+    </div>
+    <div class="subsecao-titulo">O que fazer hoje</div>
+    <div class="acoes" id="ini_acoes">
+      ${l.pedidosInsightPendentes ? `<div class="acao atencao"><div class="sev atencao">Pedido</div><div><div class="tit">${l.pedidosInsightPendentes} pedido(s) aprovado(s) esperando envio à Central</div><div class="det">${fmtMoeda(l.valorInsightPendente)} aprovados no Insight. Envie para não atrasar a reposição.</div><button class="secondary" data-ir="pedido">Abrir Pedido Central</button></div><div class="imp">${l.pedidosInsightPendentes}</div></div>` : ''}
+      <div class="status" id="ini_compra_status">Analisando o estoque da loja…</div>
+    </div>
+    <div class="actions" style="margin-top:6px; flex-wrap:wrap">
+      <button data-ir="pedido">Fazer pedido para a Central</button>
+      <button class="secondary" data-ir="vendedores">Ver minha equipe</button>
+      <button class="secondary" data-ir="financeiro">Ver financeiro</button>
+    </div>`;
+  ligarIrPara($('ini_conteudo'), l.loja);
+  // o que comprar: itens zerados e em risco (Compra Recorrente da loja)
+  try {
+    const r = await chamarEdge({ modulo: 'recorrente', lojas: [l.loja], diasHistorico: 60, diasPeriodoAlvo: 30 }, EDGE_COMPRAS_URL);
+    if (($('ini_titulo').textContent || '') !== l.loja) return; // trocou de loja enquanto carregava
+    const recs = (r.lojas?.[0]?.recomendacoes || []);
+    const zerados = recs.filter(x => (x.estoqueAtual ?? 0) <= 0 && x.vendaMediaDiaria > 0);
+    const perdaDia = zerados.reduce((t, x) => t + x.vendaMediaDiaria * (x.precoMedioVenda || 0), 0);
+    const comprar = recs.filter(x => x.riscoRuptura && x.qtdRecomendadaCompra > 0).sort((a, b) => b.vendaMediaDiaria * (b.precoMedioVenda || 0) - a.vendaMediaDiaria * (a.precoMedioVenda || 0));
+    const box = $('ini_compra_status'); if (!box) return;
+    box.outerHTML = `${zerados.length ? `<div class="acao critico"><div class="sev critico">Ruptura</div><div><div class="tit">${zerados.length} produto(s) que vendem estão zerados</div><div class="det">${zerados.slice(0, 6).map(x => esc(x.descricao)).join(' · ')}${zerados.length > 6 ? '…' : ''}</div></div><div class="imp">${fmtMoeda(perdaDia)}<small>por dia sem vender</small></div></div>` : ''}
+      ${comprar.length ? `<div class="acao atencao"><div class="sev atencao">Comprar</div><div><div class="tit">${comprar.length} produto(s) vão faltar antes da próxima reposição</div>
+        <div class="det" style="margin-top:6px"><table class="no-tools" style="font-size:12.5px"><thead><tr><th>Produto</th><th class="num">Estoque</th><th class="num">Vende por dia</th><th class="num">Comprar</th></tr></thead><tbody>
+        ${comprar.slice(0, 8).map(x => `<tr><td class="prod-name">${esc(x.descricao)}</td><td class="num">${fmtNum(x.estoqueAtual ?? 0)}</td><td class="num">${fmtNum(x.vendaMediaDiaria)}</td><td class="num"><strong>${fmtNum(x.qtdRecomendadaCompra)}</strong></td></tr>`).join('')}</tbody></table></div>
+        <button data-ir="pedido" style="margin-top:8px">Montar o pedido com esses itens</button></div><div class="imp">${comprar.length}<small>itens</small></div></div>` : ''}
+      ${!zerados.length && !comprar.length ? '<div class="acao oportunidade"><div class="sev oportunidade">Estoque</div><div><div class="tit">Estoque em dia</div><div class="det">Nenhum produto em risco de faltar no próximo mês.</div></div><div class="imp">✓</div></div>' : ''}`;
+    ligarIrPara($('ini_acoes'), l.loja);
+  } catch (e) { const box = $('ini_compra_status'); if (box) box.textContent = 'Não foi possível analisar o estoque agora: ' + e.message; }
+}
+
+// Botões que levam a outra tela já com a loja escolhida
+function ligarIrPara(box, loja) {
+  box.querySelectorAll('[data-ir]').forEach(b => b.addEventListener('click', () => {
+    const v = b.dataset.ir;
+    document.querySelector(`.nav-item[data-view="${v}"]`)?.click();
+    const campo = { pedido: 'ped_loja', vendedores: 'ven_lojas', financeiro: 'fin_lojas' }[v];
+    setTimeout(() => { const el = $(campo); if (!el || !loja) return; if (el.tagName === 'SELECT') { if ([...el.options].some(o => o.value === loja)) el.value = loja; } else el.value = loja; el.dispatchEvent(new Event('change')); }, 300);
+  }));
+}
+$('ini_atualizar').addEventListener('click', () => carregarInicio(true));
+$('ini_loja').addEventListener('change', () => desenharInicio());
+document.querySelector('.nav-item[data-view="inicio"]').addEventListener('click', () => carregarInicio(false));
 
 // ---------- Menu agrupado ----------
 function marcarGrupos() {
@@ -3871,6 +4032,7 @@ async function carregarPerfil() {
 
 function aplicarPerfil(p) {
   _usuarioCache = String(p.email || p.nome || '');
+  const mudouPapel = _papelAtual !== p.papel; _papelAtual = p.papel; if (mudouPapel) _inicioDados = null;
   $('usuarioNome').textContent = p.nome || '—';
   $('usuarioPapel').textContent = p.tipo === 'senha' ? 'senha do time' : (ROTULO_PAPEL[p.papel] || p.papel) + (p.papel === 'franqueado' ? ` · ${p.lojas.length} loja(s)` : '');
   const ocultar = new Set(p.papel === 'franqueado' ? ['benchmark', 'lojas', 'vinculos', 'usuarios'] : p.papel === 'equipe' ? ['lojas', 'usuarios'] : []);
@@ -3879,10 +4041,11 @@ function aplicarPerfil(p) {
   marcarGrupos();
   const bench = $('cen_bench'); if (bench) { bench.closest('label').style.display = p.papel === 'franqueado' ? 'none' : ''; if (p.papel === 'franqueado') bench.checked = false; }
   const ativa = document.querySelector('.nav-item.active');
-  if (ativa && ocultar.has(ativa.dataset.view)) document.querySelector('.nav-item[data-view="central"]').click();
+  if (ativa && ocultar.has(ativa.dataset.view)) document.querySelector('.nav-item[data-view="inicio"]').click();
   for (const id of ['ped_aprovador', 'vin_usuario']) { const el = $(id); if (!el) continue; if (p.tipo === 'usuario') { el.value = p.nome; el.readOnly = true; } else el.readOnly = false; }
   if (p.papel === 'franqueado') document.querySelectorAll('input[id$="_lojas"]').forEach(i => { i.placeholder = 'suas lojas: ' + p.lojas.join(', '); });
   _lojasConfig = null; document.querySelectorAll('select[data-ok]').forEach(s => delete s.dataset.ok);
+  if (document.querySelector('.nav-item.active')?.dataset.view === 'inicio') carregarInicio(mudouPapel);
 }
 
 async function iniciarAcesso() {
