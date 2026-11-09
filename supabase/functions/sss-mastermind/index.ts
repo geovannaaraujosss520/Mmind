@@ -66,6 +66,19 @@ type Acesso = { tipo: 'usuario' | 'senha'; userId?: string; email?: string; nome
 class ErroAcesso extends Error { constructor(msg: string, public status = 403) { super(msg); } }
 const cacheAcesso = new Map<string, { quando: number; acesso: Acesso }>();
 
+function iguaisSeguro(a: string, b: string) {
+  const x = new TextEncoder().encode(a), y = new TextEncoder().encode(b);
+  let dif = x.length ^ y.length;
+  for (let i = 0; i < Math.max(x.length, y.length); i++) dif |= (x[i] ?? 0) ^ (y[i] ?? 0);
+  return dif === 0;
+}
+const errosPorIp = new Map<string, { n: number; ate: number }>();
+async function freioTentativa(req: Request) {
+  const ip = (req.headers.get('x-forwarded-for') ?? req.headers.get('cf-connecting-ip') ?? '?').split(',')[0].trim(), agora = Date.now(), e = errosPorIp.get(ip);
+  const n = e && agora - e.ate < 15 * 60_000 ? e.n + 1 : 1;
+  errosPorIp.set(ip, { n, ate: agora }); if (errosPorIp.size > 5000) errosPorIp.clear();
+  await new Promise((ok) => setTimeout(ok, Math.min(8000, 400 * n)));
+}
 async function obterAcesso(req: Request): Promise<Acesso> {
   const auth = req.headers.get('authorization') ?? '';
   const jwt = /^bearer /i.test(auth) ? auth.slice(7).trim() : '';
@@ -86,7 +99,9 @@ async function obterAcesso(req: Request): Promise<Acesso> {
   }
   const obrigatorio = String(Deno.env.get('LOGIN_OBRIGATORIO') ?? '').toLowerCase() === 'true';
   const esperado = Deno.env.get('APP_PASSCODE');
-  if (!obrigatorio && esperado && (req.headers.get('x-app-passcode') ?? '') === esperado) return { tipo: 'senha', nome: 'Senha do time', papel: 'admin', lojas: [], todas: true };
+  const enviado = req.headers.get('x-app-passcode') ?? '';
+  if (!obrigatorio && esperado && enviado && iguaisSeguro(enviado, esperado)) return { tipo: 'senha', nome: 'Senha do time', papel: 'admin', lojas: [], todas: true };
+  if (enviado && esperado) await freioTentativa(req);
   if (!obrigatorio && !esperado) return { tipo: 'senha', nome: 'Acesso livre', papel: 'admin', lojas: [], todas: true };
   throw new ErroAcesso(obrigatorio ? 'Entre com seu e-mail e senha.' : 'Senha de acesso inválida ou ausente.', 401);
 }

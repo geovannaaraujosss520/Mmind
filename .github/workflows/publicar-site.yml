@@ -1,0 +1,34 @@
+# Publica no ramo "site" SÓ os arquivos do painel (index.html, manifest.json, sw.js, icons/ e .htaccess).
+# A Hostinger (Sites → Avançado → Git) aponta para o ramo "site": atualiza sozinha a cada mudança
+# e não expõe o resto do repositório (funções do Supabase, documentação, workflows).
+name: Publicar site (ramo site)
+
+on:
+  push:
+    branches: [main]
+    paths: ['index.html', 'manifest.json', 'sw.js', 'icons/**', 'deploy-site/**']
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Montar e enviar o ramo site
+        run: |
+          set -e
+          mkdir -p /tmp/site/icons
+          cp index.html manifest.json sw.js /tmp/site/
+          cp icons/* /tmp/site/icons/
+          cp deploy-site/.htaccess /tmp/site/.htaccess
+          cd /tmp/site
+          git init -q -b site
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Site: ${GITHUB_SHA::7}"
+          git push -q --force "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" site
+          echo "Ramo site atualizado com $(git ls-files | wc -l) arquivos."

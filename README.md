@@ -100,6 +100,12 @@ Depois de publicar, quem usa o app instalado deve fechar e abrir de novo (ou Ctr
 
 ---
 
+## Publicar na Hostinger (atualiza sozinho)
+O workflow *Publicar site (ramo site)* copia **só** os arquivos do painel (`index.html`, `manifest.json`, `sw.js`, `icons/`, `.htaccess` com cabeçalhos de segurança) para o ramo **`site`** a cada mudança.
+Na Hostinger: **Sites → Gerenciar → Avançado → Git → Connect with GitHub** → repositório **Mmind**, ramo **`site`**, pasta `public_html` → Deploy, com *Auto-deployment* ligado. Não precisa de nenhuma chave nem de Node.js.
+
+Checklist de segurança: [`docs/SEGURANCA.md`](docs/SEGURANCA.md).
+
 ## Rodar o painel com Node.js (repositório privado)
 No plano gratuito do GitHub, o Pages não funciona com o repositório privado. O `server.js` (sem dependências, Node 18+) serve só o painel (`index.html`, `manifest.json`, `sw.js`, `icons/`) — nunca o resto do repositório.
 
