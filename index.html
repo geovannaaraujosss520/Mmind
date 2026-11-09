@@ -222,6 +222,34 @@
     .nav-wrap{ border-radius:12px; }
   }
 
+  /* ===== Menu agrupado (Compras / Rede / Administração) ===== */
+  .nav-grupo{ position:relative; }
+  .nav-grupo-titulo{ all:unset; cursor:pointer; display:flex; align-items:center; gap:5px; white-space:nowrap; padding:8px 11px; font-size:13px; color:var(--muted); border-radius:9px; }
+  .nav-grupo-titulo:hover, .nav-grupo.aberto .nav-grupo-titulo{ color:var(--accent-deep); }
+  .nav-grupo.tem-ativo .nav-grupo-titulo{ background:var(--panel); color:var(--accent-deep); font-weight:600; box-shadow:0 1px 4px rgba(110,20,22,.12); }
+  .nav-grupo-titulo:focus-visible{ outline:2px solid var(--accent); outline-offset:1px; }
+  .nav-grupo .seta{ font-size:10px; transition:transform .15s; }
+  .nav-grupo.aberto .seta{ transform:rotate(180deg); }
+  .nav-menu{ display:none; position:absolute; top:calc(100% + 6px); left:0; min-width:220px; background:var(--panel); border:1px solid var(--line); border-radius:12px; box-shadow:0 10px 30px rgba(40,20,20,.14); padding:6px; z-index:60; }
+  .nav-grupo.aberto .nav-menu{ display:block; }
+  .nav-menu .nav-item{ display:flex; width:100%; box-sizing:border-box; padding:9px 12px; margin:0; }
+  .nav-menu .nav-item.active{ box-shadow:none; background:var(--panel-2); }
+  .menu-botao{ display:none; }
+  /* o estilo global de botão (fundo vermelho no hover) não vale para o menu */
+  .nav-wrap button.nav-grupo-titulo, .nav-wrap button.nav-grupo-titulo:hover:not(:disabled){ background:transparent; }
+  .nav-wrap .nav-grupo.tem-ativo button.nav-grupo-titulo, .nav-wrap .nav-grupo.tem-ativo button.nav-grupo-titulo:hover:not(:disabled){ background:var(--panel); }
+  button.menu-botao:hover:not(:disabled){ background:var(--panel-2); }
+  @media (max-width: 900px){
+    .menu-botao{ display:flex; align-items:center; gap:8px; order:2; margin-left:auto; padding:8px 12px; font-size:13px; border:1px solid var(--line-strong); border-radius:10px; background:var(--panel); color:var(--accent-deep); cursor:pointer; text-transform:none; letter-spacing:0; font-weight:600; }
+    .nav-wrap{ display:none !important; }
+    .nav-wrap.aberto{ display:flex !important; flex-direction:column; align-items:stretch; overflow:visible; gap:2px; }
+    .nav-wrap.aberto .nav-sep{ display:none; }
+    .nav-wrap.aberto .nav-grupo-titulo{ padding:10px 12px 4px; font-size:11px; text-transform:uppercase; letter-spacing:.06em; cursor:default; background:none !important; box-shadow:none !important; }
+    .nav-wrap.aberto .seta{ display:none; }
+    .nav-wrap.aberto .nav-menu{ display:block; position:static; box-shadow:none; border:none; padding:0 0 0 8px; background:transparent; min-width:0; }
+    .nav-wrap.aberto .nav-item{ padding:11px 12px; font-size:14px; }
+  }
+
   /* ===== Menu no topo (horizontal) ===== */
   body{ flex-direction:column; }
   .sidebar{
@@ -298,20 +326,36 @@
     </div>
   </div>
 
-  <div class="nav-wrap">
+  <button type="button" class="menu-botao" id="menuBotao" aria-expanded="false" aria-controls="navWrap">☰ <span id="menuAtual">Menu</span></button>
+  <nav class="nav-wrap" id="navWrap">
   <div class="nav-item active destaque" data-view="central"><span class="dot"></span> Central de Decisão</div>
   <div class="nav-sep"></div>
-  <div class="nav-item" data-view="recorrente"><span class="dot"></span> Compra Recorrente</div>
-  <div class="nav-item" data-view="pedido"><span class="dot"></span> Pedido Central</div>
-  <div class="nav-item" data-view="vinculos"><span class="dot"></span> Vínculos</div>
-  <div class="nav-item" data-view="sazonal"><span class="dot"></span> Compra Sazonal</div>
-  <div class="nav-item" data-view="estoque"><span class="dot"></span> Alertas Estoque</div>
-  <div class="nav-item" data-view="financeiro"><span class="dot"></span> Financeiro</div>
-  <div class="nav-item" data-view="vendedores"><span class="dot"></span> Vendedores</div>
-  <div class="nav-item" data-view="benchmark"><span class="dot"></span> Benchmark</div>
-  <div class="nav-item" data-view="lojas"><span class="dot"></span> Lojas</div>
-  <div class="nav-item" data-view="usuarios"><span class="dot"></span> Usuários</div>
+  <div class="nav-grupo" data-grupo="compras">
+    <button type="button" class="nav-grupo-titulo">Compras <span class="seta">▾</span></button>
+    <div class="nav-menu">
+      <div class="nav-item" data-view="pedido"><span class="dot"></span> Pedido Central</div>
+      <div class="nav-item" data-view="recorrente"><span class="dot"></span> Compra Recorrente</div>
+      <div class="nav-item" data-view="sazonal"><span class="dot"></span> Compra Sazonal</div>
+      <div class="nav-item" data-view="vinculos"><span class="dot"></span> Vínculos de produtos</div>
+    </div>
   </div>
+  <div class="nav-item" data-view="estoque"><span class="dot"></span> Estoque</div>
+  <div class="nav-item" data-view="financeiro"><span class="dot"></span> Financeiro</div>
+  <div class="nav-item" data-view="vendedores"><span class="dot"></span> Equipe</div>
+  <div class="nav-grupo" data-grupo="rede">
+    <button type="button" class="nav-grupo-titulo">Rede <span class="seta">▾</span></button>
+    <div class="nav-menu">
+      <div class="nav-item" data-view="benchmark"><span class="dot"></span> Benchmark entre lojas</div>
+    </div>
+  </div>
+  <div class="nav-grupo" data-grupo="admin">
+    <button type="button" class="nav-grupo-titulo">Administração <span class="seta">▾</span></button>
+    <div class="nav-menu">
+      <div class="nav-item" data-view="lojas"><span class="dot"></span> Lojas</div>
+      <div class="nav-item" data-view="usuarios"><span class="dot"></span> Usuários</div>
+    </div>
+  </div>
+  </nav>
 
   <div class="caixa-usuario" id="caixaUsuario">
     <input id="senhaAcesso" type="hidden" autocomplete="off" value="">
@@ -718,6 +762,31 @@ document.querySelectorAll('.nav-item').forEach(item => {
     $('view-' + item.dataset.view).classList.add('active');
   });
 });
+
+// ---------- Menu agrupado ----------
+function marcarGrupos() {
+  document.querySelectorAll('.nav-grupo').forEach(g => {
+    const itens = [...g.querySelectorAll('.nav-item')];
+    g.style.display = itens.some(i => i.style.display !== 'none') ? '' : 'none';
+    g.classList.toggle('tem-ativo', itens.some(i => i.classList.contains('active')));
+  });
+  const ativo = document.querySelector('.nav-item.active');
+  if ($('menuAtual')) $('menuAtual').textContent = ativo ? ativo.textContent.trim() : 'Menu';
+}
+const fecharGrupos = (exceto) => document.querySelectorAll('.nav-grupo.aberto').forEach(g => { if (g !== exceto) g.classList.remove('aberto'); });
+document.querySelectorAll('.nav-grupo-titulo').forEach(t => t.addEventListener('click', e => {
+  e.stopPropagation();
+  if (window.matchMedia('(max-width: 900px)').matches) return; // no celular os grupos ficam abertos
+  const g = t.closest('.nav-grupo'); fecharGrupos(g); g.classList.toggle('aberto');
+}));
+document.addEventListener('click', e => { if (!e.target.closest('.nav-grupo')) fecharGrupos(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { fecharGrupos(); $('navWrap').classList.remove('aberto'); $('menuBotao').setAttribute('aria-expanded', 'false'); } });
+$('menuBotao').addEventListener('click', () => { const ab = $('navWrap').classList.toggle('aberto'); $('menuBotao').setAttribute('aria-expanded', String(ab)); });
+document.querySelectorAll('.nav-item').forEach(item => item.addEventListener('click', () => {
+  fecharGrupos(); $('navWrap').classList.remove('aberto'); $('menuBotao').setAttribute('aria-expanded', 'false'); marcarGrupos();
+  window.scrollTo({ top: 0 });
+}));
+marcarGrupos();
 
 // ---------- Listar lojas (comum aos 4 módulos) ----------
 document.querySelectorAll('[data-listlojas]').forEach(btn => {
@@ -3807,6 +3876,7 @@ function aplicarPerfil(p) {
   const ocultar = new Set(p.papel === 'franqueado' ? ['benchmark', 'lojas', 'vinculos', 'usuarios'] : p.papel === 'equipe' ? ['lojas', 'usuarios'] : []);
   if (p.tipo === 'senha') ocultar.delete('usuarios'); // a senha do time cria o 1º administrador
   document.querySelectorAll('.nav-item[data-view]').forEach(n => { n.style.display = ocultar.has(n.dataset.view) ? 'none' : ''; });
+  marcarGrupos();
   const bench = $('cen_bench'); if (bench) { bench.closest('label').style.display = p.papel === 'franqueado' ? 'none' : ''; if (p.papel === 'franqueado') bench.checked = false; }
   const ativa = document.querySelector('.nav-item.active');
   if (ativa && ocultar.has(ativa.dataset.view)) document.querySelector('.nav-item[data-view="central"]').click();
