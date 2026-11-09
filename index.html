@@ -222,6 +222,14 @@
     .nav-wrap{ border-radius:12px; }
   }
 
+  /* ===== Pedido: passo a passo e modo simples ===== */
+  .passos-pedido{ list-style:none; display:flex; gap:8px; flex-wrap:wrap; padding:0; margin:0 0 14px; counter-reset:none; }
+  .passos-pedido li{ display:flex; align-items:center; gap:8px; padding:8px 14px 8px 8px; border-radius:999px; background:var(--panel-2); color:var(--muted); font-size:12.5px; border:1px solid var(--line); }
+  .passos-pedido li span{ display:inline-grid; place-items:center; width:22px; height:22px; border-radius:50%; background:var(--panel); border:1px solid var(--line-strong); font-weight:700; font-size:11.5px; }
+  .passos-pedido li.feito{ color:var(--good); } .passos-pedido li.feito span{ background:var(--good); border-color:var(--good); color:#fff; }
+  .passos-pedido li.atual{ background:var(--panel); color:var(--accent-deep); font-weight:600; border-color:var(--accent); } .passos-pedido li.atual span{ background:var(--accent); border-color:var(--accent); color:#fff; }
+  #view-pedido.modo-simples .col-tec, #view-pedido.modo-simples .ped-vinculo{ display:none; }
+
   /* ===== Menu agrupado (Compras / Rede / Administração) ===== */
   .nav-grupo{ position:relative; }
   .nav-grupo-titulo{ all:unset; cursor:pointer; display:flex; align-items:center; gap:5px; white-space:nowrap; padding:8px 11px; font-size:13px; color:var(--muted); border-radius:9px; }
@@ -440,6 +448,12 @@
       <h1>Pedido para a Central</h1>
       <div class="sub">Transforma a recomendação de compra da loja em pedidos no formato da Central do Franqueado: itens com o código e a variação da Central, separados por fornecedor, respeitando pedido mínimo e máximo, com preço atual e prazo real de entrega. Revise, aprove e envie direto para a Central (ou lance manualmente — o Insight confirma sozinho quando o pedido aparecer lá).</div>
     </header>
+    <ol class="passos-pedido" id="ped_passos">
+      <li data-passo="1"><span>1</span> Escolha a loja e gere o pedido</li>
+      <li data-passo="2"><span>2</span> Confira quantidades e preço de venda</li>
+      <li data-passo="3"><span>3</span> Aprove cada fornecedor</li>
+      <li data-passo="4"><span>4</span> Envie à Central</li>
+    </ol>
     <div class="panel">
       <div class="grid">
         <div><label>Loja</label><select id="ped_loja"><option value="">Carregando lojas…</option></select></div>
@@ -450,6 +464,7 @@
       <div class="actions">
         <button id="ped_gerar">Gerar pedido sugerido</button>
         <button class="secondary" id="ped_listar">Pedidos aprovados</button>
+        <label class="opt-row" style="margin-left:auto" title="Esconde as colunas técnicas (venda/dia, em andamento, sugerido, vínculo)"><input type="checkbox" id="ped_simples"> Modo simples</label>
         <span class="status" id="status-pedido"></span>
       </div>
     </div>
@@ -2830,7 +2845,7 @@ function cardFornecedor(f, fi) {
     <div data-fret="${fi}" style="margin-top:10px; font-size:12px; color:var(--muted)"></div>
     <div class="ped-aviso-minimo" data-fmin="${fi}" style="display:none; margin-top:10px; font-size:12px; color:var(--warn)"></div>
     <div style="overflow-x:auto; margin-top:12px">
-    <table class="ped-tabela"><thead><tr><th></th><th>Item na Central</th><th>Produto da loja</th><th>Venda/dia</th><th>Estoque</th><th>Em andamento</th><th>Sugerido</th><th>Qtd no pedido</th><th>Preço</th><th>Subtotal</th><th title="Preço de venda por peça na loja. Vem preenchido com o preço médio cobrado no período; pode alterar.">Vendo por</th><th title="Peças do pedido × preço de venda">Faturamento previsto</th><th title="Faturamento previsto − custo do pedido">Lucro bruto</th></tr></thead><tbody>
+    <table class="ped-tabela"><thead><tr><th></th><th>Item na Central</th><th>Produto da loja</th><th class="col-tec">Venda/dia</th><th>Estoque</th><th class="col-tec">Em andamento</th><th class="col-tec">Sugerido</th><th>Qtd no pedido</th><th>Preço</th><th>Subtotal</th><th title="Preço de venda por peça na loja. Vem preenchido com o preço médio cobrado no período; pode alterar.">Vendo por</th><th title="Peças do pedido × preço de venda">Faturamento previsto</th><th title="Faturamento previsto − custo do pedido">Lucro bruto</th></tr></thead><tbody>
     ${f.itens.map((i, ii) => {
       const alts = (i.alternativas || []).filter(a => a.fornecedorId === f.fornecedorId);
       return `<tr data-fi="${fi}" data-ii="${ii}">
@@ -2839,9 +2854,9 @@ function cardFornecedor(f, fi) {
           ${i.variacaoIncerta && alts.length ? `<br><select data-variacao style="margin-top:4px; font-size:11px; padding:4px 6px; max-width:260px"><option value="">${esc(i.central.variacao || i.central.descricao)} (sugerida)</option>${alts.map((a, ai) => `<option value="${ai}">${esc(a.variacao || a.descricao)} · ${fmtMoeda(a.preco)}</option>`).join('')}</select><br><span style="font-size:11px; color:var(--warn)">confira a variação</span>` : ''}
           ${i.central.emEstoque === false ? '<br><span class="tag-risco">fornecedor sem estoque</span>' : ''}
           ${!i.extraGrade && (i.grade || []).length > 1 ? `<br><button class="secondary" data-grade="${fi}|${ii}" style="margin-top:6px; padding:4px 10px; font-size:11px">${i.tipoGrade === 'letra' ? `Grade: letras (${i.grade.length})` : `Grade: tamanhos e cores (${i.grade.length})`}</button>` : ''}</td>
-        <td class="prod-name" style="font-size:12px">${esc(i.descricaoLoja)}<br><span style="color:var(--muted); font-size:11px">${esc(i.codigoSistema || '')} · via ${esc(i.via)}${i.extraGrade ? '' : ` · <a href="#" data-ir-vinculo="${esc(i.produtoId)}" data-desc="${esc(i.descricaoLoja)}" style="color:var(--accent)">${i.via === 'vínculo' ? 'trocar' : 'corrigir'} vínculo</a>`}</span>${i.riscoRuptura ? ' <span class="tag-risco">risco</span>' : ''}</td>
-        <td>${i.vendaMediaDiaria == null ? '–' : fmtNum(i.vendaMediaDiaria)}</td><td>${i.estoqueAtual == null ? '–' : fmtNum(i.estoqueAtual)}</td><td>${i.emAndamento ? fmtNum(i.emAndamento) : '–'}</td>
-        <td>${fmtNum(i.qtdRecomendadaUnidades)}${i.ajustes.length ? `<br><span style="font-size:10px; color:var(--warn)">${esc(i.ajustes.join(', '))}</span>` : ''}</td>
+        <td class="prod-name" style="font-size:12px">${esc(i.descricaoLoja)}<br><span class="ped-vinculo" style="color:var(--muted); font-size:11px">${esc(i.codigoSistema || '')} · via ${esc(i.via)}${i.extraGrade ? '' : ` · <a href="#" data-ir-vinculo="${esc(i.produtoId)}" data-desc="${esc(i.descricaoLoja)}" style="color:var(--accent)">${i.via === 'vínculo' ? 'trocar' : 'corrigir'} vínculo</a>`}</span>${i.riscoRuptura ? ' <span class="tag-risco">risco</span>' : ''}</td>
+        <td class="col-tec">${i.vendaMediaDiaria == null ? '–' : fmtNum(i.vendaMediaDiaria)}</td><td>${i.estoqueAtual == null ? '–' : fmtNum(i.estoqueAtual)}</td><td class="col-tec">${i.emAndamento ? fmtNum(i.emAndamento) : '–'}</td>
+        <td class="col-tec">${fmtNum(i.qtdRecomendadaUnidades)}${i.ajustes.length ? `<br><span style="font-size:10px; color:var(--warn)">${esc(i.ajustes.join(', '))}</span>` : ''}</td>
         <td><input type="number" data-qtd value="${i.qtd}" min="0" ${i.central.qtdMaxima ? `max="${i.central.qtdMaxima}"` : ''} step="1" style="width:84px; padding:6px 8px"><br><span style="font-size:10px; color:var(--muted)">mín ${i.central.qtdMinima}${i.central.qtdMaxima ? ` · máx ${i.central.qtdMaxima}` : ''}${i.central.fatorConversao > 1 ? ` · emb ${i.central.fatorConversao}` : ''}</span></td>
         <td>${fmtMoeda(i.central.preco)}</td>
         <td data-sub></td>
@@ -2859,7 +2874,22 @@ function cardFornecedor(f, fi) {
   </div>`;
 }
 
+// Passo a passo do pedido: 1 gerar · 2 conferir · 3 aprovar · 4 enviar
+function marcarPassoPedido() {
+  const fs = pedState?.fornecedores || [];
+  const aprovados = fs.filter(f => f.pedidoId || f.aprovado).length, enviados = fs.filter(f => f.enviado || /lancado|enviado/.test(String(f.statusEnvio || ''))).length;
+  const atual = !fs.length ? 1 : !aprovados ? 2 : enviados < aprovados || aprovados < fs.length ? (aprovados < fs.length ? 3 : 4) : 4;
+  document.querySelectorAll('#ped_passos li').forEach(li => { const n = Number(li.dataset.passo); li.classList.toggle('feito', n < atual || (n === 4 && fs.length && enviados === fs.length)); li.classList.toggle('atual', n === atual && !(n === 4 && fs.length && enviados === fs.length)); });
+}
+function aplicarModoSimples() {
+  try { localStorage.setItem('sss_ped_simples', $('ped_simples').checked ? '1' : '0'); } catch { }
+  $('view-pedido').classList.toggle('modo-simples', $('ped_simples').checked);
+}
+$('ped_simples').addEventListener('change', aplicarModoSimples);
+marcarPassoPedido();
+
 function ligarPedido() {
+  marcarPassoPedido();
   const box = $('resultado-pedido');
   box.querySelectorAll('[data-ir-vinculo]').forEach(a => a.addEventListener('click', ev => { ev.preventDefault(); irParaVinculo(pedState.loja, a.dataset.irVinculo, a.dataset.desc); }));
   box.querySelectorAll('[data-grade]').forEach(b => b.addEventListener('click', () => abrirGrade(...b.dataset.grade.split('|').map(Number))));
@@ -3130,6 +3160,7 @@ async function aprovarPedido(fi, btn) {
     st.innerHTML = `<span style="color:var(--good); font-weight:600">✓ Aprovado (${fmtMoeda(r.valor)}).</span> <button class="secondary" style="padding:6px 12px; font-size:12px" data-enviar-agora="${esc(r.id)}">Enviar para a Central</button>`;
     st.querySelector('[data-enviar-agora]').addEventListener('click', () => { listarAprovados(r.id).then(() => $('ped_aprovados').scrollIntoView({ behavior: 'smooth' })); });
     btn.textContent = 'Aprovado';
+    f.aprovado = true; f.pedidoId = r.id; marcarPassoPedido();
     $('resultado-pedido').querySelector(`.ped-forn[data-fi="${fi}"]`).style.borderColor = 'var(--good)';
   } catch (e) { st.textContent = 'Erro: ' + e.message; btn.disabled = false; }
 }
@@ -3231,6 +3262,7 @@ async function abrirEnvio(id, ped) {
     try {
       const r = await chamarCompras({ modulo: 'pedidoSugerido', acao: 'enviar', id, tipoFrete: v('tipoFrete'), formaPagamento: v('formaPagamento'), observacaoEntrega: v('observacaoEntrega'), enviadoPor, valorConfirmado: o.valorAtual, reenviar });
       box.innerHTML = `<div style="color:var(--good); font-weight:650">✓ Pedido criado na Central${r.codigoPedidoCentral ? ' — nº ' + esc(r.codigoPedidoCentral) : ''} (${fmtMoeda(r.valor)}).</div>`;
+      (pedState?.fornecedores || []).forEach(f => { if (String(f.pedidoId) === String(id)) f.enviado = true; }); marcarPassoPedido();
       setTimeout(() => listarAprovados(), 1500);
     } catch (e) { st.textContent = 'Erro: ' + e.message; setTimeout(() => listarAprovados(), 2500); }
   });
@@ -4031,6 +4063,7 @@ async function carregarPerfil() {
 }
 
 function aplicarPerfil(p) {
+  { let pref = null; try { pref = localStorage.getItem('sss_ped_simples'); } catch { } $('ped_simples').checked = pref != null ? pref === '1' : p.papel === 'franqueado'; aplicarModoSimples(); }
   _usuarioCache = String(p.email || p.nome || '');
   const mudouPapel = _papelAtual !== p.papel; _papelAtual = p.papel; if (mudouPapel) _inicioDados = null;
   $('usuarioNome').textContent = p.nome || '—';
