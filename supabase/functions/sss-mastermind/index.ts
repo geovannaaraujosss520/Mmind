@@ -30,7 +30,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { saidasComCache, saldosComCache, reiniciarMedicao, resumoMedicao } from "../_shared/vendas_cache.ts";
+import { saidasComCache, saldosComCache, registrarLojas, lojaDaChave, prepararChamada, reiniciarMedicao, resumoMedicao } from "../_shared/vendas_cache.ts";
 
 
 // ALLOWED_ORIGIN aceita varios enderecos separados por virgula (ex.: GitHub Pages + servidor Node).
@@ -128,12 +128,11 @@ async function getLojasTokens(): Promise<Record<string, string>> {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("lojas_config")
-    .select("nome, token")
+    .select("nome, token, cnpj")
     .eq("ativo", true);
   if (error) throw new Error(`Erro ao ler lojas_config: ${error.message}`);
-  const mapa: Record<string, string> = {};
-  for (const row of data ?? []) { mapa[row.nome] = row.token; if (row.token) lojaPorToken.set(row.token, row.nome); }
-  return mapa;
+  // { loja: chave } — a chave é o token; para lojas que dividem o token (2 unidades), token + nome.
+  return registrarLojas(data ?? []);
 }
 
 function formatDateBR(d: Date): string {
@@ -167,6 +166,7 @@ function dataVarejo(s: unknown): Date | null {
 // onPage processa cada página e a descarta, economizando memória.
 // Nova tentativa em erro 5xx/429 ou falha de rede (ate 4 vezes), pedindo paginas menores (1000 -> 300 -> 100).
 async function paginaVarejo(urlBase: string, token: string, caminho: string): Promise<any> {
+  ({ url: urlBase, token } = await prepararChamada(urlBase, token)); // loja que divide o token: token real + entidades=
   const tamanhos = [1000, 300, 100, 100];
   let ultimo = "";
   for (let t = 0; t < tamanhos.length; t++) {
@@ -184,6 +184,7 @@ async function paginaVarejo(urlBase: string, token: string, caminho: string): Pr
 }
 
 async function fetchAllPages(url: string, token: string, onPage?: (items: any[]) => void): Promise<any[]> {
+  const { filtrar } = await prepararChamada(url, token); // descarta itens de outra unidade do mesmo token
   const results: any[] = [];
   let inicio = 0;
   let ultima = "";
@@ -195,7 +196,8 @@ async function fetchAllPages(url: string, token: string, onPage?: (items: any[])
     const assinatura = JSON.stringify(items[0]).slice(0, 300);
     if (assinatura === ultima) break; // a API devolveu a mesma página de novo
     ultima = assinatura;
-    if (onPage) onPage(items); else results.push(...items);
+    const daLoja = filtrar(items);
+    if (onPage) onPage(daLoja); else results.push(...daLoja);
     inicio += items.length;
   }
   return results;
@@ -205,9 +207,8 @@ async function fetchAllPages(url: string, token: string, onPage?: (items: any[])
 // em períodos longos. Janelas se sobrepõem em 1 dia; vendas repetidas são descartadas pelo id.
 // Vendas de um periodo: dias fechados vem do cache (vendas_cache_dias); ontem e hoje, da VarejOnline.
 async function buscarSaidas(apiBase: string, token: string, dIni: Date, dFim: Date, onSaida: (s: any) => void, janelaDias = 30, conc = 4) {
-  await saidasComCache({ sb: getSupabaseAdmin, buscarPaginas: fetchAllPages, apiBase, token, loja: lojaPorToken.get(token) ?? null, dIni, dFim, onSaida, janelaDias, conc });
+  await saidasComCache({ sb: getSupabaseAdmin, buscarPaginas: fetchAllPages, apiBase, token, loja: lojaDaChave(token), dIni, dFim, onSaida, janelaDias, conc });
 }
-const lojaPorToken = new Map<string, string>();
 const ehPedidoVenda = (s: any) => !s.cancelado && (!s.tipoSaida || s.tipoSaida === "PEDIDO_VENDA");
 
 // Estoque da UNIDADE: se o token enxerga mais de uma unidade (loja + depósito), usa só a(s) que
@@ -812,7 +813,8 @@ async function moduloBenchmark(apiBase: string, lojasTokens: Record<string, stri
     if (!dataAberturaIso) {
       try {
         // Só a 1ª venda (uma página de 1 item) — antes percorria TODO o histórico desde 2015.
-        const r = await fetch(`${apiBase}/saidas?desde=01-01-2015&ate=${ate}&inicio=0&quantidade=1&token=${token}`);
+        const pc = await prepararChamada(`${apiBase}/saidas?desde=01-01-2015&ate=${ate}&inicio=0`, token);
+        const r = await fetch(`${pc.url}&quantidade=1&token=${pc.token}`);
         const j: any = r.ok ? await r.json() : [];
         const primeiraPagina = Array.isArray(j) ? j : (j.items ?? j.dados ?? []);
         if (primeiraPagina.length && primeiraPagina[0].data) {

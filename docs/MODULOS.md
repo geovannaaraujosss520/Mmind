@@ -47,6 +47,9 @@ Perfil comparado à média da própria loja: Destaque · Na média · Atenção 
 ## Lojas
 Cadastro, edição (nome, CNPJ, token testado antes de salvar; renomear propaga para metas, vínculos e pedidos), ativar/desativar e diagnóstico da API da Central.
 
+### Duas unidades com o mesmo token
+Brasília, Goiânia e Ribeirão têm 2 unidades usando o mesmo token da VarejOnline (CNPJs diferentes). Quando duas lojas ativas têm o mesmo token, cada uma é separada pelo **CNPJ cadastrado em Lojas**: o sistema acha a entidade da VarejOnline com aquele CNPJ (pelas vendas recentes ou pelo cadastro de empresas) e passa a pedir vendas, estoque e contas a pagar só dela (`entidades=`). Sem CNPJ, ou com CNPJ que não existe na conta, a loja mostra o aviso para corrigir o CNPJ. O cache antigo dessas lojas (as duas unidades somadas) é descartado e baixado de novo, já separado.
+
 ## Cache e limites
 - Vendas da VarejOnline ficam em `vendas_cache_dias` por loja e dia: dia fechado não é baixado de novo; ontem e hoje sempre ao vivo; dias da última semana são relidos após 6 h. Pré-aquecimento diário às 5h17 (workflow *Aquecer cache do Insight*).
 - Estoque (saldos) reaproveitado por 10 minutos na memória da função.

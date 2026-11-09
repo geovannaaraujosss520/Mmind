@@ -3,7 +3,7 @@
 // Secrets: VAREJONLINE_API_BASE, APP_PASSCODE, PEDIDOS_API_KEY, ALLOWED_ORIGIN (opcional), LIMITE_PEDIDO_SEM_CONFIRMACAO (opcional, em R$).
 // Tabelas: lojas_config, pedidos_vinculos, pedidos_sugeridos.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { saidasComCache, saldosComCache, reiniciarMedicao, resumoMedicao, medicao, diaDaVenda } from '../_shared/vendas_cache.ts';
+import { saidasComCache, saldosComCache, registrarLojas, lojaDaChave, prepararChamada, reiniciarMedicao, resumoMedicao, medicao, diaDaVenda } from '../_shared/vendas_cache.ts';
 
 
 // ALLOWED_ORIGIN aceita varios enderecos separados por virgula (ex.: GitHub Pages + servidor Node).
@@ -118,6 +118,7 @@ const OVERRIDES: Record<string, string> = {
 // Uma pagina da VarejOnline com nova tentativa: erro 5xx/429 ou falha de rede tenta de novo (ate 4 vezes),
 // pedindo paginas menores (1000 -> 300 -> 100), que a VarejOnline aguenta melhor em lojas grandes.
 async function paginaVarejo(urlBase: string, token: string): Promise<any> {
+  ({ url: urlBase, token } = await prepararChamada(urlBase, token)); // loja que divide o token: token real + entidades=
   const tamanhos = [1000, 300, 100, 100];
   let ultimo = '';
   for (let t = 0; t < tamanhos.length; t++) {
@@ -135,6 +136,7 @@ async function paginaVarejo(urlBase: string, token: string): Promise<any> {
 }
 
 async function fetchAllPages(url: string, token: string, onPage?: (items: any[]) => void): Promise<any[]> {
+  const { filtrar } = await prepararChamada(url, token); // descarta itens de outra unidade do mesmo token
   const out: any[] = [];
   let inicio = 0;
   let ultima = '';
@@ -146,7 +148,8 @@ async function fetchAllPages(url: string, token: string, onPage?: (items: any[])
     const sig = JSON.stringify(items[0]).slice(0, 300);
     if (sig === ultima) break;
     ultima = sig;
-    if (onPage) onPage(items); else out.push(...items);
+    const daLoja = filtrar(items);
+    if (onPage) onPage(daLoja); else out.push(...daLoja);
     inicio += items.length;
   }
   return out;
@@ -156,16 +159,14 @@ async function fetchAllPages(url: string, token: string, onPage?: (items: any[])
 // As janelas se sobrepoem em 1 dia e as vendas repetidas sao descartadas pelo id.
 // Vendas de um periodo: dias fechados vem do cache (vendas_cache_dias); ontem e hoje, da VarejOnline.
 async function buscarSaidasParalelo(apiBase: string, token: string, dIni: Date, dFim: Date, onSaida: (sd: any) => void, janelaDias = 15, conc = 4) {
-  await saidasComCache({ sb, buscarPaginas: fetchAllPages, apiBase, token, loja: lojaPorToken.get(token) ?? null, dIni, dFim, onSaida, janelaDias, conc });
+  await saidasComCache({ sb, buscarPaginas: fetchAllPages, apiBase, token, loja: lojaDaChave(token), dIni, dFim, onSaida, janelaDias, conc });
 }
 
-const lojaPorToken = new Map<string, string>();
+// { loja: chave } — a chave é o token; para lojas que dividem o token, token + nome (ver registrarLojas).
 async function getLojasTokens(): Promise<Record<string, string>> {
-  const { data, error } = await sb().from('lojas_config').select('nome, token').eq('ativo', true);
+  const { data, error } = await sb().from('lojas_config').select('nome, token, cnpj').eq('ativo', true);
   if (error) throw new Error(`Erro ao ler lojas_config: ${error.message}`);
-  const m: Record<string, string> = {};
-  for (const r of data ?? []) { m[r.nome] = r.token; if (r.token) lojaPorToken.set(r.token, r.nome); }
-  return m;
+  return registrarLojas(data ?? []);
 }
 
 // Busca os pedidos da Central dos ultimos nDias (a API devolve um dia por chamada).
