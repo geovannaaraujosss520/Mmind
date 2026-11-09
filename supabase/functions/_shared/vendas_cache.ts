@@ -36,14 +36,14 @@ export const compactarVenda = (sd: any) => ({
 });
 
 // No banco, a descrição do produto vai uma vez por dia (dicionário), não em cada item: ocupa ~40% menos.
-function empacotar(lista: any[]) {
+function empacotar(lista: any[], e = '') {
   const p: Record<string, any[]> = {};
   const s = lista.map((sd) => ({ ...sd, mercadorias: (sd.mercadorias ?? []).map((it: any) => {
     const pr = it.produto; if (!pr) return { ...it, produto: undefined };
     const id = String(pr.id); if (!p[id]) p[id] = [pr.descricao ?? null, pr.codigoSistema ?? null, pr.codigoBarras ?? null];
     return { ...it, produto: undefined, p: pr.id };
   }) }));
-  return { v: 1, p, s };
+  return e ? { v: 2, e, p, s } : { v: 1, p, s };
 }
 function desempacotar(x: any): any[] {
   if (Array.isArray(x)) return x;
@@ -111,6 +111,8 @@ export async function saidasComCache(o: Opcoes): Promise<boolean> {
   const limiteFechado = maisDias(hojeBrasil(), -1); // ontem: daqui para frente é sempre ao vivo
   const fimFechado = fim < limiteFechado ? fim : maisDias(limiteFechado, -1);
   const usarCache = !!o.loja && tabelaOk !== false && ini <= fimFechado;
+  // Loja que divide o token: os dias só valem se foram guardados já separados por unidade (mesmo escopo).
+  const escopo = usarCache ? await escopoDaChave(o.apiBase, o.token) : '';
 
   // 1) Dias fechados: do cache; o que faltar é baixado e guardado
   if (usarCache) {
@@ -126,6 +128,7 @@ export async function saidasComCache(o: Opcoes): Promise<boolean> {
         for (const row of r.data ?? []) {
           const dia = String(row.dia).slice(0, 10);
           if (dia >= recente && String(row.atualizado_em) < velho) continue; // recente e antigo: relê
+          if (String(row.saidas?.e ?? '') !== escopo) continue; // guardado com outro escopo (ex.: unidades juntas): relê
           doCache.set(dia, desempacotar(row.saidas));
         }
       }
@@ -152,7 +155,7 @@ export async function saidasComCache(o: Opcoes): Promise<boolean> {
         medicao.cache.diasBaixados += porDia.size;
         if (!confiavel) return; // data fora do esperado: não guarda (na próxima vez baixa de novo)
         const agora = new Date().toISOString();
-        const linhas = [...porDia.entries()].map(([dia, saidas]) => ({ loja: o.loja, dia, saidas: empacotar(saidas), qtd: saidas.length, atualizado_em: agora }));
+        const linhas = [...porDia.entries()].map(([dia, saidas]) => ({ loja: o.loja, dia, saidas: empacotar(saidas, escopo), qtd: saidas.length, atualizado_em: agora }));
         for (let k = 0; k < linhas.length; k += 7) {
           const { error } = await o.sb().from('vendas_cache_dias').upsert(linhas.slice(k, k + 7), { onConflict: 'loja,dia' });
           if (error) break;
@@ -188,4 +191,111 @@ export async function saldosComCache(buscarPaginas: BuscarPaginas, url: string, 
   if (cacheSaldos.size > 60) cacheSaldos.clear();
   cacheSaldos.set(k, { t: Date.now(), itens });
   return itens; // como o fetchAllPages: devolve a lista (há quem use o retorno)
+}
+
+// ---- Lojas que dividem o mesmo token da VarejOnline (duas unidades, CNPJs diferentes) ----
+// Ex.: Brasília 1 e 2 usam o mesmo token. Sem filtro, a VarejOnline devolve as vendas e o estoque das duas
+// unidades juntas. Para essas lojas, a "chave" usada nas funções é token + nome da loja; na hora de chamar a
+// VarejOnline ela vira o token de verdade + o parâmetro entidades=<ids da unidade>, achados pelo CNPJ da loja.
+const SEP = '#loja=';
+const soDig = (s: unknown) => String(s ?? '').replace(/\D/g, '');
+const cnpjPorLoja = new Map<string, string>();
+const lojaPorChave = new Map<string, string>();
+const comFiltroEntidade = /\/(saidas|saldos-mercadorias|contas-pagar|contas-receber)(\?|$)/;
+
+// Recebe as linhas de lojas_config (nome, token, cnpj) e devolve { nome: chave }.
+export function registrarLojas(linhas: { nome: string; token: string | null; cnpj?: string | null }[]): Record<string, string> {
+  const uso = new Map<string, number>();
+  for (const r of linhas) if (r.token) uso.set(r.token, (uso.get(r.token) ?? 0) + 1);
+  const m: Record<string, string> = {};
+  for (const r of linhas) {
+    if (!r.token) { m[r.nome] = r.token as any; continue; }
+    const chave = (uso.get(r.token) ?? 0) > 1 ? `${r.token}${SEP}${encodeURIComponent(r.nome)}` : r.token;
+    m[r.nome] = chave;
+    lojaPorChave.set(chave, r.nome);
+    cnpjPorLoja.set(r.nome, soDig(r.cnpj));
+  }
+  return m;
+}
+export const lojaDaChave = (chave: string) => lojaPorChave.get(chave) ?? null;
+export function abrirChave(chave: string): { token: string; loja: string | null } {
+  const i = String(chave ?? '').indexOf(SEP);
+  return i < 0 ? { token: chave, loja: null } : { token: chave.slice(0, i), loja: decodeURIComponent(chave.slice(i + SEP.length)) };
+}
+
+const cacheEntidades = new Map<string, { t: number; p: Promise<string[]> }>();
+async function jsonVarejo(url: string): Promise<any[]> {
+  const r = await fetch(url, { signal: AbortSignal.timeout(30000) });
+  if (!r.ok) throw new Error(String(r.status));
+  const j = await r.json();
+  return Array.isArray(j) ? j : (j.items ?? j.dados ?? []);
+}
+async function descobrirEntidades(apiBase: string, token: string, cnpj: string): Promise<string[]> {
+  const ids = new Set<string>();
+  // 1) Pelas vendas recentes: cada venda traz entidade { id, documento } — é o CNPJ da própria unidade.
+  try {
+    const hoje = new Date(Date.now() - 3 * 3600_000), de = new Date(hoje.getTime() - 45 * 86400_000);
+    const f = (d: Date) => d.toISOString().slice(0, 10).split('-').reverse().join('-');
+    for (let inicio = 0, n = 0; n < 12; n++) {
+      const pg = await jsonVarejo(`${apiBase}/saidas?desde=${f(de)}&ate=${f(hoje)}&inicio=${inicio}&quantidade=300&token=${token}`);
+      for (const sd of pg) if (sd?.entidade?.id != null && soDig(sd.entidade.documento) === cnpj) ids.add(String(sd.entidade.id));
+      if (ids.size || pg.length < 300) break;
+      inicio += pg.length;
+    }
+  } catch (_) { /* tenta pelas empresas */ }
+  if (ids.size) return [...ids];
+  // 2) Pelo cadastro de empresas (cada empresa tem CNPJ e a lista das suas entidades).
+  try {
+    for (let inicio = 0, n = 0; n < 10; n++) {
+      const pg = await jsonVarejo(`${apiBase}/empresas?inicio=${inicio}&quantidade=100&token=${token}`);
+      for (const e of pg) if (soDig(e?.documento) === cnpj) {
+        for (const en of e.entidades ?? []) if (en?.id != null && !en.excluida) ids.add(String(en.id));
+        if (!ids.size && e.idEntidadePrincipal != null) ids.add(String(e.idEntidadePrincipal));
+      }
+      if (ids.size || pg.length < 100) break;
+      inicio += pg.length;
+    }
+  } catch (_) { /* sem acesso a empresas */ }
+  return [...ids];
+}
+export async function entidadesDaLoja(apiBase: string, token: string, loja: string): Promise<string[]> {
+  const cnpj = cnpjPorLoja.get(loja) ?? '';
+  if (cnpj.length !== 14) throw new Error(`A loja ${loja} usa o mesmo token da VarejOnline de outra unidade. Cadastre o CNPJ dela em Lojas para separar os números de cada unidade.`);
+  const k = `${token}|${cnpj}`, c = cacheEntidades.get(k);
+  if (c && Date.now() - c.t < 6 * 3600_000) return c.p;
+  const p = descobrirEntidades(apiBase, token, cnpj).then((ids) => {
+    if (!ids.length) { cacheEntidades.delete(k); throw new Error(`A loja ${loja} usa o mesmo token de outra unidade e o CNPJ ${cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')} não foi encontrado nessa conta da VarejOnline. Confira o CNPJ da loja em Lojas.`); }
+    return ids;
+  });
+  p.catch(() => cacheEntidades.delete(k));
+  cacheEntidades.set(k, { t: Date.now(), p });
+  return p;
+}
+// Prepara uma chamada à VarejOnline a partir da chave: token de verdade, URL com entidades=... (quando a loja
+// divide o token) e um filtro que descarta itens de outra unidade (caso a API ignore o parâmetro).
+export async function prepararChamada(url: string, chave: string): Promise<{ url: string; token: string; filtrar: (itens: any[]) => any[]; entidades: string[] | null }> {
+  const { token, loja } = abrirChave(chave);
+  if (!loja) return { url, token, filtrar: (x) => x, entidades: null };
+  const caminho = url.split('?')[0];
+  const apiBase = caminho.slice(0, caminho.lastIndexOf('/'));
+  const ids = await entidadesDaLoja(apiBase, token, loja);
+  const set = new Set(ids);
+  let u = url;
+  if (comFiltroEntidade.test(caminho)) {
+    if (/[?&]entidades=/.test(u)) {
+      // já veio com entidades (ex.: estoque pedido pela unidade que vendeu): fica só com as desta loja
+      u = u.replace(/([?&]entidades=)([^&]*)/, (_m, a, v) => { const f = v.split(',').filter((x: string) => set.has(x)); return a + (f.length ? f : ids).join(','); });
+    } else u += `${u.includes('?') ? '&' : '?'}entidades=${ids.join(',')}`;
+  }
+  const filtrar = (itens: any[]) => itens.filter((it) => {
+    const e = it?.entidade?.id ?? it?.entidadeId ?? it?.idEntidade;
+    return e == null || set.has(String(e));
+  });
+  return { url: u, token, filtrar, entidades: ids };
+}
+// Escopo gravado junto com cada dia no cache: '' para loja com token só dela; ids das entidades quando divide.
+async function escopoDaChave(apiBase: string, chave: string): Promise<string> {
+  const { token, loja } = abrirChave(chave);
+  if (!loja) return '';
+  return (await entidadesDaLoja(apiBase, token, loja)).slice().sort().join(',');
 }
