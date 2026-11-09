@@ -3124,15 +3124,16 @@ function renderVendedores(d, box) {
   // Rede: soma por produto (código do sistema; sem código, pela descrição)
   const rede = new Map();
   for (const l of lojas) for (const b of l.pecasBaratas?.lista || []) {
-    const k = b.codigoSistema || b.descricao; const x = rede.get(k) ?? { descricao: b.descricao, codigoSistema: b.codigoSistema, pecas: 0, faturamento: 0, lojas: new Set() };
-    x.pecas += b.pecas; x.faturamento += b.faturamento; x.lojas.add(l.nomeLoja); rede.set(k, x);
+    const k = b.codigoSistema || b.descricao; const x = rede.get(k) ?? { descricao: b.descricao, codigoSistema: b.codigoSistema, pecas: 0, faturamento: 0, sozinha: 0, acrescimo: 0, lojas: new Set() };
+    x.pecas += b.pecas; x.faturamento += b.faturamento; x.sozinha += b.pecasSozinha || 0; x.acrescimo += b.pecasAcrescimo || 0; x.lojas.add(l.nomeLoja); rede.set(k, x);
   }
   const totalB = lojas.reduce((s2, l) => s2 + l.loja.pecas * l.loja.percentPecasAbaixoLimite / 100, 0);
   const listaRede = [...rede.values()].sort((a, b) => b.pecas - a.pecas).map(x => ({ ...x, precoMedio: x.pecas ? x.faturamento / x.pecas : 0, percentDasBaratas: totalB ? x.pecas / totalB * 100 : 0, nLojas: x.lojas.size }));
   $('ven_v_baratas').innerHTML = !listaRede.length ? '<div class="empty">Nenhuma peça abaixo do preço-limite no período.</div>' : `
     <div class="sub" style="font-size:12px; margin-bottom:10px; max-width:none">Peças vendidas abaixo de ${limTxt} somando as lojas (até 300 produtos mais vendidos de cada loja). ${fmtNum(Math.round(totalB))} peças no período.</div>
-    <div style="overflow-x:auto"><table><thead><tr><th>Produto</th><th>Código</th><th class="num">Peças</th><th class="num">% das peças &lt; ${limTxt}</th><th class="num">Faturamento</th><th class="num">Preço médio</th><th class="num">Lojas</th></tr></thead><tbody>
-    ${listaRede.slice(0, 200).map(x => `<tr><td class="prod-name">${esc(x.descricao)}</td><td style="font-family:var(--mono); font-size:11.5px">${esc(x.codigoSistema || '—')}</td><td class="num">${fmtNum(x.pecas)}</td><td class="num">${fmtPct(x.percentDasBaratas, 1)}</td><td class="num">${fmtMoeda(x.faturamento)}</td><td class="num">${fmtMoeda(x.precoMedio)}</td><td class="num" title="${esc([...x.lojas].join(', '))}">${x.nLojas}</td></tr>`).join('')}
+    <div style="overflow-x:auto"><table><thead><tr><th>Produto</th><th>Código</th><th class="num">Peças</th><th class="num">% das peças &lt; ${limTxt}</th><th class="num">Sozinha</th><th class="num">Como acréscimo</th><th class="num">Faturamento</th><th class="num">Preço médio</th><th class="num">Lojas</th></tr></thead><tbody>
+    ${listaRede.slice(0, 200).map(x => `<tr><td class="prod-name">${esc(x.descricao)}</td><td style="font-family:var(--mono); font-size:11.5px">${esc(x.codigoSistema || '—')}</td><td class="num">${fmtNum(x.pecas)}</td><td class="num">${fmtPct(x.percentDasBaratas, 1)}</td>
+    <td class="num">${x.pecas ? fmtPct(x.sozinha / x.pecas * 100, 0) : '—'}</td><td class="num">${x.pecas ? fmtPct(x.acrescimo / x.pecas * 100, 0) : '—'}</td><td class="num">${fmtMoeda(x.faturamento)}</td><td class="num">${fmtMoeda(x.precoMedio)}</td><td class="num" title="${esc([...x.lojas].join(', '))}">${x.nLojas}</td></tr>`).join('')}
     </tbody></table></div>`;
 }
 
@@ -3140,15 +3141,28 @@ function renderVendedores(d, box) {
 function tabelaPecasBaratas(pb, L, p, id) {
   const limTxt = fmtMoeda(p.precoLimite);
   if (!pb || !pb.lista?.length) return `<div class="subsecao-titulo" style="margin-top:24px">Peças abaixo de ${limTxt}</div><div class="empty">Nenhuma peça abaixo de ${limTxt} no período.</div>`;
+  const papel = b => b.papel === 'acrescimo' ? '<span class="tag-risco" style="background:var(--good-tint, #e6f2e6); color:var(--good); border-color:transparent">Entrada / acréscimo</span>'
+    : b.papel === 'sozinha' ? '<span class="tag-risco">Sai sozinha</span>' : b.papel === 'misto' ? '<span style="color:var(--muted); font-size:11.5px">Misto</span>' : '<span style="color:var(--muted); font-size:11.5px">pouco volume</span>';
+  const pc = (n, t) => t ? `${fmtNum(n)} <span style="color:var(--muted); font-size:11px">(${fmtPct(n / t * 100, 0)})</span>` : '—';
   const linhas = pb.lista.map((b, i) => `<tr ${i >= 25 ? `data-bar-extra="${esc(id)}" style="display:none"` : ''}><td class="prod-name">${esc(b.descricao)}</td><td style="font-family:var(--mono); font-size:11.5px">${esc(b.codigoSistema || '—')}</td>
-    <td class="num">${fmtNum(b.pecas)}</td><td class="num">${fmtPct(b.percentDasBaratas, 1)}</td><td class="num">${fmtMoeda(b.faturamento)}</td><td class="num">${fmtMoeda(b.precoMedio)}</td>
+    <td class="num">${fmtNum(b.pecas)}</td><td class="num">${fmtPct(b.percentDasBaratas, 1)}</td>
+    <td class="num">${b.pecasSozinha != null ? pc(b.pecasSozinha, b.pecas) : '—'}</td><td class="num">${b.pecasAcrescimo != null ? pc(b.pecasAcrescimo, b.pecas) : '—'}</td><td>${b.papel ? papel(b) : ''}</td>
+    <td class="num">${fmtMoeda(b.faturamento)}</td><td class="num">${fmtMoeda(b.precoMedio)}</td>
     <td class="prod-name">${esc(b.quemMaisVendeu)} <span style="color:var(--muted); font-size:11.5px">(${fmtNum(b.pecasQuemMaisVendeu)})</span></td><td class="num">${b.vendedores}</td></tr>`).join('');
   const top10 = pb.lista.slice(0, 10).reduce((s2, b) => s2 + b.percentDasBaratas, 0);
   return `<div class="subsecao-titulo" style="margin-top:24px">Peças abaixo de ${limTxt} — o que está sendo vendido</div>
     <div class="chips" style="margin-bottom:10px"><span class="chip ${L.alertaMixBarato ? 'fail' : ''}">${fmtPct(L.percentPecasAbaixoLimite, 1)} das peças · ${fmtPct(L.percentFaturamentoAbaixoLimite, 1)} do faturamento</span>
       <span class="chip">${fmtNum(pb.produtos)} produtos diferentes</span><span class="chip">os 10 primeiros = ${fmtPct(top10, 0)} das peças baratas</span></div>
-    <div style="overflow-x:auto"><table><thead><tr><th>Produto</th><th>Código</th><th class="num">Peças</th><th class="num">% das peças &lt; ${limTxt}</th><th class="num">Faturamento</th><th class="num">Preço médio</th><th>Quem mais vendeu</th><th class="num">Vendedores</th></tr></thead>
+    ${L.atendimentos1PecaBarata != null ? (() => { const tb = (L.pecasBaratasSozinhas || 0) + (L.pecasBaratasAcrescimo || 0) + (L.pecasBaratasSoBaratas || 0); return `
+    <div class="kpis k4" style="margin-bottom:12px">
+      <div class="kpi"><div class="label">Atendimentos de 1 peça barata</div><div class="value" style="color:${L.percentAtendimentos1PecaBarata >= 20 ? 'var(--danger)' : 'inherit'}">${fmtNum(L.atendimentos1PecaBarata)}</div><div class="hint">${fmtPct(L.percentAtendimentos1PecaBarata, 1)} dos atendimentos: o cliente levou só uma peça &lt; ${limTxt}</div></div>
+      <div class="kpi"><div class="label">Peça barata sozinha</div><div class="value">${tb ? fmtPct(L.pecasBaratasSozinhas / tb * 100, 0) : '—'}</div><div class="hint">${fmtNum(L.pecasBaratasSozinhas)} peças em atendimento de 1 peça</div></div>
+      <div class="kpi"><div class="label">Como acréscimo (entrada)</div><div class="value" style="color:var(--good)">${tb ? fmtPct(L.pecasBaratasAcrescimo / tb * 100, 0) : '—'}</div><div class="hint">${fmtNum(L.pecasBaratasAcrescimo)} peças junto de uma peça ≥ ${limTxt}</div></div>
+      <div class="kpi"><div class="label">Só peças baratas</div><div class="value">${tb ? fmtPct(L.pecasBaratasSoBaratas / tb * 100, 0) : '—'}</div><div class="hint">${fmtNum(L.pecasBaratasSoBaratas)} peças em atendimento de 2+ peças, todas &lt; ${limTxt}</div></div>
+    </div>`; })() : ''}
+    <div style="overflow-x:auto"><table><thead><tr><th>Produto</th><th>Código</th><th class="num">Peças</th><th class="num">% das peças &lt; ${limTxt}</th><th class="num" title="Peças vendidas em atendimento de 1 peça só">Sozinha</th><th class="num" title="Peças vendidas junto de uma peça de ${limTxt} ou mais">Como acréscimo</th><th>Papel</th><th class="num">Faturamento</th><th class="num">Preço médio</th><th>Quem mais vendeu</th><th class="num">Vendedores</th></tr></thead>
     <tbody>${linhas}</tbody></table></div>
+    <div class="sub" style="font-size:11px; margin-top:6px; max-width:none">Papel: <strong>Entrada / acréscimo</strong> = metade ou mais das peças saiu junto de uma peça de ${limTxt} ou mais (produto que soma no ticket). <strong>Sai sozinha</strong> = metade ou mais saiu em atendimento de 1 peça só (venda que não cresceu).</div>
     ${pb.lista.length > 25 ? `<button class="secondary" data-bar-mais="${esc(id)}" style="margin-top:8px; padding:6px 12px; font-size:12px">Ver todos (${pb.lista.length})</button>` : ''}`;
 }
 function ligarPecasBaratas(box) {
@@ -3160,7 +3174,7 @@ function ligarPecasBaratas(box) {
 function tabelaVendedores(vs, p, comLoja) {
   if (!vs.length) return '<div class="empty">Nenhuma venda no período.</div>';
   const clsId = v => v.id === 'sem' ? '' : v.percentClienteIdentificado >= p.metaIdentificacao ? 'heat-bom' : v.percentClienteIdentificado < p.metaIdentificacao * 0.6 ? 'heat-ruim' : 'heat-medio';
-  return `<table><thead><tr><th>Vendedor</th>${comLoja ? '<th>Loja</th>' : ''}<th>Perfil</th><th>Faturamento</th><th>% da loja</th><th>Atendimentos</th><th>PA</th><th>Ticket médio</th><th>Cliente identificado</th><th>Cadastros completos / novos</th><th>Preço médio/peça</th><th>Peças &lt; ${fmtMoeda(p.precoLimite)}</th><th>Atend. de 1 peça</th><th>Desconto</th></tr></thead><tbody>
+  return `<table><thead><tr><th>Vendedor</th>${comLoja ? '<th>Loja</th>' : ''}<th>Perfil</th><th>Faturamento</th><th>% da loja</th><th>Atendimentos</th><th>PA</th><th>Ticket médio</th><th>Cliente identificado</th><th>Cadastros completos / novos</th><th>Preço médio/peça</th><th>Peças &lt; ${fmtMoeda(p.precoLimite)}</th><th title="Atendimentos em que o cliente levou só 1 peça, e ela custava menos que o limite">Atend. só 1 peça &lt; ${fmtMoeda(p.precoLimite)}</th><th>Atend. de 1 peça</th><th>Desconto</th></tr></thead><tbody>
   ${vs.map(v => `<tr>
     <td class="prod-name">${esc(v.nome)}${v.perfilSistema && v.perfilSistema !== 'VENDEDOR' ? `<br><span style="font-size:10px; color:var(--muted)">${esc(v.perfilSistema)}</span>` : ''}${v.ativo === false ? '<br><span style="font-size:10px; color:var(--muted)">inativo</span>' : ''}</td>
     ${comLoja ? `<td class="prod-name">${esc(v.loja)}</td>` : ''}
@@ -3170,7 +3184,8 @@ function tabelaVendedores(vs, p, comLoja) {
     <td class="${clsId(v)}" title="${v.atendimentosComCliente} de ${v.atendimentos} atendimentos">${fmtPct(v.percentClienteIdentificado, 0)}</td>
     <td class="${!v.cadastrosNovos ? '' : v.cadastrosCompletos === v.cadastrosNovos ? 'heat-bom' : 'heat-ruim'}" title="${esc(Object.entries(v.cadastrosFaltando || {}).map(([k, n]) => n + ' sem ' + k).join(', '))}">${v.cadastrosNovos ? `${v.cadastrosCompletos} / ${v.cadastrosNovos}` : '0'}</td>
     <td>${fmtMoeda(v.precoMedioPeca)}</td>
-    <td class="${v.alertaMixBarato ? 'heat-ruim' : ''}">${fmtPct(v.percentPecasAbaixoLimite, 1)}</td>
+    <td class="${v.alertaMixBarato ? 'heat-ruim' : ''}" title="${v.percentBaratasAcrescimo != null ? `das peças baratas: ${fmtPct(v.percentBaratasSozinhas, 0)} sozinhas · ${fmtPct(v.percentBaratasAcrescimo, 0)} como acréscimo` : ''}">${fmtPct(v.percentPecasAbaixoLimite, 1)}</td>
+    <td class="${(v.percentAtendimentos1PecaBarata || 0) >= 30 ? 'heat-ruim' : (v.percentAtendimentos1PecaBarata || 0) >= 15 ? 'heat-medio' : ''}">${v.atendimentos1PecaBarata != null ? `${fmtNum(v.atendimentos1PecaBarata)} <span style="color:var(--muted); font-size:11px">(${fmtPct(v.percentAtendimentos1PecaBarata, 0)})</span>` : '—'}</td>
     <td class="${v.percentAtendimentos1Peca >= 50 ? 'heat-medio' : ''}">${fmtPct(v.percentAtendimentos1Peca, 0)}</td>
     <td>${fmtPct(v.descontoPercent, 1)}</td></tr>`).join('')}
   </tbody></table>`;

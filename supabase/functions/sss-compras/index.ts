@@ -1092,12 +1092,13 @@ async function moduloVendedores(apiBase: string, lojasTokens: Record<string, str
     } catch (e) { return { nomeLoja, erro: e instanceof Error ? e.message : String(e), vendedores: [] }; }
     const repInfo = new Map<string, any>(reps.map((r: any) => [String(r.id), r]));
 
-    type Acc = { id: string; atend: Set<string>; atend1: number; pecas: number; fat: number; desc: number; pecasBaratas: number; fatBarato: number; dias: Set<string>; atendCliente: Set<string> };
+    type Acc = { id: string; atend: Set<string>; atend1: number; atend1Barata: number; pecas: number; fat: number; desc: number; pecasBaratas: number; fatBarato: number; baratasSozinhas: number; baratasAcrescimo: number; dias: Set<string>; atendCliente: Set<string> };
     const acc = new Map<string, Acc>();
-    const loja = { atend: 0, pecas: 0, fat: 0, desc: 0, pecasBaratas: 0, fatBarato: 0, atendCliente: 0 };
+    const loja = { atend: 0, pecas: 0, fat: 0, desc: 0, pecasBaratas: 0, fatBarato: 0, atendCliente: 0, atend1Barata: 0, baratasSozinhas: 0, baratasAcrescimo: 0, baratasSoBaratas: 0 };
     const entidadesLoja = new Set<string>();
+    const pendente1Barata: string[] = [];
     // pecas abaixo do preco-limite, por produto (quais sao e quem vende)
-    const baratos = new Map<string, { produtoId: any; descricao: string; codigoSistema: string | null; qtd: number; fat: number; vend: Map<string, number> }>();
+    const baratos = new Map<string, { produtoId: any; descricao: string; codigoSistema: string | null; qtd: number; fat: number; vend: Map<string, number>; sozinha: number; acrescimo: number; soBaratas: number }>();
     // primeira venda de cada cliente no periodo -> vendedor principal dessa venda
     const primeiraVenda = new Map<string, { data: number; vendedor: string }>();
     const parseData = (x: unknown) => { const m = String(x ?? '').match(/(\d{2})[-/](\d{2})[-/](\d{4})(?:\s+(\d{2}):(\d{2}))?/); return m ? Date.UTC(+m[3], +m[2] - 1, +m[1], +(m[4] ?? 0), +(m[5] ?? 0)) : 0; };
@@ -1110,6 +1111,16 @@ async function moduloVendedores(apiBase: string, lojasTokens: Record<string, str
       if (sd.entidade?.id != null) entidadesLoja.add(String(sd.entidade.id));
       const comCliente = clienteIdentificado(sd.terceiro);
       let algum = false;
+      // Contexto da peca barata neste atendimento: sozinha (1 peca so), acrescimo (junto de peca >= limite) ou so baratas
+      const validos = (sd.mercadorias ?? []).filter((it: any) => Number(it.quantidade ?? 0) > 0);
+      const pecasAt = validos.reduce((t: number, it: any) => t + Number(it.quantidade ?? 0), 0);
+      const temCaro = validos.some((it: any) => Number(it.valorTotal ?? 0) / Number(it.quantidade) >= precoLimite);
+      const contexto: 'sozinha' | 'acrescimo' | 'soBaratas' = pecasAt <= 1 ? 'sozinha' : temCaro ? 'acrescimo' : 'soBaratas';
+      if (pecasAt <= 1 && validos.length && !temCaro) {
+        loja.atend1Barata++;
+        const v0 = validos[0].idRepresentante != null ? String(validos[0].idRepresentante) : 'sem';
+        const a0 = acc.get(v0); if (a0) a0.atend1Barata++; else pendente1Barata.push(v0);
+      }
       for (const it of sd.mercadorias ?? []) {
         const q = Number(it.quantidade ?? 0);
         if (!(q > 0)) continue;
@@ -1118,13 +1129,16 @@ async function moduloVendedores(apiBase: string, lojasTokens: Record<string, str
         const d = Number(it.valorTotalDesconto ?? it.valorDescontoItem ?? 0);
         const unit = v / q;
         const vid = it.idRepresentante != null ? String(it.idRepresentante) : 'sem';
-        const a = acc.get(vid) ?? { id: vid, atend: new Set(), atend1: 0, pecas: 0, fat: 0, desc: 0, pecasBaratas: 0, fatBarato: 0, dias: new Set(), atendCliente: new Set() };
+        const a = acc.get(vid) ?? { id: vid, atend: new Set(), atend1: 0, atend1Barata: 0, pecas: 0, fat: 0, desc: 0, pecasBaratas: 0, fatBarato: 0, baratasSozinhas: 0, baratasAcrescimo: 0, dias: new Set(), atendCliente: new Set() };
         a.atend.add(idAt); a.pecas += q; a.fat += v; a.desc += d; if (dia) a.dias.add(dia);
         if (unit < precoLimite) {
           a.pecasBaratas += q; a.fatBarato += v; loja.pecasBaratas += q; loja.fatBarato += v;
           const pr = it.produto, kb = pr?.id != null ? String(pr.id) : `d:${limpa(pr?.descricao)}`;
-          const b = baratos.get(kb) ?? { produtoId: pr?.id ?? null, descricao: String(pr?.descricao ?? '(produto sem descrição)'), codigoSistema: pr?.codigoSistema ?? null, qtd: 0, fat: 0, vend: new Map() };
-          b.qtd += q; b.fat += v; b.vend.set(vid, (b.vend.get(vid) ?? 0) + q); baratos.set(kb, b);
+          const b = baratos.get(kb) ?? { produtoId: pr?.id ?? null, descricao: String(pr?.descricao ?? '(produto sem descrição)'), codigoSistema: pr?.codigoSistema ?? null, qtd: 0, fat: 0, vend: new Map(), sozinha: 0, acrescimo: 0, soBaratas: 0 };
+          b.qtd += q; b.fat += v; b.vend.set(vid, (b.vend.get(vid) ?? 0) + q); b[contexto] += q; baratos.set(kb, b);
+          if (contexto === 'sozinha') { loja.baratasSozinhas += q; a.baratasSozinhas += q; }
+          else if (contexto === 'acrescimo') { loja.baratasAcrescimo += q; a.baratasAcrescimo += q; }
+          else loja.baratasSoBaratas += q;
         }
         acc.set(vid, a);
         porVend.set(vid, (porVend.get(vid) ?? 0) + q);
@@ -1145,6 +1159,7 @@ async function moduloVendedores(apiBase: string, lojasTokens: Record<string, str
       }
       for (const [vid, q] of porVend) if (q <= 1) acc.get(vid)!.atend1++;
     }
+    for (const v0 of pendente1Barata) { const a0 = acc.get(v0); if (a0) a0.atend1Barata++; }
     // ---- Cadastros novos no periodo (so os criados nesta loja, quando a VarejOnline informa) ----
     const cadPorVend = new Map<string, { novos: number; completos: number; falta: Record<string, number> }>();
     const incompletos: any[] = [];
@@ -1189,6 +1204,8 @@ async function moduloVendedores(apiBase: string, lojasTokens: Record<string, str
         atendimentos: at, pecas: r2(a.pecas), diasComVenda: a.dias.size,
         pecasPorAtendimento: r2(pa), ticketMedio: r2(ticket), precoMedioPeca: a.pecas ? r2(a.fat / a.pecas) : 0,
         percentPecasAbaixoLimite: r2(pctBaratas), percentAtendimentos1Peca: r2(pct1),
+        atendimentos1PecaBarata: a.atend1Barata, percentAtendimentos1PecaBarata: at ? r2(a.atend1Barata / at * 100) : 0,
+        percentBaratasSozinhas: a.pecasBaratas ? r2(a.baratasSozinhas / a.pecasBaratas * 100) : 0, percentBaratasAcrescimo: a.pecasBaratas ? r2(a.baratasAcrescimo / a.pecasBaratas * 100) : 0,
         descontoPercent: a.fat + a.desc ? r2(a.desc / (a.fat + a.desc) * 100) : 0,
         indicePA: idxPA != null ? r2(idxPA) : null, indiceTicket: idxTicket != null ? r2(idxTicket) : null,
         perfil, alertaMixBarato: a.pecas >= 20 && pctBaratas >= percentAlerta,
@@ -1217,6 +1234,8 @@ async function moduloVendedores(apiBase: string, lojasTokens: Record<string, str
         alertaMixBarato: loja.pecas > 0 && pctLoja >= percentAlerta,
         semVendedorPercent: loja.fat ? r2((acc.get('sem')?.fat ?? 0) / loja.fat * 100) : 0,
         atendimentosComCliente: loja.atendCliente, percentClienteIdentificado: loja.atend ? r2(loja.atendCliente / loja.atend * 100) : 0,
+        atendimentos1PecaBarata: loja.atend1Barata, percentAtendimentos1PecaBarata: loja.atend ? r2(loja.atend1Barata / loja.atend * 100) : 0,
+        pecasBaratasSozinhas: r2(loja.baratasSozinhas), pecasBaratasAcrescimo: r2(loja.baratasAcrescimo), pecasBaratasSoBaratas: r2(loja.baratasSoBaratas),
       },
       vendedores,
       pecasBaratas: {
@@ -1225,7 +1244,10 @@ async function moduloVendedores(apiBase: string, lojasTokens: Record<string, str
           const [vp, qp] = [...b.vend.entries()].sort((x, y) => y[1] - x[1])[0] ?? ['sem', 0];
           return { produtoId: b.produtoId, descricao: b.descricao, codigoSistema: b.codigoSistema, pecas: r2(b.qtd), faturamento: r2(b.fat), precoMedio: b.qtd ? r2(b.fat / b.qtd) : 0,
             percentDasBaratas: loja.pecasBaratas ? r2(b.qtd / loja.pecasBaratas * 100) : 0, vendedores: b.vend.size,
-            quemMaisVendeu: vp === 'sem' ? 'Sem vendedor informado' : (repInfo.get(vp)?.nome ?? `Vendedor ${vp}`), pecasQuemMaisVendeu: r2(qp) };
+            quemMaisVendeu: vp === 'sem' ? 'Sem vendedor informado' : (repInfo.get(vp)?.nome ?? `Vendedor ${vp}`), pecasQuemMaisVendeu: r2(qp),
+            pecasSozinha: r2(b.sozinha), pecasAcrescimo: r2(b.acrescimo), pecasSoBaratas: r2(b.soBaratas),
+            // papel do produto: entrada/acrescimo (sai junto de peca maior) x venda sozinha
+            papel: b.qtd < 5 ? 'pouco_volume' : b.acrescimo / b.qtd >= 0.5 ? 'acrescimo' : b.sozinha / b.qtd >= 0.5 ? 'sozinha' : 'misto' };
         }),
       },
     };
