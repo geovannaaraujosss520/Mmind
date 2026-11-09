@@ -31,7 +31,12 @@ Status: Confirmado · Por código · Conferir · Sem vínculo · Fora da Central
 **Catálogo fixo** (`catalogo_central`): todo item visto nos pedidos fica guardado (com idProduto/unidade para o envio pela API), e a planilha "Peças da Central" pode ser importada na tela de Vínculos — importar de novo só acrescenta os novos e atualiza o custo. Itens que só vieram da planilha entram no pedido sugerido, mas o envio pela API exige que o item já tenha aparecido em algum pedido (senão, lançamento manual).
 **Importar vínculos conferidos**: a planilha de conferência (coluna Aprovar = SIM) é carregada em lote na mesma tela.
 
-## Vendedores
+## Início
+- Franqueadora: Visão da rede — faturado no mês, % da meta, projeção, compras na Central, alertas (abaixo do ritmo, sem comprar há 21+ dias, pedidos a enviar, franqueado sem entrar há 7+ dias) e tabela por loja com último acesso.
+- Franqueado: Minha loja — barra da meta, falta por dia, ontem, ticket, PA, última compra, produtos zerados (R$/dia), o que comprar e atalhos.
+
+## Equipe (Vendedores)
+- Metas do mês por vendedor (franqueado define para as próprias lojas), com % atingido, falta e falta por dia; botão Mês atual.
 Por vendedor e loja, em período de/até: faturamento, atendimentos, PA, ticket, preço médio da peça, % de peças abaixo do preço-limite (alerta a partir de 60%), atendimentos de 1 peça, desconto, % de vendas com cliente identificado e cadastros novos completos (nome completo, telefone, CPF válido, CEP).
 Perfil comparado à média da própria loja: Destaque · Na média · Atenção · Tirador de pedido (mín. 15 atendimentos).
 

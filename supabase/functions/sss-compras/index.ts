@@ -1843,6 +1843,29 @@ async function moduloPainel(body: any, a: Acesso) {
   };
 }
 
+// Metas do mes por vendedor: listar { loja, ano, mes } / salvar { loja, ano, mes, metas:[{ vendedorId, vendedorNome, meta }] }
+// Franqueado define a meta da equipe das proprias lojas; admin/equipe de qualquer loja.
+async function moduloMetasVendedores(body: any, a: Acesso) {
+  const loja = String(body.loja ?? '').trim(), ano = Number(body.ano), mes = Number(body.mes);
+  if (!loja || !(ano > 2000) || !(mes >= 1 && mes <= 12)) throw new Error('Informe loja, ano e mês.');
+  exigirLoja(a, loja);
+  const t = await sb().from('metas_vendedores').select('vendedor_id').limit(1);
+  if (t.error) throw new Error('Rode antes o SQL 20261109000001_metas_vendedores.sql no Supabase.');
+  if (body.acao === 'salvar') {
+    const agora = new Date().toISOString();
+    const linhas = (Array.isArray(body.metas) ? body.metas : []).slice(0, 200).filter((m: any) => m.vendedorId != null && Number(m.meta) >= 0)
+      .map((m: any) => ({ loja, ano, mes, vendedor_id: String(m.vendedorId), vendedor_nome: String(m.vendedorNome ?? '').slice(0, 120) || null, meta: Math.round(Number(m.meta) * 100) / 100, atualizado_por: a.nome, atualizado_em: agora }));
+    const zerar = linhas.filter((l: any) => !l.meta).map((l: any) => l.vendedor_id);
+    const gravar = linhas.filter((l: any) => l.meta > 0);
+    if (zerar.length) await sb().from('metas_vendedores').delete().eq('loja', loja).eq('ano', ano).eq('mes', mes).in('vendedor_id', zerar);
+    if (gravar.length) { const { error } = await sb().from('metas_vendedores').upsert(gravar, { onConflict: 'loja,ano,mes,vendedor_id' }); if (error) throw new Error(error.message); }
+    return { ok: true, salvas: gravar.length, removidas: zerar.length };
+  }
+  const { data, error } = await sb().from('metas_vendedores').select('vendedor_id, vendedor_nome, meta, atualizado_por, atualizado_em').eq('loja', loja).eq('ano', ano).eq('mes', mes);
+  if (error) throw new Error(error.message);
+  return { metas: data ?? [] };
+}
+
 // Ultimo acesso dos franqueados por loja (Supabase Auth)
 async function acessosPorLoja() {
   const { data: perfis } = await sb().from('usuarios_painel').select('user_id, nome, papel, lojas, ativo').eq('papel', 'franqueado').eq('ativo', true);
@@ -2190,6 +2213,7 @@ Deno.serve(async (req) => {
     }
     if (modulo === 'dre') return resp(await moduloDre(body, a));
     if (modulo === 'painel') return resp(await moduloPainel(body, a));
+    if (modulo === 'metasVendedores') return resp(await moduloMetasVendedores(body, a));
     if (modulo === 'sincronizarCentral') return resp(await moduloSincronizarCentral(body));
     if (modulo === 'lojaEditar') { exigirPapel(a, 'admin'); return resp(await moduloLojaEditar(body)); }
     if (modulo === 'compatibilidade') { equipe(); return resp(await moduloCompatibilidade(Deno.env.get('VAREJONLINE_API_BASE')!, await getLojasTokens(), body)); }
