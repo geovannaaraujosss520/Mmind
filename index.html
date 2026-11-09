@@ -2600,7 +2600,7 @@ function cardFornecedor(f, fi) {
     <div data-fret="${fi}" style="margin-top:10px; font-size:12px; color:var(--muted)"></div>
     <div class="ped-aviso-minimo" data-fmin="${fi}" style="display:none; margin-top:10px; font-size:12px; color:var(--warn)"></div>
     <div style="overflow-x:auto; margin-top:12px">
-    <table class="ped-tabela"><thead><tr><th></th><th>Item na Central</th><th>Produto da loja</th><th>Venda/dia</th><th>Estoque</th><th>Em andamento</th><th>Sugerido</th><th>Qtd no pedido</th><th>Preço</th><th>Subtotal</th></tr></thead><tbody>
+    <table class="ped-tabela"><thead><tr><th></th><th>Item na Central</th><th>Produto da loja</th><th>Venda/dia</th><th>Estoque</th><th>Em andamento</th><th>Sugerido</th><th>Qtd no pedido</th><th>Preço</th><th>Subtotal</th><th title="Preço de venda por peça na loja. Vem preenchido com o preço médio cobrado no período; pode alterar.">Vendo por</th><th title="Peças do pedido × preço de venda">Faturamento previsto</th><th title="Faturamento previsto − custo do pedido">Lucro bruto</th></tr></thead><tbody>
     ${f.itens.map((i, ii) => {
       const alts = (i.alternativas || []).filter(a => a.fornecedorId === f.fornecedorId);
       return `<tr data-fi="${fi}" data-ii="${ii}">
@@ -2615,8 +2615,10 @@ function cardFornecedor(f, fi) {
         <td><input type="number" data-qtd value="${i.qtd}" min="0" ${i.central.qtdMaxima ? `max="${i.central.qtdMaxima}"` : ''} step="1" style="width:84px; padding:6px 8px"><br><span style="font-size:10px; color:var(--muted)">mín ${i.central.qtdMinima}${i.central.qtdMaxima ? ` · máx ${i.central.qtdMaxima}` : ''}${i.central.fatorConversao > 1 ? ` · emb ${i.central.fatorConversao}` : ''}</span></td>
         <td>${fmtMoeda(i.central.preco)}</td>
         <td data-sub></td>
+        <td><input type="number" data-pv value="${i.precoVenda ? Number(i.precoVenda).toFixed(2) : ''}" min="0" step="0.01" placeholder="R$" style="width:88px; padding:6px 8px"><br><span data-pv-hint style="font-size:10px; color:var(--muted)">${i.precoVendaEditado ? 'informado' : i.precoVenda ? 'preço médio cobrado' : 'sem venda: informe'}</span></td>
+        <td data-fat></td><td data-luc></td>
       </tr>
-      <tr data-grade-linha="${fi}|${ii}" style="display:none"><td colspan="10" style="background:var(--panel-2); padding:14px 16px"><div data-grade-box="${fi}|${ii}"></div></td></tr>`; }).join('')}
+      <tr data-grade-linha="${fi}|${ii}" style="display:none"><td colspan="13" style="background:var(--panel-2); padding:14px 16px"><div data-grade-box="${fi}|${ii}"></div></td></tr>`; }).join('')}
     </tbody></table></div>
     <div class="actions" style="justify-content:flex-end">
       <span class="status" data-fstatus="${fi}"></span>
@@ -2635,6 +2637,14 @@ function ligarPedido() {
     const f = pedState.fornecedores[tr.dataset.fi], i = f.itens[tr.dataset.ii];
     tr.style.opacity = i.incluir === false ? .45 : 1;
     tr.querySelector('[data-incluir]').addEventListener('change', e => { i.incluir = e.target.checked; tr.style.opacity = i.incluir ? 1 : .45; atualizarTotais(); });
+    tr.querySelector('[data-pv]')?.addEventListener('input', e => {
+      const v = Number(String(e.target.value).replace(',', '.'));
+      i.precoVenda = v > 0 ? v : null; i.precoVendaEditado = true;
+      const h = tr.querySelector('[data-pv-hint]'); if (h) h.textContent = 'informado';
+      // a mesma peça nas linhas da grade (tamanhos/letras) acompanha o preço
+      f.itens.forEach(o => { if (o !== i && String(o.produtoId) === String(i.produtoId) && !o.precoVendaEditado) o.precoVenda = i.precoVenda; });
+      atualizarTotais();
+    });
     tr.querySelector('[data-qtd]').addEventListener('input', e => {
       let q = Math.max(0, Math.round(Number(e.target.value) || 0));
       i.qtd = q;
@@ -2782,6 +2792,12 @@ function atualizarTotais() {
     f.itens.forEach((i, ii) => {
       const td = box.querySelector(`tr[data-fi="${fi}"][data-ii="${ii}"] [data-sub]`);
       if (td) td.textContent = i.incluir ? fmtMoeda(i.qtd * i.central.preco) : '—';
+      // faturamento previsto: pecas (qtd x embalagem) x preco de venda
+      const tr = box.querySelector(`tr[data-fi="${fi}"][data-ii="${ii}"]`); if (!tr) return;
+      const pecas = i.qtd * (Number(i.unidadesPorQtd) || 1), pv = Number(i.precoVenda) || 0, custo = i.qtd * i.central.preco;
+      const fat = pecas * pv, luc = fat - custo;
+      tr.querySelector('[data-fat]').innerHTML = i.incluir && pv > 0 && i.qtd > 0 ? `<strong>${fmtMoeda(fat)}</strong><br><span style="font-size:10px; color:var(--muted)">${fmtNum(pecas)} pç × ${fmtMoeda(pv)}</span>` : '—';
+      tr.querySelector('[data-luc]').innerHTML = i.incluir && pv > 0 && i.qtd > 0 ? `<span style="color:${luc < 0 ? 'var(--danger)' : 'var(--good)'}">${fmtMoeda(luc)}</span><br><span style="font-size:10px; color:var(--muted)">${custo > 0 ? `markup ${(fat / custo).toFixed(2).replace('.', ',')}×` : ''}</span>` : '—';
     });
   });
   $('ped_total').textContent = fmtMoeda(total);
@@ -2851,8 +2867,10 @@ function exportarPedidoCSV(f) {
   const its = itensSelecionados(f);
   const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const num = n => String(n).replace('.', ',');
-  const linhas = [['Código Central', 'Variação', 'Descrição Central', 'Quantidade', 'Preço unitário', 'Subtotal', 'Produto da loja', 'Risco de ruptura']]
-    .concat(its.map(i => [i.codigo, i.variacao, i.descricao, i.qtd, num(i.preco), num((i.qtd * i.preco).toFixed(2)), i.descricaoLoja, i.risco ? 'sim' : 'não']));
+  const orig = f.itens.filter(i => i.incluir && i.qtd > 0);
+  const linhas = [['Código Central', 'Variação', 'Descrição Central', 'Quantidade', 'Preço unitário', 'Subtotal', 'Produto da loja', 'Risco de ruptura', 'Preço de venda', 'Faturamento previsto', 'Lucro bruto']]
+    .concat(its.map((i, k) => { const o = orig[k] || {}, pv = Number(o.precoVenda) || 0, fat = i.qtd * (Number(o.unidadesPorQtd) || 1) * pv;
+      return [i.codigo, i.variacao, i.descricao, i.qtd, num(i.preco), num((i.qtd * i.preco).toFixed(2)), i.descricaoLoja, i.risco ? 'sim' : 'não', pv ? num(pv.toFixed(2)) : '', pv ? num(fat.toFixed(2)) : '', pv ? num((fat - i.qtd * i.preco).toFixed(2)) : '']; }));
   const csv = '﻿' + linhas.map(l => l.map(q).join(';')).join('\r\n');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
