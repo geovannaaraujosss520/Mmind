@@ -3,7 +3,7 @@
 // Secrets: VAREJONLINE_API_BASE, APP_PASSCODE, PEDIDOS_API_KEY, ALLOWED_ORIGIN (opcional), LIMITE_PEDIDO_SEM_CONFIRMACAO (opcional, em R$).
 // Tabelas: lojas_config, pedidos_vinculos, pedidos_sugeridos.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { saidasComCache, saldosComCache, reiniciarMedicao, resumoMedicao, medicao } from '../_shared/vendas_cache.ts';
+import { saidasComCache, saldosComCache, reiniciarMedicao, resumoMedicao, medicao, diaDaVenda } from '../_shared/vendas_cache.ts';
 
 
 // ALLOWED_ORIGIN aceita varios enderecos separados por virgula (ex.: GitHub Pages + servidor Node).
@@ -1753,6 +1753,115 @@ async function aquecerCaches(body: any) {
   return { completo: !pendentes.length && !!central?.completo, dias, prontas, pendentes, erros, central, ms: Date.now() - t0 };
 }
 
+// =====================================================================
+// TELA INICIAL (painel): mes corrente por loja -- faturado x meta, ritmo, ontem/hoje, compras na Central,
+// pedidos aprovados no Insight sem envio e ultimo acesso dos franqueados (so admin/equipe).
+// Vendas vem do cache por dia (so ontem/hoje sao lidos ao vivo), entao a rede inteira cabe numa chamada.
+// =====================================================================
+async function moduloPainel(body: any, a: Acesso) {
+  const apiBase = Deno.env.get('VAREJONLINE_API_BASE');
+  if (!apiBase) throw new Error('VAREJONLINE_API_BASE não configurado.');
+  const tokens = await getLojasTokens();
+  const permitidas = lojasDoAcesso(a, Array.isArray(body.lojas) && body.lojas.length ? body.lojas : undefined);
+  const nomes = Object.keys(tokens).filter((n) => !permitidas || permitidas.includes(n)).sort();
+  const agoraBR = new Date(Date.now() - 3 * 3600_000);
+  const ano = agoraBR.getUTCFullYear(), mes = agoraBR.getUTCMonth() + 1, dia = agoraBR.getUTCDate();
+  const diasNoMes = new Date(Date.UTC(ano, mes, 0)).getUTCDate();
+  const hojeIso = agoraBR.toISOString().slice(0, 10), ontemIso = new Date(agoraBR.getTime() - 86400_000).toISOString().slice(0, 10);
+  const ini = new Date(ano, mes - 1, 1), fim = new Date(ano, mes - 1, dia);
+  const ehAdmin = a.papel !== 'franqueado';
+
+  const [metasR, pendR, central, usuarios] = await Promise.all([
+    sb().from('metas_faturamento').select('loja, meta').eq('ano', ano).eq('mes', mes),
+    sb().from('pedidos_sugeridos').select('loja, status, valor_total, criado_em, fornecedor_nome').in('status', ['aprovado', 'erro_envio', 'enviando']),
+    buscarPedidosCentral(60, 35000).catch((e) => ({ lista: [], falhas: 1, erro: String(e) } as ResultadoCentral)),
+    ehAdmin ? acessosPorLoja().catch(() => null) : Promise.resolve(null),
+  ]);
+  const metas = new Map<string, number>((metasR.data ?? []).map((m: any) => [m.loja, Number(m.meta)]));
+  const pend = new Map<string, any[]>();
+  for (const p of pendR.data ?? []) { if (!pend.has(p.loja)) pend.set(p.loja, []); pend.get(p.loja)!.push(p); }
+  // compras na Central por loja (ultimos 60 dias)
+  const comp = new Map<string, { ultima: string | null; mes: number; pedidosMes: number; emAndamento: number }>();
+  const inicioMesIso = `${ano}-${String(mes).padStart(2, '0')}-01`;
+  for (const p of central.lista ?? []) {
+    if (p.situacao?.isCancelamento) continue;
+    const k = lojaDoPedido(p); const c = comp.get(k) ?? { ultima: null, mes: 0, pedidosMes: 0, emAndamento: 0 };
+    const d = String(p.dataCriacao ?? '').slice(0, 10);
+    if (d && (!c.ultima || d > c.ultima)) c.ultima = d;
+    if (d >= inicioMesIso) { c.pedidosMes++; c.mes += (p.itensPedido ?? []).reduce((t: number, i: any) => t + Number(i.quantidadeProdutos ?? 0) * Number(i.valorUnitario ?? 0), 0); }
+    if (!p.situacao?.isSituacaoFinal) c.emAndamento++;
+    comp.set(k, c);
+  }
+
+  const lojas: any[] = [];
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(6, nomes.length) }, async () => {
+    while (i < nomes.length) {
+      const nome = nomes[i++];
+      const v = { fat: 0, atend: 0, pecas: 0, hoje: 0, ontem: 0 };
+      let erro: string | null = null;
+      try {
+        await buscarSaidasParalelo(apiBase, tokens[nome], ini, fim, (sd) => {
+          if (!ehVenda(sd)) return;
+          let f = 0, q = 0;
+          for (const it of sd.mercadorias ?? []) { f += Number(it.valorTotal ?? 0); q += Math.max(0, Number(it.quantidade ?? 0)); }
+          if (q <= 0) return;
+          v.fat += f; v.atend++; v.pecas += q;
+          const d = diaDaVenda(sd); if (d === hojeIso) v.hoje += f; else if (d === ontemIso) v.ontem += f;
+        }, 15, 3);
+      } catch (e) { erro = e instanceof Error ? e.message : String(e); }
+      const meta = metas.get(nome) ?? null;
+      const diasFechados = dia - 1;
+      const projecao = diasFechados > 0 ? (v.fat - v.hoje) / diasFechados * diasNoMes : null;
+      const c = comp.get(normLoja(nome));
+      const ped = pend.get(nome) ?? [];
+      const acc = usuarios?.get(nome);
+      lojas.push({
+        loja: nome, erro,
+        faturadoMes: r2(v.fat), faturadoHoje: r2(v.hoje), faturadoOntem: r2(v.ontem), atendimentos: v.atend,
+        ticketMedio: v.atend ? r2(v.fat / v.atend) : 0, pecasPorAtendimento: v.atend ? r2(v.pecas / v.atend) : 0,
+        meta, percentMeta: meta ? r2(v.fat / meta * 100) : null, projecao: projecao != null ? r2(projecao) : null,
+        percentProjecao: meta && projecao != null ? r2(projecao / meta * 100) : null,
+        faltaPorDia: meta ? r2(Math.max(0, meta - v.fat) / Math.max(1, diasNoMes - dia + 1)) : null,
+        ritmoNecessario: meta && diasFechados > 0 ? r2(meta / diasNoMes) : null,
+        ultimaCompraCentral: c?.ultima ?? null,
+        diasSemComprar: c?.ultima ? Math.round((Date.parse(hojeIso) - Date.parse(c.ultima)) / 86400_000) : null,
+        comprasCentralMes: r2(c?.mes ?? 0), pedidosCentralMes: c?.pedidosMes ?? 0, pedidosCentralEmAndamento: c?.emAndamento ?? 0,
+        pedidosInsightPendentes: ped.length, valorInsightPendente: r2(ped.reduce((t, p) => t + Number(p.valor_total ?? 0), 0)),
+        ...(ehAdmin ? { franqueados: acc?.nomes ?? [], ultimoAcesso: acc?.ultimo ?? null } : {}),
+      });
+    }
+  }));
+  lojas.sort((x, y) => x.loja.localeCompare(y.loja));
+  const soma = (k: string) => r2(lojas.reduce((t, l) => t + (Number(l[k]) || 0), 0));
+  const metaRede = lojas.reduce((t, l) => t + (l.meta || 0), 0);
+  return {
+    ano, mes, dia, diasNoMes, hoje: hojeIso, centralIncompleta: !!(central.falhas || central.pendentes || central.erro),
+    rede: { faturadoMes: soma('faturadoMes'), faturadoOntem: soma('faturadoOntem'), faturadoHoje: soma('faturadoHoje'), meta: r2(metaRede),
+      percentMeta: metaRede ? r2(soma('faturadoMes') / metaRede * 100) : null, projecao: soma('projecao'), comprasCentralMes: soma('comprasCentralMes') },
+    lojas,
+  };
+}
+
+// Ultimo acesso dos franqueados por loja (Supabase Auth)
+async function acessosPorLoja() {
+  const { data: perfis } = await sb().from('usuarios_painel').select('user_id, nome, papel, lojas, ativo').eq('papel', 'franqueado').eq('ativo', true);
+  const ultimo = new Map<string, string | null>();
+  for (let pg = 1; pg <= 5; pg++) {
+    const { data, error } = await sb().auth.admin.listUsers({ page: pg, perPage: 1000 });
+    if (error) break;
+    for (const u of data?.users ?? []) ultimo.set(u.id, u.last_sign_in_at ?? null);
+    if ((data?.users ?? []).length < 1000) break;
+  }
+  const m = new Map<string, { nomes: string[]; ultimo: string | null }>();
+  for (const p of perfis ?? []) for (const l of p.lojas ?? []) {
+    const x = m.get(l) ?? { nomes: [], ultimo: null }; x.nomes.push(p.nome);
+    const u = ultimo.get(p.user_id) ?? null; if (u && (!x.ultimo || u > x.ultimo)) x.ultimo = u;
+    m.set(l, x);
+  }
+  return m;
+}
+
 // ---- Tela de vinculos ----
 let cacheCatalogo: { quando: number; idx: ReturnType<typeof indexarCatalogo>; cat: any } | null = null;
 async function catalogoIndexado() {
@@ -2080,6 +2189,7 @@ Deno.serve(async (req) => {
       return resp(await moduloVinculos(body));
     }
     if (modulo === 'dre') return resp(await moduloDre(body, a));
+    if (modulo === 'painel') return resp(await moduloPainel(body, a));
     if (modulo === 'sincronizarCentral') return resp(await moduloSincronizarCentral(body));
     if (modulo === 'lojaEditar') { exigirPapel(a, 'admin'); return resp(await moduloLojaEditar(body)); }
     if (modulo === 'compatibilidade') { equipe(); return resp(await moduloCompatibilidade(Deno.env.get('VAREJONLINE_API_BASE')!, await getLojasTokens(), body)); }
