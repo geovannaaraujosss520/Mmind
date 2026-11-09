@@ -321,6 +321,30 @@
   .lojas-check{ display:flex; flex-wrap:wrap; gap:6px 14px; max-height:180px; overflow:auto; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:var(--panel); }
   .lojas-check label{ display:flex; align-items:center; gap:6px; font-size:12.5px; text-transform:none; letter-spacing:0; color:var(--text); margin:0; }
   .lojas-check input{ width:auto; }
+
+  /* ===== Acabamento SSS: menos "cartão de modelo", mais leitura de varejo ===== */
+  .como-funciona{ margin-top:8px; font-size:12.5px; color:var(--muted); max-width:760px; }
+  .como-funciona summary{ cursor:pointer; color:var(--accent); font-weight:600; list-style:none; display:inline-flex; align-items:center; gap:6px; }
+  .como-funciona summary::-webkit-details-marker{ display:none; }
+  .como-funciona summary::before{ content:"?"; display:inline-grid; place-items:center; width:16px; height:16px; border-radius:50%; border:1px solid currentColor; font-size:10.5px; }
+  .como-funciona[open] > div{ margin-top:8px; line-height:1.55; padding:10px 12px; background:var(--panel-2); border-radius:10px; }
+  header.view-header h1{ margin-bottom:4px; }
+  header.view-header .sub{ font-size:14px; }
+  .saudacao{ font-size:13px; color:var(--muted); margin-bottom:2px; }
+  .saudacao:empty{ display:none; }
+  /* indicadores: faixa com divisórias no lugar de 4 caixas iguais */
+  .kpis{ gap:0 !important; background:var(--panel); border:1px solid var(--line); border-radius:var(--radius, 12px); padding:4px 0; }
+  .kpis .kpi{ background:transparent !important; border:none !important; box-shadow:none !important; border-radius:0 !important; padding:14px 20px; border-left:1px solid var(--line) !important; }
+  .kpis .kpi:first-child{ border-left:none !important; }
+  .kpi .label{ text-transform:none !important; letter-spacing:0 !important; font-size:12.5px !important; font-weight:500; }
+  .kpi .value{ font-size:24px; letter-spacing:-.3px; }
+  @media (max-width: 900px){ .kpis .kpi:nth-child(odd){ border-left:none !important; } .kpis .kpi:nth-child(n+3){ border-top:1px solid var(--line); } }
+  thead th{ text-transform:none !important; letter-spacing:0 !important; font-size:12px !important; font-weight:600; }
+  .subsecao-titulo{ text-transform:none !important; letter-spacing:0 !important; font-size:15px !important; }
+  .panel{ box-shadow:none; }
+  label{ text-transform:none !important; letter-spacing:0 !important; font-size:12.5px !important; }
+  .acao .sev{ text-transform:none !important; letter-spacing:0 !important; font-size:12px !important; }
+  #view-pedido.modo-simples .panel > .sub{ display:none; }
 </style>
 </head>
 <body>
@@ -378,7 +402,7 @@
   <!-- ===================== CENTRAL DE DECISÃO ===================== -->
   <div class="view active" id="view-inicio">
     <header class="view-header">
-      <div class="eyebrow">Início</div>
+      <div class="saudacao" id="ini_saudacao"></div>
       <h1 id="ini_titulo">Início</h1>
       <div class="sub" id="ini_sub">Carregando…</div>
     </header>
@@ -393,9 +417,9 @@
 
   <div class="view" id="view-central">
     <header class="view-header">
-      <div class="eyebrow">Módulo · Decisão</div>
       <h1>Central de Decisão</h1>
-      <div class="sub">Um clique cruza compras, estoque, DRE do mês e metas de todas as lojas e devolve o que fazer agora: ações priorizadas por impacto em R$, nota de saúde por loja, projeção de fechamento do mês e transferências entre lojas que evitam compra.</div>
+      <div class="sub">O que pede atenção na rede agora, em ordem de impacto.</div>
+      <details class="como-funciona"><summary>Como funciona</summary><div>Um clique cruza compras, estoque, DRE do mês e metas de todas as lojas e devolve o que fazer agora: ações priorizadas por impacto em R$, nota de saúde por loja, projeção de fechamento do mês e transferências entre lojas que evitam compra.</div></details>
     </header>
     <div class="panel">
       <div class="grid">
@@ -418,9 +442,9 @@
   <!-- ===================== RECORRENTE ===================== -->
   <div class="view" id="view-recorrente">
     <header class="view-header">
-      <div class="eyebrow">Módulo · Compras</div>
-      <h1>Recomendação de Compra Recorrente</h1>
-      <div class="sub">Cruza o histórico recente de vendas com o estoque atual e recomenda quanto comprar de cada produto para cobrir o próximo período, sem ruptura.</div>
+      <h1>Compra recorrente</h1>
+      <div class="sub">Quanto comprar de cada produto para não faltar no próximo mês.</div>
+      <details class="como-funciona"><summary>Como funciona</summary><div>Cruza o histórico recente de vendas com o estoque atual e recomenda quanto comprar de cada produto para cobrir o próximo período, sem ruptura.</div></details>
     </header>
     <div class="panel">
       <div class="grid">
@@ -444,9 +468,9 @@
   <!-- ===================== PEDIDO PARA A CENTRAL ===================== -->
   <div class="view" id="view-pedido">
     <header class="view-header">
-      <div class="eyebrow">Módulo · Compras</div>
       <h1>Pedido para a Central</h1>
-      <div class="sub">Transforma a recomendação de compra da loja em pedidos no formato da Central do Franqueado: itens com o código e a variação da Central, separados por fornecedor, respeitando pedido mínimo e máximo, com preço atual e prazo real de entrega. Revise, aprove e envie direto para a Central (ou lance manualmente — o Insight confirma sozinho quando o pedido aparecer lá).</div>
+      <div class="sub">Monte, confira e envie o pedido de cada fornecedor.</div>
+      <details class="como-funciona"><summary>Como funciona</summary><div>Transforma a recomendação de compra da loja em pedidos no formato da Central do Franqueado: itens com o código e a variação da Central, separados por fornecedor, respeitando pedido mínimo e máximo, com preço atual e prazo real de entrega. Revise, aprove e envie direto para a Central (ou lance manualmente — o Insight confirma sozinho quando o pedido aparecer lá).</div></details>
     </header>
     <ol class="passos-pedido" id="ped_passos">
       <li data-passo="1"><span>1</span> Escolha a loja e gere o pedido</li>
@@ -476,9 +500,9 @@
   <!-- ===================== VÍNCULOS DE PRODUTOS ===================== -->
   <div class="view" id="view-vinculos">
     <header class="view-header">
-      <div class="eyebrow">Módulo · Compras</div>
       <h1>Vínculos de produtos</h1>
-      <div class="sub">Mostra como cada produto está ligado ao item da Central (código + variação) e quanto das vendas está coberto. Confirme as ligações certas, troque as erradas, vincule as que faltam e marque como "não compra pela Central" o que vem de fora. <strong>Como o cadastro de produtos é o mesmo em todas as lojas, cada vínculo vale para a rede inteira</strong> — o pedido sugerido e o envio de todas as lojas usam estes vínculos.</div>
+      <div class="sub">Cada produto da loja ligado ao item certo da Central.</div>
+      <details class="como-funciona"><summary>Como funciona</summary><div>Mostra como cada produto está ligado ao item da Central (código + variação) e quanto das vendas está coberto. Confirme as ligações certas, troque as erradas, vincule as que faltam e marque como "não compra pela Central" o que vem de fora. <strong>Como o cadastro de produtos é o mesmo em todas as lojas, cada vínculo vale para a rede inteira</strong> — o pedido sugerido e o envio de todas as lojas usam estes vínculos.</div></details>
     </header>
     <div class="panel">
       <div class="grid">
@@ -510,9 +534,9 @@
   <!-- ===================== SAZONAL ===================== -->
   <div class="view" id="view-sazonal">
     <header class="view-header">
-      <div class="eyebrow">Módulo · Compras</div>
-      <h1>Recomendação de Compra Sazonal</h1>
-      <div class="sub">Ranking de produtos mais vendidos em períodos específicos de anos anteriores (ex: Out/Nov/Dez de Natal) — por ano e combinado, pra apostar a compra de época.</div>
+      <h1>Compra sazonal</h1>
+      <div class="sub">O que vendeu nas mesmas datas dos anos anteriores.</div>
+      <details class="como-funciona"><summary>Como funciona</summary><div>Ranking de produtos mais vendidos em períodos específicos de anos anteriores (ex: Out/Nov/Dez de Natal) — por ano e combinado, pra apostar a compra de época.</div></details>
     </header>
     <div class="panel">
       <div class="grid">
@@ -536,9 +560,9 @@
   <!-- ===================== ESTOQUE ===================== -->
   <div class="view" id="view-estoque">
     <header class="view-header">
-      <div class="eyebrow">Módulo · Estoque</div>
-      <h1>Alertas de Estoque Baixo / Muito Alto</h1>
-      <div class="sub">Calcula dias de cobertura (estoque atual ÷ venda média diária) por produto e loja, sinalizando risco de ruptura e excesso de capital parado.</div>
+      <h1>Estoque</h1>
+      <div class="sub">O que está acabando e o que está parado.</div>
+      <details class="como-funciona"><summary>Como funciona</summary><div>Calcula dias de cobertura (estoque atual ÷ venda média diária) por produto e loja, sinalizando risco de ruptura e excesso de capital parado.</div></details>
     </header>
     <div class="panel">
       <div class="grid">
@@ -561,9 +585,9 @@
   <!-- ===================== FINANCEIRO ===================== -->
   <div class="view" id="view-financeiro">
     <header class="view-header">
-      <div class="eyebrow">Módulo · Financeiro</div>
-      <h1>DRE por Unidade</h1>
-      <div class="sub">Demonstrativo de resultado por competência: receita das vendas, CMV, despesas operacionais por categoria (das contas a pagar) e resultado — por loja e para a rede toda. Bandeiras de cartão do período aparecem à parte, como informação de recebimento.</div>
+      <h1>Financeiro</h1>
+      <div class="sub">Resultado do mês por loja, metas e DRE.</div>
+      <details class="como-funciona"><summary>Como funciona</summary><div>Demonstrativo de resultado por competência: receita das vendas, CMV, despesas operacionais por categoria (das contas a pagar) e resultado — por loja e para a rede toda. Bandeiras de cartão do período aparecem à parte, como informação de recebimento.</div></details>
     </header>
     <div class="panel">
       <div class="grid">
@@ -597,9 +621,9 @@
   <!-- ===================== VENDEDORES ===================== -->
   <div class="view" id="view-vendedores">
     <header class="view-header">
-      <div class="eyebrow">Módulo · Equipe</div>
       <h1>Equipe da loja</h1>
-      <div class="sub">Quanto cada vendedor vendeu na unidade, peças por atendimento (PA), ticket médio, mix de preço, % de vendas com cliente identificado e cadastros de clientes feitos (completos = nome completo, telefone, CPF e CEP). Compara cada vendedor com a média da própria loja para separar quem vende de quem só tira pedido, e alerta quando peças baratas dominam o volume.</div>
+      <div class="sub">Quem está vendendo bem e onde a equipe pode crescer.</div>
+      <details class="como-funciona"><summary>Como funciona</summary><div>Quanto cada vendedor vendeu na unidade, peças por atendimento (PA), ticket médio, mix de preço, % de vendas com cliente identificado e cadastros de clientes feitos (completos = nome completo, telefone, CPF e CEP). Compara cada vendedor com a média da própria loja para separar quem vende de quem só tira pedido, e alerta quando peças baratas dominam o volume.</div></details>
     </header>
     <div class="panel">
       <div class="grid">
@@ -623,9 +647,9 @@
   <!-- ===================== BENCHMARK ===================== -->
   <div class="view" id="view-benchmark">
     <header class="view-header">
-      <div class="eyebrow">Módulo · Comparativo</div>
-      <h1>Benchmark entre Lojas</h1>
-      <div class="sub">Compara lojas de cidades diferentes de forma justa (abaixo, também a compatibilidade de mix de produtos entre elas): em vez de faturamento bruto, calcula receita por habitante e por dia de loja aberta, e agrupa lojas com padrão de consumo parecido — mesmo estando em cidades e portes diferentes.</div>
+      <h1>Comparativo entre lojas</h1>
+      <div class="sub">Lojas de cidades diferentes, comparadas de forma justa.</div>
+      <details class="como-funciona"><summary>Como funciona</summary><div>Compara lojas de cidades diferentes de forma justa (abaixo, também a compatibilidade de mix de produtos entre elas): em vez de faturamento bruto, calcula receita por habitante e por dia de loja aberta, e agrupa lojas com padrão de consumo parecido — mesmo estando em cidades e portes diferentes.</div></details>
     </header>
     <div class="panel">
       <div class="grid">
@@ -663,9 +687,9 @@
   <!-- ===================== USUÁRIOS ===================== -->
   <div class="view" id="view-usuarios">
     <header class="view-header">
-      <div class="eyebrow">Módulo · Acesso</div>
       <h1>Usuários</h1>
-      <div class="sub">Quem entra no painel e o que vê. <strong>Administrador</strong>: tudo, inclusive usuários e lojas. <strong>Equipe</strong>: a rede toda (compras, pedidos, vínculos, financeiro, benchmark). <strong>Franqueado</strong>: só as lojas marcadas — inclusive aprovar e enviar os pedidos delas.</div>
+      <div class="sub">Quem entra no Insight e o que cada um vê.</div>
+      <details class="como-funciona"><summary>Como funciona</summary><div>Quem entra no painel e o que vê. <strong>Administrador</strong>: tudo, inclusive usuários e lojas. <strong>Equipe</strong>: a rede toda (compras, pedidos, vínculos, financeiro, benchmark). <strong>Franqueado</strong>: só as lojas marcadas — inclusive aprovar e enviar os pedidos delas.</div></details>
     </header>
     <div class="panel">
       <div style="font-size:14px; font-weight:650; margin-bottom:10px">Novo usuário</div>
@@ -685,9 +709,9 @@
 
   <div class="view" id="view-lojas">
     <header class="view-header">
-      <div class="eyebrow">Módulo · Configuração</div>
-      <h1>Cadastro de Lojas</h1>
-      <div class="sub">Adicione uma unidade nova (nome, CNPJ e token de integração da VarejOnline) ou clique em <strong>Editar</strong> na lista para alterar nome, CNPJ ou token, direto por aqui — sem precisar mexer no terminal. Os outros módulos passam a enxergar a loja assim que ela for salva.</div>
+      <h1>Lojas</h1>
+      <div class="sub">Cadastro das lojas e integração com a VarejOnline.</div>
+      <details class="como-funciona"><summary>Como funciona</summary><div>Adicione uma unidade nova (nome, CNPJ e token de integração da VarejOnline) ou clique em <strong>Editar</strong> na lista para alterar nome, CNPJ ou token, direto por aqui — sem precisar mexer no terminal. Os outros módulos passam a enxergar a loja assim que ela for salva.</div></details>
     </header>
     <div class="panel">
       <div class="grid">
@@ -828,7 +852,7 @@ function desenharInicio() {
 
 function desenharVisaoRede(d) {
   $('ini_titulo').textContent = 'Visão da rede';
-  $('ini_sub').textContent = `Mês de ${['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'][d.mes - 1]}: ${d.dia} de ${d.diasNoMes} dias. Faturamento até agora, ritmo para a meta, compras na Central e quem está acompanhando a loja.`;
+  $('ini_sub').textContent = `${['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'][d.mes - 1]} · dia ${d.dia} de ${d.diasNoMes}`;
   $('ini_loja_box').style.display = 'none';
   const L = d.lojas.filter(l => !l.erro), R = d.rede;
   const abaixo = L.filter(l => l.percentProjecao != null && l.percentProjecao < 95);
@@ -876,13 +900,13 @@ async function desenharMinhaLoja(d) {
   const l = lojas.find(x => x.loja === sel.value) || lojas[0];
   if (!l) { $('ini_conteudo').innerHTML = '<div class="empty">Nenhuma loja liberada para o seu usuário. Fale com a franqueadora.</div>'; return; }
   $('ini_titulo').textContent = l.loja;
-  $('ini_sub').textContent = `Dia ${d.dia} de ${d.diasNoMes}. Como a loja está no mês e o que fazer hoje.`;
+  $('ini_sub').textContent = `${['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'][d.mes - 1]} · dia ${d.dia} de ${d.diasNoMes}`;
   if (l.erro) { $('ini_conteudo').innerHTML = `<div class="panel err">${esc(l.erro)}</div>`; return; }
   const pctBar = Math.min(100, l.percentMeta || 0), pctDia = d.dia / d.diasNoMes * 100;
   $('ini_conteudo').innerHTML = `
     <div class="panel" style="padding:18px 20px">
       <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; align-items:flex-end">
-        <div><div class="label" style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em">Faturado no mês</div><div style="font-size:30px; font-weight:700; color:var(--accent-deep)">${fmtMoeda(l.faturadoMes)}</div>
+        <div><div class="label" style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em">Faturado no mês</div><div class="valor-destaque" style="font-size:30px; font-weight:700; color:var(--accent-deep)">${fmtMoeda(l.faturadoMes)}</div>
           <div style="font-size:12.5px; color:var(--muted)">${l.meta ? `de ${fmtMoeda(l.meta)} de meta · ${fmtPct(l.percentMeta, 0)}` : 'sem meta cadastrada para este mês'}</div></div>
         ${l.meta ? `<div style="text-align:right"><div class="label" style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em">Para bater a meta</div><div style="font-size:24px; font-weight:700; color:${corPct(l.percentProjecao)}">${fmtMoeda(l.faltaPorDia)}<span style="font-size:13px; font-weight:500"> por dia</span></div><div style="font-size:12.5px; color:var(--muted)">até o fim do mês, contando hoje</div></div>` : ''}
       </div>
@@ -939,6 +963,25 @@ function ligarIrPara(box, loja) {
 $('ini_atualizar').addEventListener('click', () => carregarInicio(true));
 $('ini_loja').addEventListener('change', () => desenharInicio());
 document.querySelector('.nav-item[data-view="inicio"]').addEventListener('click', () => carregarInicio(false));
+
+// ---------- Valores em destaque no formato do varejo (R$ 28,9 mil) ----------
+function fmtMoedaCurta(v) {
+  const a = Math.abs(v), sinal = v < 0 ? '−' : '';
+  if (a >= 1e6) return `${sinal}R$ ${(a / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: a >= 1e7 ? 1 : 2 })} mi`;
+  if (a >= 1e4) return `${sinal}R$ ${(a / 1e3).toLocaleString('pt-BR', { maximumFractionDigits: a >= 1e5 ? 0 : 1 })} mil`;
+  return null;
+}
+function compactarDestaques(raiz) {
+  raiz.querySelectorAll('.kpi .value, .valor-destaque').forEach(el => {
+    if (el.dataset.compacto === el.textContent) return;
+    const t = el.textContent.trim(), m = t.match(/^(-?)R\$\s*([\d.]+),(\d{2})$/);
+    if (!m) return;
+    const v = Number(m[2].replace(/\./g, '') + '.' + m[3]) * (m[1] ? -1 : 1), c = fmtMoedaCurta(v);
+    if (!c) return;
+    el.title = t; el.textContent = c; el.dataset.compacto = c;
+  });
+}
+new MutationObserver(ms => { for (const m of ms) if (m.target.nodeType === 1) compactarDestaques(m.target); }).observe(document.body, { childList: true, subtree: true });
 
 // ---------- Menu agrupado ----------
 function marcarGrupos() {
@@ -1010,6 +1053,7 @@ async function chamarEdge(payload, url = EDGE_URL) {
 // Desempenho das consultas (o servidor devolve _desempenho em cada resposta)
 let _temposExec = [];
 function resumoDesempenho(inicio) {
+  if (typeof _papelAtual !== 'undefined' && _papelAtual === 'franqueado') return ''; // detalhe técnico só para a franqueadora
   const t = _temposExec, soma = k => t.reduce((s, x) => s + (Number(x[k]) || 0), 0);
   const seg = ms => (ms / 1000).toFixed(1).replace('.', ',') + ' s';
   const partes = [`em ${seg(Date.now() - inicio)}`];
@@ -1326,7 +1370,7 @@ async function rodarModulo(modulo) {
       data.metaAno = yyyy; data.metaMes = mm;
       data.metasPorLoja = Object.fromEntries((metasData.metas || []).map(m => [m.loja, Number(m.meta)]));
     }
-    status.textContent = `Concluído às ${new Date().toLocaleTimeString('pt-BR')} ${resumoDesempenho(inicioExec)}`;
+    status.textContent = `Atualizado às ${new Date().toLocaleTimeString('pt-BR')} ${resumoDesempenho(inicioExec)}`;
     await desenhar(data);
     guardarUltimo(modulo, payload, data);
   } catch (e) {
@@ -2882,11 +2926,11 @@ function marcarPassoPedido() {
   const atual = !fs.length ? 1 : !aprovados ? 2 : enviados < aprovados || aprovados < fs.length ? (aprovados < fs.length ? 3 : 4) : 4;
   document.querySelectorAll('#ped_passos li').forEach(li => { const n = Number(li.dataset.passo); li.classList.toggle('feito', n < atual || (n === 4 && fs.length && enviados === fs.length)); li.classList.toggle('atual', n === atual && !(n === 4 && fs.length && enviados === fs.length)); });
 }
-function aplicarModoSimples() {
-  try { localStorage.setItem('sss_ped_simples', $('ped_simples').checked ? '1' : '0'); } catch { }
+function aplicarModoSimples(salvar = true) {
+  if (salvar === true) try { localStorage.setItem('sss_ped_simples', $('ped_simples').checked ? '1' : '0'); } catch { }
   $('view-pedido').classList.toggle('modo-simples', $('ped_simples').checked);
 }
-$('ped_simples').addEventListener('change', aplicarModoSimples);
+$('ped_simples').addEventListener('change', () => aplicarModoSimples(true));
 marcarPassoPedido();
 
 function ligarPedido() {
@@ -3302,7 +3346,7 @@ $('ven_rodar').addEventListener('click', async () => {
   try {
     const d = await vendedoresPorLoja(payloadVendedores(filtro ? filtro.split(',').map(s => s.trim()).filter(Boolean) : null), (f, t) => { st.textContent = `Lendo vendas… ${f}/${t} lojas`; });
     renderVendedores(d, box);
-    st.textContent = `Concluído às ${new Date().toLocaleTimeString('pt-BR')}`;
+    st.textContent = `Atualizado às ${new Date().toLocaleTimeString('pt-BR')}`;
   } catch (e) { erro.innerHTML = `<div class="panel err">${esc(e.message)}</div>`; st.textContent = ''; }
   finally { $('ven_rodar').disabled = false; }
 });
@@ -3552,7 +3596,7 @@ $('cmp_rodar').addEventListener('click', async () => {
     if (!ok) throw new Error(ags[0]?.erro || 'Nenhuma loja respondeu.');
     cmpState = calcularCompat(ags, ok.parametros, Number($('cmp_corte').value || 60));
     renderCompat();
-    st.textContent = `Concluído às ${new Date().toLocaleTimeString('pt-BR')}`;
+    st.textContent = `Atualizado às ${new Date().toLocaleTimeString('pt-BR')}`;
   } catch (e) { erro.innerHTML = `<div class="panel err">${esc(e.message)}</div>`; st.textContent = ''; }
   finally { $('cmp_rodar').disabled = false; }
 });
@@ -4118,7 +4162,8 @@ async function carregarPerfil() {
 }
 
 function aplicarPerfil(p) {
-  { let pref = null; try { pref = localStorage.getItem('sss_ped_simples'); } catch { } $('ped_simples').checked = pref != null ? pref === '1' : p.papel === 'franqueado'; aplicarModoSimples(); }
+  { const h = new Date().getHours(), pn = String(p.nome || '').split(' ')[0]; const el = $('ini_saudacao'); if (el) el.textContent = p.tipo === 'usuario' && pn ? `${h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite'}, ${pn}` : ''; }
+  { let pref = null; try { pref = localStorage.getItem('sss_ped_simples'); } catch { } $('ped_simples').checked = pref != null ? pref === '1' : p.papel === 'franqueado'; aplicarModoSimples(false); }
   _usuarioCache = String(p.email || p.nome || '');
   const mudouPapel = _papelAtual !== p.papel; _papelAtual = p.papel; if (mudouPapel) _inicioDados = null;
   $('usuarioNome').textContent = p.nome || '—';
