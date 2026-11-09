@@ -51,7 +51,9 @@ async function obterAcesso(req: Request): Promise<Acesso> {
   }
   const obrigatorio = String(Deno.env.get('LOGIN_OBRIGATORIO') ?? '').toLowerCase() === 'true';
   const esperado = Deno.env.get('APP_PASSCODE');
-  if (!obrigatorio && esperado && (req.headers.get('x-app-passcode') ?? '') === esperado) return { tipo: 'senha', nome: 'Senha do time', papel: 'admin', lojas: [], todas: true };
+  const enviado = req.headers.get('x-app-passcode') ?? '';
+  if (!obrigatorio && esperado && enviado && iguaisSeguro(enviado, esperado)) return { tipo: 'senha', nome: 'Senha do time', papel: 'admin', lojas: [], todas: true };
+  if (enviado && esperado) await freioTentativa(req);
   if (!obrigatorio && !esperado) return { tipo: 'senha', nome: 'Acesso livre', papel: 'admin', lojas: [], todas: true };
   throw new ErroAcesso(obrigatorio ? 'Entre com seu e-mail e senha.' : 'Senha de acesso inválida ou ausente.', 401);
 }
@@ -64,6 +66,22 @@ function lojasDoAcesso(a: Acesso, pedidas: unknown): string[] | null {
   return ok;
 }
 function exigirPapel(a: Acesso, ...papeis: Acesso['papel'][]) { if (!papeis.includes(a.papel)) throw new ErroAcesso('Seu usuário não tem permissão para esta ação.', 403); }
+// Comparacao de senha/chave em tempo constante (nao revela quantos caracteres acertou)
+function iguaisSeguro(a: string, b: string) {
+  const x = new TextEncoder().encode(a), y = new TextEncoder().encode(b);
+  let dif = x.length ^ y.length;
+  for (let i = 0; i < Math.max(x.length, y.length); i++) dif |= (x[i] ?? 0) ^ (y[i] ?? 0);
+  return dif === 0;
+}
+// Tentativas erradas de senha do time / chave: espera crescente por IP (freia quem tenta adivinhar)
+const errosPorIp = new Map<string, { n: number; ate: number }>();
+const ipDe = (req: Request) => (req.headers.get('x-forwarded-for') ?? req.headers.get('cf-connecting-ip') ?? '?').split(',')[0].trim();
+async function freioTentativa(req: Request) {
+  const ip = ipDe(req), agora = Date.now(), e = errosPorIp.get(ip);
+  const n = e && agora - e.ate < 15 * 60_000 ? e.n + 1 : 1;
+  errosPorIp.set(ip, { n, ate: agora }); if (errosPorIp.size > 5000) errosPorIp.clear();
+  await new Promise((ok) => setTimeout(ok, Math.min(8000, 400 * n)));
+}
 function exigirLoja(a: Acesso, loja: unknown) { if (!a.todas && !a.lojas.includes(String(loja ?? ''))) throw new ErroAcesso('Sem acesso a esta loja.', 403); }
 const respostaErroAcesso = (e: ErroAcesso, headers: Record<string, string>) => new Response(JSON.stringify({ error: e.message, acesso: e.status === 401 ? 'login' : 'negado' }), { status: e.status, headers: { ...headers, 'Content-Type': 'application/json' } });
 
@@ -2192,12 +2210,12 @@ Deno.serve(async (req) => {
   // Protegido pelo secret AQUECER_CHAVE (cabecalho x-aquecer-chave); sem o secret, desligado.
   if (req.method === 'POST' && req.headers.get('x-aquecer-chave')) {
     const chave = Deno.env.get('AQUECER_CHAVE');
-    if (!chave || req.headers.get('x-aquecer-chave') !== chave) return resp({ error: 'Chave de aquecimento inválida.' }, 401);
+    if (!chave || !iguaisSeguro(req.headers.get('x-aquecer-chave') ?? '', chave)) { await freioTentativa(req); return resp({ error: 'Chave de aquecimento inválida.' }, 401); }
     try { return resp(await aquecerCaches(await req.json().catch(() => ({})))); } catch (e) { return resp({ error: e instanceof Error ? e.message : String(e) }, 500); }
   }
   let a: Acesso;
   try { a = await obterAcesso(req); } catch (e) { if (e instanceof ErroAcesso) return respostaErroAcesso(e, cors); throw e; }
-  if (req.method === 'GET') return resp({ ok: true, modulos: ['recorrente', 'vinculo', 'diagnosticoCentral', 'catalogoCentral', 'pedidoSugerido', 'vendedores', 'compatibilidade', 'lojaEditar', 'sincronizarCentral', 'vinculos', 'usuarios'] });
+  if (req.method === 'GET') return resp({ ok: true });
   try {
     const body = await req.json().catch(() => ({}));
     const modulo = String(body.modulo ?? '');
