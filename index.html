@@ -598,7 +598,7 @@
   <div class="view" id="view-vendedores">
     <header class="view-header">
       <div class="eyebrow">Módulo · Equipe</div>
-      <h1>Desempenho de Vendedores</h1>
+      <h1>Equipe da loja</h1>
       <div class="sub">Quanto cada vendedor vendeu na unidade, peças por atendimento (PA), ticket médio, mix de preço, % de vendas com cliente identificado e cadastros de clientes feitos (completos = nome completo, telefone, CPF e CEP). Compara cada vendedor com a média da própria loja para separar quem vende de quem só tira pedido, e alerta quando peças baratas dominam o volume.</div>
     </header>
     <div class="panel">
@@ -612,6 +612,7 @@
       </div>
       <div class="actions">
         <button id="ven_rodar">Analisar vendedores</button>
+        <button class="secondary" id="ven_mes_atual" title="De 1º do mês até hoje — para acompanhar as metas">Mês atual</button>
         <span class="status" id="status-vendedores"></span>
       </div>
     </div>
@@ -3306,6 +3307,12 @@ $('ven_rodar').addEventListener('click', async () => {
   finally { $('ven_rodar').disabled = false; }
 });
 
+$('ven_mes_atual').addEventListener('click', () => {
+  const h = new Date(), iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  $('ven_desde').value = iso(new Date(h.getFullYear(), h.getMonth(), 1)); $('ven_ate').value = iso(h);
+  $('ven_rodar').click();
+});
+
 function renderVendedores(d, box) {
   const p = d.parametros, lojas = d.lojas.filter(l => !l.erro);
   const limTxt = fmtMoeda(p.precoLimite);
@@ -3335,6 +3342,7 @@ function renderVendedores(d, box) {
     <div id="ven_v_loja" class="panel">
       <div class="loja-select"><label>Loja</label><select id="ven_sel">${d.lojas.map(l => `<option>${esc(l.nomeLoja)}</option>`).join('')}</select></div>
       <div id="ven_loja_resumo"></div>
+      <div id="ven_loja_metas"></div>
       <div id="ven_loja_barras" style="margin:14px 0 18px"></div>
       <div id="ven_loja_tabela"></div>
       <div id="ven_loja_baratas"></div>
@@ -3381,6 +3389,7 @@ function renderVendedores(d, box) {
         <div class="barra-trilho"><div class="barra-fill" style="width:${(v.pecasPorAtendimento / esc0 * 100).toFixed(1)}%; background:${cor}"></div><div class="barra-ref" style="left:${(L.pecasPorAtendimento / esc0 * 100).toFixed(1)}%"></div></div>
         <span class="v">${fmtNum(v.pecasPorAtendimento)}</span></div>`; }).join('')}</div>` : '';
     $('ven_loja_tabela').innerHTML = `<div style="overflow-x:auto">${tabelaVendedores(l.vendedores, p, false)}</div>`;
+    desenharMetasVendedores(l, p);
     $('ven_loja_baratas').innerHTML = tabelaPecasBaratas(l.pecasBaratas, L, p, `ven_bar_${l.nomeLoja}`);
     ligarPecasBaratas($('ven_loja_baratas'));
     const C = l.cadastros || {};
@@ -3415,6 +3424,52 @@ function renderVendedores(d, box) {
     ${listaRede.slice(0, 200).map(x => `<tr><td class="prod-name">${esc(x.descricao)}</td><td style="font-family:var(--mono); font-size:11.5px">${esc(x.codigoSistema || '—')}</td><td class="num">${fmtNum(x.pecas)}</td><td class="num">${fmtPct(x.percentDasBaratas, 1)}</td>
     <td class="num">${x.pecas ? fmtPct(x.sozinha / x.pecas * 100, 0) : '—'}</td><td class="num">${x.pecas ? fmtPct(x.acrescimo / x.pecas * 100, 0) : '—'}</td><td class="num">${fmtMoeda(x.faturamento)}</td><td class="num">${fmtMoeda(x.precoMedio)}</td><td class="num" title="${esc([...x.lojas].join(', '))}">${x.nLojas}</td></tr>`).join('')}
     </tbody></table></div>`;
+}
+
+// ---- Metas do mês por vendedor ----
+const _metasVendCache = new Map();
+async function desenharMetasVendedores(l, p) {
+  const box = $('ven_loja_metas'); if (!box) return;
+  const [dd, mm, yyyy] = String(p.desde).split('-').map(Number), [d2, m2, y2] = String(p.ate).split('-').map(Number);
+  const ano = yyyy, mes = mm, nomeMesTxt = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'][mes - 1];
+  const diasNoMes = new Date(ano, mes, 0).getDate();
+  const mesInteiroAteAgora = dd === 1 && m2 === mes && y2 === ano;
+  const hoje = new Date(), ehMesCorrente = hoje.getFullYear() === ano && hoje.getMonth() + 1 === mes;
+  const diasRestantes = ehMesCorrente ? diasNoMes - hoje.getDate() + 1 : 0;
+  const vs = l.vendedores.filter(v => v.id !== 'sem');
+  box.innerHTML = `<div class="subsecao-titulo" style="margin-top:18px">Metas de ${nomeMesTxt} por vendedor</div><div class="status">Carregando metas…</div>`;
+  const chave = `${l.nomeLoja}|${ano}|${mes}`;
+  let metas;
+  try {
+    if (!_metasVendCache.has(chave)) _metasVendCache.set(chave, (await chamarEdge({ modulo: 'metasVendedores', acao: 'listar', loja: l.nomeLoja, ano, mes }, EDGE_COMPRAS_URL)).metas || []);
+    metas = new Map(_metasVendCache.get(chave).map(m => [String(m.vendedor_id), Number(m.meta)]));
+  } catch (e) { box.innerHTML = `<div class="subsecao-titulo" style="margin-top:18px">Metas de ${nomeMesTxt} por vendedor</div><div class="status">${esc(e.message)}</div>`; return; }
+  if ($('ven_sel')?.value !== l.nomeLoja) return;
+  const linha = v => {
+    const meta = metas.get(String(v.id)) || 0, pct = meta ? v.faturamento / meta * 100 : null, falta = Math.max(0, meta - v.faturamento);
+    return `<tr><td class="prod-name">${esc(v.nome)}</td>
+      <td><input type="number" min="0" step="100" data-meta-vend="${esc(v.id)}" data-nome="${esc(v.nome)}" value="${meta || ''}" placeholder="R$" style="width:120px; padding:6px 8px"></td>
+      <td class="num">${fmtMoeda(v.faturamento)}</td>
+      <td class="num" style="font-weight:600; color:${pct == null ? 'inherit' : pct >= 100 ? 'var(--good)' : mesInteiroAteAgora && ehMesCorrente && pct < (hoje.getDate() - 1) / diasNoMes * 100 * 0.95 ? 'var(--danger)' : 'var(--warn)'}">${pct != null ? fmtPct(pct, 0) : '—'}</td>
+      <td class="num">${meta ? fmtMoeda(falta) : '—'}</td>
+      <td class="num">${meta && diasRestantes && mesInteiroAteAgora ? fmtMoeda(falta / diasRestantes) : '—'}</td></tr>`;
+  };
+  const totalMeta = vs.reduce((t, v) => t + (metas.get(String(v.id)) || 0), 0);
+  box.innerHTML = `<div class="subsecao-titulo" style="margin-top:18px">Metas de ${nomeMesTxt} por vendedor</div>
+    ${!mesInteiroAteAgora ? `<div class="sub" style="font-size:12px; margin-bottom:8px; max-width:none">O período analisado não começa no dia 1º: o "vendido" é só do período escolhido. Use <strong>Mês atual</strong> para acompanhar a meta do mês.</div>` : ''}
+    <div style="overflow-x:auto"><table class="no-tools"><thead><tr><th>Vendedor</th><th>Meta do mês</th><th class="num">Vendido${mesInteiroAteAgora ? ' no mês' : ' no período'}</th><th class="num">% da meta</th><th class="num">Falta</th><th class="num">Falta por dia</th></tr></thead>
+    <tbody>${vs.map(linha).join('') || '<tr><td colspan="6" class="empty">Nenhum vendedor com venda no período.</td></tr>'}</tbody></table></div>
+    <div class="actions" style="margin-top:8px"><button id="ven_metas_salvar">Salvar metas</button><span class="status" id="ven_metas_status">${totalMeta ? `Soma das metas: ${fmtMoeda(totalMeta)}` : 'Defina a meta de cada vendedor e salve.'}</span></div>`;
+  $('ven_metas_salvar').addEventListener('click', async () => {
+    const lista = [...box.querySelectorAll('[data-meta-vend]')].map(i => ({ vendedorId: i.dataset.metaVend, vendedorNome: i.dataset.nome, meta: Number(i.value) || 0 }));
+    $('ven_metas_salvar').disabled = true; $('ven_metas_status').textContent = 'Salvando…';
+    try {
+      const r = await chamarEdge({ modulo: 'metasVendedores', acao: 'salvar', loja: l.nomeLoja, ano, mes, metas: lista }, EDGE_COMPRAS_URL);
+      _metasVendCache.delete(chave);
+      $('ven_metas_status').textContent = `✓ Metas salvas (${r.salvas}).`;
+      setTimeout(() => desenharMetasVendedores(l, p), 600);
+    } catch (e) { $('ven_metas_status').textContent = 'Erro: ' + e.message; $('ven_metas_salvar').disabled = false; }
+  });
 }
 
 // Peças abaixo do preço-limite de uma loja: quais produtos, quanto representam e quem mais vende

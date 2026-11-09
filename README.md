@@ -69,6 +69,7 @@ Detalhes em [`docs/MODULOS.md`](docs/MODULOS.md).
 | `20261105000003_catalogo_central.sql` | catálogo fixo da Central (itens dos pedidos + planilha) |
 | `20261106000001_dre_importado.sql` | DRE / fluxo de caixa importado por planilha |
 | `20261106000002_vendas_cache_dias.sql` | cache das vendas da VarejOnline por loja e dia (acelera todas as telas) |
+| `20261109000001_metas_vendedores.sql` | metas do mês por vendedor (tela Equipe) |
 
 Todos usam `if not exists`: rodar de novo não apaga nada.
 Tabelas que já existiam antes (`lojas_config`, `pedidos_vinculos`, `metas_faturamento`, `perfil_lojas`) não estão aqui.
