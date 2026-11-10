@@ -78,6 +78,7 @@ type Opcoes = {
   sb: () => any; buscarPaginas: BuscarPaginas; apiBase: string; token: string; loja: string | null;
   dIni: Date; dFim: Date; onSaida: (sd: any) => void; janelaDias?: number; conc?: number;
   prazo?: number; // (pre-aquecimento) não começa janelas novas depois deste horário; devolve completo=false
+  soAquecer?: boolean; // (pre-aquecimento) só confere quais dias já estão guardados, sem ler as vendas
 };
 
 export async function saidasComCache(o: Opcoes): Promise<boolean> {
@@ -122,14 +123,14 @@ export async function saidasComCache(o: Opcoes): Promise<boolean> {
     try {
       for (let a = ini; a <= fimFechado; a = maisDias(a, 31)) {
         const b = maisDias(a, 30) < fimFechado ? maisDias(a, 30) : fimFechado;
-        const r = await o.sb().from('vendas_cache_dias').select('dia, saidas, atualizado_em').eq('loja', o.loja).gte('dia', a).lte('dia', b);
+        const r = await o.sb().from('vendas_cache_dias').select(o.soAquecer ? 'dia, atualizado_em, e:saidas->>e' : 'dia, saidas, atualizado_em').eq('loja', o.loja).gte('dia', a).lte('dia', b);
         if (r.error) throw r.error;
         tabelaOk = true;
         for (const row of r.data ?? []) {
           const dia = String(row.dia).slice(0, 10);
           if (dia >= recente && String(row.atualizado_em) < velho) continue; // recente e antigo: relê
-          if (String(row.saidas?.e ?? '') !== escopo) continue; // guardado com outro escopo (ex.: unidades juntas): relê
-          doCache.set(dia, desempacotar(row.saidas));
+          if (String((o.soAquecer ? row.e : row.saidas?.e) ?? '') !== escopo) continue; // guardado com outro escopo (ex.: unidades juntas): relê
+          doCache.set(dia, o.soAquecer ? [] : desempacotar(row.saidas));
         }
       }
     } catch (_) { tabelaOk = false; doCache.clear(); }
