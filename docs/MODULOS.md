@@ -35,6 +35,9 @@ Status: Confirmado · Por código · Conferir · Sem vínculo · Fora da Central
 - Franqueadora: Visão da rede — faturado no mês, % da meta, projeção, compras na Central, alertas (abaixo do ritmo, sem comprar há 21+ dias, pedidos a enviar, franqueado sem entrar há 7+ dias) e tabela por loja com último acesso.
 - Franqueado: Minha loja — barra da meta, falta por dia, ontem, ticket, PA, última compra, produtos zerados (R$/dia), o que comprar e atalhos.
 
+## Comparativo de vendas
+Período escolhido (atalhos: hoje, ontem, 7 dias, este mês, mês passado) contra o mesmo período do mês anterior e do ano anterior — por data ou, no ano anterior, pelo mesmo dia da semana (364 dias antes). Indicadores de faturamento, ticket médio, atendimentos e PA com a variação; gráfico de evolução (acumulado ou por dia) de faturamento, ticket ou atendimentos; tabela dia a dia e, para várias lojas, tabela por loja. Módulo `comparativo` da função sss-compras. O Início mostra o ticket médio com a referência do mesmo período do mês anterior. O pré-aquecimento guarda 400 dias de vendas para o ano anterior abrir rápido.
+
 ## Equipe (Vendedores)
 - Metas do mês por vendedor (franqueado define para as próprias lojas), com % atingido, falta e falta por dia; botão Mês atual.
 Por vendedor e loja, em período de/até: faturamento, atendimentos, PA, ticket, preço médio da peça, % de peças abaixo do preço-limite (alerta a partir de 60%), atendimentos de 1 peça, desconto, % de vendas com cliente identificado e cadastros novos completos (nome completo, telefone, CPF válido, CEP).

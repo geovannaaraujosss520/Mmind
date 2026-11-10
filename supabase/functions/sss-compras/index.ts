@@ -1,5 +1,5 @@
 // sss-compras: Compra Recorrente com paginacao completa da VarejOnline + desconto dos pedidos em andamento da Central.
-// Modulos (POST): { modulo: 'recorrente' | 'vinculo' | 'diagnosticoCentral' | 'catalogoCentral' | 'pedidoSugerido' | 'vendedores' | 'compatibilidade' | 'lojaEditar', ... }.
+// Modulos (POST): { modulo: 'recorrente' | 'vinculo' | 'diagnosticoCentral' | 'catalogoCentral' | 'pedidoSugerido' | 'vendedores' | 'compatibilidade' | 'painel' | 'comparativo' | 'lojaEditar', ... }.
 // Secrets: VAREJONLINE_API_BASE, APP_PASSCODE, PEDIDOS_API_KEY, ALLOWED_ORIGIN (opcional), LIMITE_PEDIDO_SEM_CONFIRMACAO (opcional, em R$).
 // Tabelas: lojas_config, pedidos_vinculos, pedidos_sugeridos.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -1755,7 +1755,7 @@ async function aquecerCaches(body: any) {
   const t0 = Date.now(), limite = 90_000;
   const apiBase = Deno.env.get('VAREJONLINE_API_BASE');
   if (!apiBase) throw new Error('VAREJONLINE_API_BASE não configurado.');
-  const dias = Math.min(400, Math.max(7, Number(body.dias ?? 120)));
+  const dias = Math.min(400, Math.max(7, Number(body.dias ?? 400))); // 400 dias: cobre o comparativo com o ano anterior
   const lojasTokens = await getLojasTokens();
   const fim = new Date(), ini = new Date(fim); ini.setDate(ini.getDate() - (dias - 1));
   const prontas: string[] = [], erros: any[] = [], pendentes: string[] = [];
@@ -1767,7 +1767,7 @@ async function aquecerCaches(body: any) {
       const nome = nomes[i++];
       if (Date.now() > prazo) { pendentes.push(nome); continue; }
       try {
-        const ok = await saidasComCache({ sb, buscarPaginas: fetchAllPages, apiBase, token: lojasTokens[nome], loja: nome, dIni: ini, dFim: fim, onSaida: () => {}, janelaDias: 15, conc: 3, prazo });
+        const ok = await saidasComCache({ sb, buscarPaginas: fetchAllPages, apiBase, token: lojasTokens[nome], loja: nome, dIni: ini, dFim: fim, onSaida: () => {}, janelaDias: 15, conc: 3, prazo, soAquecer: true });
         (ok ? prontas : pendentes).push(nome);
       } catch (e) { erros.push({ loja: nome, erro: e instanceof Error ? e.message : String(e) }); }
     }
@@ -1793,6 +1793,8 @@ async function moduloPainel(body: any, a: Acesso) {
   const diasNoMes = new Date(Date.UTC(ano, mes, 0)).getUTCDate();
   const hojeIso = agoraBR.toISOString().slice(0, 10), ontemIso = new Date(agoraBR.getTime() - 86400_000).toISOString().slice(0, 10);
   const ini = new Date(ano, mes - 1, 1), fim = new Date(ano, mes - 1, dia);
+  // Mês anterior (referência do ticket): o mês inteiro e o mesmo período (dia 1 até o dia de hoje)
+  const iniAnt = new Date(ano, mes - 2, 1), diasMesAnt = new Date(ano, mes - 1, 0).getDate(), diaRefAnt = Math.min(dia, diasMesAnt);
   const ehAdmin = a.papel !== 'franqueado';
 
   const [metasR, pendR, central, usuarios] = await Promise.all([
@@ -1823,15 +1825,22 @@ async function moduloPainel(body: any, a: Acesso) {
     while (i < nomes.length) {
       const nome = nomes[i++];
       const v = { fat: 0, atend: 0, pecas: 0, hoje: 0, ontem: 0 };
+      const ant = { fat: 0, atend: 0, fatMes: 0, atendMes: 0 };
       let erro: string | null = null;
       try {
-        await buscarSaidasParalelo(apiBase, tokens[nome], ini, fim, (sd) => {
+        await buscarSaidasParalelo(apiBase, tokens[nome], iniAnt, fim, (sd) => {
           if (!ehVenda(sd)) return;
           let f = 0, q = 0;
           for (const it of sd.mercadorias ?? []) { f += Number(it.valorTotal ?? 0); q += Math.max(0, Number(it.quantidade ?? 0)); }
           if (q <= 0) return;
+          const d = diaDaVenda(sd);
+          if (d && d < inicioMesIso) { // mês anterior
+            ant.fatMes += f; ant.atendMes++;
+            if (Number(d.slice(8, 10)) <= diaRefAnt) { ant.fat += f; ant.atend++; }
+            return;
+          }
           v.fat += f; v.atend++; v.pecas += q;
-          const d = diaDaVenda(sd); if (d === hojeIso) v.hoje += f; else if (d === ontemIso) v.ontem += f;
+          if (d === hojeIso) v.hoje += f; else if (d === ontemIso) v.ontem += f;
         }, 15, 3);
       } catch (e) { erro = e instanceof Error ? e.message : String(e); }
       const meta = metas.get(nome) ?? null;
@@ -1843,7 +1852,12 @@ async function moduloPainel(body: any, a: Acesso) {
       lojas.push({
         loja: nome, erro,
         faturadoMes: r2(v.fat), faturadoHoje: r2(v.hoje), faturadoOntem: r2(v.ontem), atendimentos: v.atend,
-        ticketMedio: v.atend ? r2(v.fat / v.atend) : 0, pecasPorAtendimento: v.atend ? r2(v.pecas / v.atend) : 0,
+        ticketMedio: v.atend ? r2(v.fat / v.atend) : 0,
+        // referência do mês anterior: mesmo período (1 até o dia de hoje) e mês fechado
+        faturadoMesAnteriorMesmoPeriodo: r2(ant.fat), atendimentosMesAnteriorMesmoPeriodo: ant.atend,
+        ticketMedioMesAnterior: ant.atend ? r2(ant.fat / ant.atend) : null,
+        faturadoMesAnterior: r2(ant.fatMes), ticketMedioMesAnteriorFechado: ant.atendMes ? r2(ant.fatMes / ant.atendMes) : null,
+        pecasPorAtendimento: v.atend ? r2(v.pecas / v.atend) : 0,
         meta, percentMeta: meta ? r2(v.fat / meta * 100) : null, projecao: projecao != null ? r2(projecao) : null,
         percentProjecao: meta && projecao != null ? r2(projecao / meta * 100) : null,
         faltaPorDia: meta ? r2(Math.max(0, meta - v.fat) / Math.max(1, diasNoMes - dia + 1)) : null,
@@ -1860,10 +1874,106 @@ async function moduloPainel(body: any, a: Acesso) {
   const soma = (k: string) => r2(lojas.reduce((t, l) => t + (Number(l[k]) || 0), 0));
   const metaRede = lojas.reduce((t, l) => t + (l.meta || 0), 0);
   return {
-    ano, mes, dia, diasNoMes, hoje: hojeIso, centralIncompleta: !!(central.falhas || central.pendentes || central.erro),
+    ano, mes, dia, diasNoMes, hoje: hojeIso, diaRefMesAnterior: diaRefAnt, centralIncompleta: !!(central.falhas || central.pendentes || central.erro),
     rede: { faturadoMes: soma('faturadoMes'), faturadoOntem: soma('faturadoOntem'), faturadoHoje: soma('faturadoHoje'), meta: r2(metaRede),
-      percentMeta: metaRede ? r2(soma('faturadoMes') / metaRede * 100) : null, projecao: soma('projecao'), comprasCentralMes: soma('comprasCentralMes') },
+      percentMeta: metaRede ? r2(soma('faturadoMes') / metaRede * 100) : null, projecao: soma('projecao'), comprasCentralMes: soma('comprasCentralMes'),
+      atendimentos: soma('atendimentos'), ticketMedio: soma('atendimentos') ? r2(soma('faturadoMes') / soma('atendimentos')) : 0,
+      faturadoMesAnteriorMesmoPeriodo: soma('faturadoMesAnteriorMesmoPeriodo'),
+      ticketMedioMesAnterior: soma('atendimentosMesAnteriorMesmoPeriodo') ? r2(soma('faturadoMesAnteriorMesmoPeriodo') / soma('atendimentosMesAnteriorMesmoPeriodo')) : null },
     lojas,
+  };
+}
+
+// =====================================================================
+// COMPARATIVO dia a dia: período escolhido x mesmo período do mês anterior x mesmo período do ano anterior.
+// body: { lojas?: string[] (vazio = todas as liberadas), de: 'AAAA-MM-DD', ate: 'AAAA-MM-DD', alinhamento?: 'data' | 'semana' }
+// alinhamento 'semana' compara o ano anterior pelo mesmo dia da semana (364 dias antes) em vez da mesma data.
+// =====================================================================
+async function moduloComparativo(body: any, a: Acesso) {
+  const apiBase = Deno.env.get('VAREJONLINE_API_BASE');
+  if (!apiBase) throw new Error('VAREJONLINE_API_BASE não configurado.');
+  const t0 = Date.now();
+  const iso = (d: Date) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+  const ler = (s: unknown) => { const m = String(s ?? '').match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])) : null; };
+  const hojeIso = new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10);
+  let de = ler(body.de) ?? ler(hojeIso.slice(0, 8) + '01')!, ate = ler(body.ate) ?? ler(hojeIso)!;
+  if (iso(ate) > hojeIso) ate = ler(hojeIso)!;
+  if (de > ate) [de, ate] = [ate, de];
+  const nDias = Math.round((ate.getTime() - de.getTime()) / 86400_000) + 1;
+  if (nDias > 93) throw new Error('Escolha um período de até 3 meses.');
+  const semana = body.alinhamento === 'semana';
+  // mesma data no mês anterior / ano anterior (dia 31 -> último dia do mês, 29/02 -> 28/02)
+  const mesmoDia = (d: Date, meses: number) => {
+    const y = d.getUTCFullYear(), m = d.getUTCMonth() + meses, ult = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+    return new Date(Date.UTC(y, m, Math.min(d.getUTCDate(), ult)));
+  };
+  const menos = (d: Date, n: number) => new Date(d.getTime() - n * 86400_000);
+  const refMes = (d: Date) => mesmoDia(d, -1);
+  const refAno = (d: Date) => semana ? menos(d, 364) : mesmoDia(d, -12);
+  const periodos = {
+    atual: { de, ate },
+    mesAnterior: { de: refMes(de), ate: refMes(ate) },
+    anoAnterior: { de: refAno(de), ate: refAno(ate) },
+  };
+
+  const tokens = await getLojasTokens();
+  const permitidas = lojasDoAcesso(a, Array.isArray(body.lojas) && body.lojas.length ? body.lojas : undefined);
+  const nomes = Object.keys(tokens).filter((n) => !permitidas || permitidas.includes(n)).sort();
+  if (!nomes.length) throw new Error('Nenhuma loja liberada para este usuário.');
+
+  type Acum = { fat: number; atend: number; pecas: number };
+  const novo = (): Acum => ({ fat: 0, atend: 0, pecas: 0 });
+  const porDia: Record<string, Map<string, Acum>> = { atual: new Map(), mesAnterior: new Map(), anoAnterior: new Map() };
+  const porLoja = new Map<string, Record<string, Acum>>();
+  const erros: { loja: string; erro: string }[] = [], pendentes: string[] = [];
+  const prazo = t0 + 100_000;
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(4, nomes.length) }, async () => {
+    while (i < nomes.length) {
+      const nome = nomes[i++];
+      if (Date.now() > prazo) { pendentes.push(nome); continue; }
+      const tot: Record<string, Acum> = { atual: novo(), mesAnterior: novo(), anoAnterior: novo() };
+      try {
+        for (const [k, p] of Object.entries(periodos)) {
+          const ini = new Date(p.de.getUTCFullYear(), p.de.getUTCMonth(), p.de.getUTCDate());
+          const fim = new Date(p.ate.getUTCFullYear(), p.ate.getUTCMonth(), p.ate.getUTCDate());
+          const deIso = iso(p.de), ateIso = iso(p.ate);
+          await buscarSaidasParalelo(apiBase, tokens[nome], ini, fim, (sd) => {
+            if (!ehVenda(sd)) return;
+            const d = diaDaVenda(sd); if (!d || d < deIso || d > ateIso) return;
+            let f = 0, q = 0;
+            for (const it of sd.mercadorias ?? []) { f += Number(it.valorTotal ?? 0); q += Math.max(0, Number(it.quantidade ?? 0)); }
+            if (q <= 0) return;
+            const m = porDia[k]; const x = m.get(d) ?? novo(); x.fat += f; x.atend++; x.pecas += q; m.set(d, x);
+            tot[k].fat += f; tot[k].atend++; tot[k].pecas += q;
+          }, 15, 3);
+        }
+        porLoja.set(nome, tot);
+      } catch (e) { erros.push({ loja: nome, erro: e instanceof Error ? e.message : String(e) }); }
+    }
+  }));
+
+  const ticket = (x?: Acum) => x && x.atend ? r2(x.fat / x.atend) : null;
+  const resumo = (x: Acum) => ({ faturado: r2(x.fat), atendimentos: x.atend, pecas: r2(x.pecas), ticketMedio: ticket(x), pecasPorAtendimento: x.atend ? r2(x.pecas / x.atend) : null });
+  const somar = (k: string) => { const t = novo(); for (const v of porDia[k].values()) { t.fat += v.fat; t.atend += v.atend; t.pecas += v.pecas; } return t; };
+  const dias: any[] = [];
+  for (let n = 0; n < nDias; n++) {
+    const d = new Date(de.getTime() + n * 86400_000), dm = refMes(d), da = refAno(d);
+    const A = porDia.atual.get(iso(d)), M = porDia.mesAnterior.get(iso(dm)), Y = porDia.anoAnterior.get(iso(da));
+    dias.push({
+      dia: iso(d), diaSemana: d.getUTCDay(), futuro: iso(d) > hojeIso,
+      atual: A ? resumo(A) : resumo(novo()),
+      mesAnterior: { dia: iso(dm), ...(M ? resumo(M) : resumo(novo())) },
+      anoAnterior: { dia: iso(da), diaSemana: da.getUTCDay(), ...(Y ? resumo(Y) : resumo(novo())) },
+    });
+  }
+  return {
+    parametros: { de: iso(de), ate: iso(ate), dias: nDias, alinhamento: semana ? 'semana' : 'data', lojas: [...porLoja.keys()].sort(), hoje: hojeIso },
+    periodos: Object.fromEntries(Object.entries(periodos).map(([k, p]) => [k, { de: iso(p.de), ate: iso(p.ate) }])),
+    totais: { atual: resumo(somar('atual')), mesAnterior: resumo(somar('mesAnterior')), anoAnterior: resumo(somar('anoAnterior')) },
+    dias,
+    lojas: [...porLoja.entries()].sort((x, y) => x[0].localeCompare(y[0])).map(([loja, t]) => ({ loja, atual: resumo(t.atual), mesAnterior: resumo(t.mesAnterior), anoAnterior: resumo(t.anoAnterior) })),
+    erros, pendentes,
   };
 }
 
@@ -2237,6 +2347,7 @@ Deno.serve(async (req) => {
     }
     if (modulo === 'dre') return resp(await moduloDre(body, a));
     if (modulo === 'painel') return resp(await moduloPainel(body, a));
+    if (modulo === 'comparativo') return resp(await moduloComparativo(body, a));
     if (modulo === 'metasVendedores') return resp(await moduloMetasVendedores(body, a));
     if (modulo === 'sincronizarCentral') return resp(await moduloSincronizarCentral(body));
     if (modulo === 'lojaEditar') { exigirPapel(a, 'admin'); return resp(await moduloLojaEditar(body)); }

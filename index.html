@@ -123,6 +123,7 @@
   .nav-item.destaque{ color: var(--text); font-weight:650; }
   .nav-sep{ height:1px; background:var(--line); margin:10px 4px; }
   .kpis.k4{ grid-template-columns: repeat(4,1fr); }
+  .kpis.k5{ grid-template-columns: repeat(5,1fr); }
   .kpi .delta{ font-family:var(--mono); font-size:11px; margin-top:6px; color:var(--muted); }
   .kpi .delta.up{ color:var(--good); } .kpi .delta.down{ color:var(--danger); }
   .kpi .hint{ font-size:11px; color:var(--muted); margin-top:4px; }
@@ -160,7 +161,7 @@
   th.sortable[data-dir="desc"]::after{ content:" ▼"; color:var(--accent-2); }
   .opt-row{ display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); }
   .opt-row input{ width:auto; }
-  @media (max-width: 900px){ .kpis, .kpis.k4{ grid-template-columns: repeat(2,1fr); } .acao{ grid-template-columns: 1fr; } .acao .imp{ text-align:left; } }
+  @media (max-width: 900px){ .kpis, .kpis.k4, .kpis.k5{ grid-template-columns: repeat(2,1fr); } .acao{ grid-template-columns: 1fr; } .acao .imp{ text-align:left; } }
   @media (max-width: 760px){
     body{ flex-direction:column; }
     .sidebar{ width:100%; height:auto; position:relative; padding:14px 16px; border-right:none; border-bottom:1px solid var(--line); }
@@ -247,6 +248,40 @@
   .nav-wrap button.nav-grupo-titulo, .nav-wrap button.nav-grupo-titulo:hover:not(:disabled){ background:transparent; }
   .nav-wrap .nav-grupo.tem-ativo button.nav-grupo-titulo, .nav-wrap .nav-grupo.tem-ativo button.nav-grupo-titulo:hover:not(:disabled){ background:var(--panel); }
   button.menu-botao:hover:not(:disabled){ background:var(--panel-2); }
+  /* Comparativo de vendas */
+  .cmp-ref{ font-size:12px; color:var(--muted); margin-top:5px; display:flex; align-items:center; gap:5px; flex-wrap:wrap; }
+  .cmp-ref strong{ color:var(--text); font-weight:600; }
+  .cmp-var{ font-size:11.5px; font-weight:600; white-space:nowrap; }
+  .cmp-chave{ display:inline-block; width:16px; height:0; border-top:2.5px solid var(--c); margin-right:6px; vertical-align:middle; }
+  .cmp-chave.tracejada{ border-top-style:dashed; }
+  .cmp-periodos{ display:flex; flex-wrap:wrap; gap:6px 18px; font-size:12.5px; color:var(--muted); margin:4px 0 12px; }
+  .cmp-controles{ display:flex; flex-wrap:wrap; gap:10px; justify-content:space-between; margin-bottom:10px; }
+  .cmp-seg{ display:inline-flex; border:1px solid var(--line-strong); border-radius:10px; overflow:hidden; }
+  .cmp-seg button, .cmp-seg button:hover:not(:disabled){ all:unset; cursor:pointer; padding:6px 12px; font-size:12.5px; color:var(--muted); }
+  .cmp-seg button:hover:not(:disabled){ background:var(--panel-2); color:var(--text); }
+  .cmp-seg button.on, .cmp-seg button.on:hover:not(:disabled){ background:var(--accent-tint); color:var(--accent-deep); font-weight:600; }
+  .cmp-seg button:focus-visible{ outline:2px solid var(--accent); outline-offset:-2px; }
+  .cmp-legenda{ display:flex; gap:16px; font-size:12px; color:var(--muted); margin-bottom:6px; flex-wrap:wrap; }
+  .cmp-grafico{ position:relative; width:100%; }
+  .cmp-grafico svg{ display:block; }
+  .cmp-eixo{ font-size:10.5px; fill:var(--muted); }
+  .cmp-rotulo{ font-size:11px; fill:var(--text); font-weight:600; }
+  .cmp-rotulo-v{ font-size:11px; fill:var(--muted); }
+  .cmp-dica{ position:absolute; background:var(--panel); border:1px solid var(--line-strong); border-radius:10px; box-shadow:var(--shadow-soft); padding:8px 10px; font-size:12px; pointer-events:none; min-width:230px; z-index:5; }
+  .cmp-dica-t{ font-weight:600; margin-bottom:4px; }
+  .cmp-dica-l{ display:flex; align-items:center; gap:4px; line-height:1.7; }
+  .cmp-dica-l .cmp-chave{ flex:none; }
+  .cmp-dica-l span{ flex:1; } .cmp-dica-l small{ color:var(--muted); margin-left:4px; }
+  .cmp-dica-l strong{ margin-left:10px; }
+  .cmp-dica-v{ margin-top:4px; color:var(--muted); font-size:11.5px; }
+  .cmp-tabela th.cmp-grupo{ text-align:center; }
+  .cmp-sep{ border-left:1px solid var(--line); }
+  .cmp-tabela tr.cmp-total td{ border-top:2px solid var(--line-strong); font-weight:600; }
+  .cmp-tabela tr.cmp-hoje td{ background:var(--gold-tint); }
+  .cmp-atalhos{ display:inline-flex; gap:6px; flex-wrap:wrap; }
+  .cmp-atalhos button{ padding:7px 11px; font-size:12px; }
+  .ticket-ref{ font-size:11.5px; color:var(--muted); margin-top:3px; }
+
   @media (max-width: 900px){
     .menu-botao{ display:flex; align-items:center; gap:8px; order:2; margin-left:auto; padding:8px 12px; font-size:13px; border:1px solid var(--line-strong); border-radius:10px; background:var(--panel); color:var(--accent-deep); cursor:pointer; text-transform:none; letter-spacing:0; font-weight:600; }
     .nav-wrap{ display:none !important; }
@@ -374,6 +409,7 @@
   </div>
   <div class="nav-item" data-view="estoque"><span class="dot"></span> Estoque</div>
   <div class="nav-item" data-view="financeiro"><span class="dot"></span> Financeiro</div>
+  <div class="nav-item" data-view="comparativo"><span class="dot"></span> Comparativo</div>
   <div class="nav-item" data-view="vendedores"><span class="dot"></span> Equipe</div>
   <div class="nav-grupo" data-grupo="rede">
     <button type="button" class="nav-grupo-titulo">Rede <span class="seta">▾</span></button>
@@ -618,6 +654,36 @@
     <div id="resultado-financeiro"></div>
   </div>
 
+  <!-- ===================== COMPARATIVO ===================== -->
+  <div class="view" id="view-comparativo">
+    <header class="view-header">
+      <h1>Comparativo de vendas</h1>
+      <div class="sub">Dia a dia: o período escolhido contra o mês anterior e o ano anterior.</div>
+      <details class="como-funciona"><summary>Como funciona</summary><div>Cada dia do período é comparado com a mesma data do mês anterior e do ano anterior (dia 31 vira o último dia do mês; 29/02 vira 28/02). Em "Ano anterior por dia da semana", a comparação é com 364 dias antes — segunda com segunda, sábado com sábado. Faturamento = soma das vendas não canceladas; ticket médio = faturamento ÷ atendimentos (vendas); PA = peças ÷ atendimentos. O dia de hoje ainda está em andamento. Vendas antigas ficam guardadas, então a primeira consulta de um ano anterior pode demorar mais.</div></details>
+    </header>
+    <div class="panel">
+      <div class="grid">
+        <div style="grid-column: span 2"><label>Loja</label><select id="cmp_loja"><option value="">Carregando lojas…</option></select></div>
+        <div><label>De</label><input id="cmp_de" type="date"></div>
+        <div><label>Até</label><input id="cmp_ate" type="date"></div>
+        <div><label>Ano anterior por</label><select id="cmp_alinha"><option value="data">mesma data</option><option value="semana">mesmo dia da semana</option></select></div>
+      </div>
+      <div class="actions" style="flex-wrap:wrap">
+        <button id="cmp_rodar">Comparar</button>
+        <span class="cmp-atalhos">
+          <button class="secondary" data-cmp="hoje">Hoje</button>
+          <button class="secondary" data-cmp="ontem">Ontem</button>
+          <button class="secondary" data-cmp="7d">Últimos 7 dias</button>
+          <button class="secondary" data-cmp="mes">Este mês</button>
+          <button class="secondary" data-cmp="mespassado">Mês passado</button>
+        </span>
+        <span class="status" id="status-comparativo"></span>
+      </div>
+    </div>
+    <div id="erro-comparativo"></div>
+    <div id="resultado-comparativo"></div>
+  </div>
+
   <!-- ===================== VENDEDORES ===================== -->
   <div class="view" id="view-vendedores">
     <header class="view-header">
@@ -844,6 +910,14 @@ async function carregarInicio(forcar = false) {
   finally { _inicioCarregando = false; }
 }
 
+// "out (1 a 10): R$ 182,00 ▲ 4%" — ticket do mesmo período do mês anterior
+function refTicketAnterior(d, atual, anterior) {
+  if (anterior == null) return '<div class="ticket-ref">sem vendas no mês anterior</div>';
+  const nomeAnt = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'][(d.mes + 10) % 12];
+  const dr = d.diaRefMesAnterior ?? d.dia;
+  return `<div class="ticket-ref" title="Ticket médio de 1 a ${dr} de ${nomeAnt} (mesmo período do mês anterior)">${nomeAnt} (1 a ${dr}): <strong style="color:var(--text)">${fmtMoeda(anterior)}</strong> ${_cmpSeta(_cmpVar(atual, anterior))}</div>`;
+}
+
 function desenharInicio() {
   const d = _inicioDados; if (!d) return;
   if (_papelAtual === 'franqueado') return desenharMinhaLoja(d);
@@ -863,10 +937,11 @@ function desenharVisaoRede(d) {
   const kpi = (lab, val, hint, cor) => `<div class="kpi"><div class="label">${lab}</div><div class="value" style="${cor ? 'color:' + cor : ''}">${val}</div><div class="hint">${hint}</div></div>`;
   const alerta = (sev, tit, det, lista) => lista.length ? `<div class="acao ${sev}"><div class="sev ${sev}">${sev === 'critico' ? 'Crítico' : 'Atenção'}</div><div><div class="tit">${tit}</div><div class="det">${det}</div></div><div class="imp">${lista.length}<small>loja(s)</small></div></div>` : '';
   $('ini_conteudo').innerHTML = `
-    <div class="kpis k4">
+    <div class="kpis k5">
       ${kpi('Faturado no mês — rede', fmtMoeda(R.faturadoMes), `ontem ${fmtMoeda(R.faturadoOntem)} · hoje ${fmtMoeda(R.faturadoHoje)}`)}
       ${kpi('Meta da rede', R.percentMeta != null ? fmtPct(R.percentMeta, 0) : '—', R.meta ? `de ${fmtMoeda(R.meta)}${semMeta ? ` · ${semMeta} loja(s) sem meta` : ''}` : 'cadastre as metas no Financeiro', corPct(R.meta ? R.projecao / R.meta * 100 : null))}
       ${kpi('Projeção de fechamento', fmtMoeda(R.projecao), R.meta ? `${fmtPct(R.projecao / R.meta * 100, 0)} da meta no ritmo atual` : 'no ritmo dos dias fechados', corPct(R.meta ? R.projecao / R.meta * 100 : null))}
+      ${R.ticketMedio != null ? `<div class="kpi"><div class="label">Ticket médio — rede</div><div class="value">${fmtMoeda(R.ticketMedio)}</div>${R.ticketMedioMesAnterior !== undefined ? refTicketAnterior(d, R.ticketMedio, R.ticketMedioMesAnterior) : ''}<div class="hint">${fmtNum(R.atendimentos)} atendimentos · <a href="#" data-ir="comparativo">comparar dia a dia</a></div></div>` : ''}
       ${kpi('Compras na Central no mês', fmtMoeda(R.comprasCentralMes), `${fmtPct(R.faturadoMes ? R.comprasCentralMes / R.faturadoMes * 100 : 0, 0)} do faturado${d.centralIncompleta ? ' · Central incompleta' : ''}`)}
     </div>
     <div class="acoes" style="margin-bottom:16px">
@@ -881,13 +956,14 @@ function desenharVisaoRede(d) {
         <td class="prod-name">${esc(l.loja)}</td><td class="num">${fmtMoeda(l.faturadoMes)}</td><td class="num">${l.meta ? fmtMoeda(l.meta) : '<span style="color:var(--muted)">sem meta</span>'}</td>
         <td class="num" style="color:${corPct(l.percentProjecao)}; font-weight:600">${l.percentMeta != null ? fmtPct(l.percentMeta, 0) : '—'}</td>
         <td class="num" style="color:${corPct(l.percentProjecao)}">${l.projecao != null ? fmtMoeda(l.projecao) : '—'}${l.percentProjecao != null ? `<br><span style="font-size:10.5px">${fmtPct(l.percentProjecao, 0)} da meta</span>` : ''}</td>
-        <td class="num">${l.faltaPorDia != null ? fmtMoeda(l.faltaPorDia) : '—'}</td><td class="num">${fmtMoeda(l.faturadoOntem)}</td><td class="num">${fmtMoeda(l.ticketMedio)}</td><td class="num">${fmtNum(l.pecasPorAtendimento)}</td>
+        <td class="num">${l.faltaPorDia != null ? fmtMoeda(l.faltaPorDia) : '—'}</td><td class="num">${fmtMoeda(l.faturadoOntem)}</td><td class="num">${fmtMoeda(l.ticketMedio)}${l.ticketMedioMesAnterior != null ? `<br><span style="font-size:10.5px; color:var(--muted)" title="Ticket de 1 a ${d.diaRefMesAnterior ?? d.dia} do mês anterior">ant. ${fmtMoeda(l.ticketMedioMesAnterior)}</span> ${_cmpSeta(_cmpVar(l.ticketMedio, l.ticketMedioMesAnterior))}` : ''}</td><td class="num">${fmtNum(l.pecasPorAtendimento)}</td>
         <td style="color:${l.diasSemComprar == null || l.diasSemComprar > 21 ? 'var(--warn)' : 'inherit'}">${l.ultimaCompraCentral ? `${dataCurta(l.ultimaCompraCentral)} <span style="color:var(--muted); font-size:11px">(${l.diasSemComprar} d)</span>` : 'sem pedido em 60 d'}${l.pedidosCentralEmAndamento ? `<br><span style="font-size:10.5px; color:var(--muted)">${l.pedidosCentralEmAndamento} em andamento</span>` : ''}</td>
         <td class="num">${l.pedidosInsightPendentes ? `<strong style="color:var(--warn)">${l.pedidosInsightPendentes}</strong>` : '—'}</td>
         <td class="prod-name" style="font-size:12px">${(l.franqueados || []).length ? `${esc(l.franqueados.join(', '))}<br><span style="color:${!l.ultimoAcesso || Date.now() - Date.parse(l.ultimoAcesso) > 7 * 864e5 ? 'var(--warn)' : 'var(--muted)'}">${haQuanto(l.ultimoAcesso)}</span>` : '<span style="color:var(--muted)">sem login de franqueado</span>'}</td></tr>`).join('')}
       </tbody></table>
-      <div class="sub" style="font-size:11px; margin-top:8px; max-width:none">Projeção = média dos dias fechados × dias do mês (hoje ainda em andamento fica fora). Falta por dia = quanto falta para a meta ÷ dias restantes, contando hoje. Compras na Central = pedidos não cancelados criados no mês.</div>
+      <div class="sub" style="font-size:11px; margin-top:8px; max-width:none">Ticket "ant." = ticket médio do mesmo período do mês anterior (dia 1 até o dia de hoje). Projeção = média dos dias fechados × dias do mês (hoje ainda em andamento fica fora). Falta por dia = quanto falta para a meta ÷ dias restantes, contando hoje. Compras na Central = pedidos não cancelados criados no mês.</div>
     </div>`;
+  ligarIrPara($('ini_conteudo'), '');
 }
 
 async function desenharMinhaLoja(d) {
@@ -917,7 +993,7 @@ async function desenharMinhaLoja(d) {
     </div>
     <div class="kpis k4">
       <div class="kpi"><div class="label">Ontem</div><div class="value">${fmtMoeda(l.faturadoOntem)}</div><div class="hint">hoje até agora: ${fmtMoeda(l.faturadoHoje)}</div></div>
-      <div class="kpi"><div class="label">Ticket médio</div><div class="value">${fmtMoeda(l.ticketMedio)}</div><div class="hint">${fmtNum(l.atendimentos)} atendimentos no mês</div></div>
+      <div class="kpi"><div class="label">Ticket médio</div><div class="value">${fmtMoeda(l.ticketMedio)}</div>${l.ticketMedioMesAnterior !== undefined ? refTicketAnterior(d, l.ticketMedio, l.ticketMedioMesAnterior) : ''}<div class="hint">${fmtNum(l.atendimentos)} atendimentos no mês · <a href="#" data-ir="comparativo">comparar dia a dia</a></div></div>
       <div class="kpi"><div class="label">Peças por atendimento</div><div class="value">${fmtNum(l.pecasPorAtendimento)}</div><div class="hint">quanto maior, melhor a venda</div></div>
       <div class="kpi"><div class="label">Última compra na Central</div><div class="value" style="color:${l.diasSemComprar == null || l.diasSemComprar > 21 ? 'var(--warn)' : 'inherit'}">${l.ultimaCompraCentral ? dataCurta(l.ultimaCompraCentral) : '—'}</div><div class="hint">${l.diasSemComprar != null ? `${l.diasSemComprar} dia(s) atrás` : 'sem pedido nos últimos 60 dias'}${l.pedidosCentralEmAndamento ? ` · ${l.pedidosCentralEmAndamento} em andamento` : ''}</div></div>
     </div>
@@ -951,11 +1027,224 @@ async function desenharMinhaLoja(d) {
   } catch (e) { const box = $('ini_compra_status'); if (box) box.textContent = 'Não foi possível analisar o estoque agora: ' + e.message; }
 }
 
+// =====================================================================
+// COMPARATIVO DE VENDAS — período x mês anterior x ano anterior, dia a dia, com gráfico de evolução
+// =====================================================================
+const CMP_COR = { atual: '#961A1D', mesAnterior: '#B07800', anoAnterior: '#2F6FA3' };
+const CMP_NOME = { atual: 'Período atual', mesAnterior: 'Mês anterior', anoAnterior: 'Ano anterior' };
+const CMP_CURTO = { atual: 'Atual', mesAnterior: 'Mês anterior', anoAnterior: 'Ano anterior' };
+const CMP_TRACO = { atual: '', mesAnterior: '', anoAnterior: '6 4' };
+const CMP_METRICAS = { faturado: 'Faturamento', ticketMedio: 'Ticket médio', atendimentos: 'Atendimentos' };
+const DIA_SEM = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+let _cmpDados = null, _cmpMetrica = 'faturado', _cmpModo = 'acumulado';
+const _isoLocal = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const _dataBR = iso => iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : '—';
+
+function cmpAtalho(tipo) {
+  const h = new Date(); let de = new Date(h), ate = new Date(h);
+  if (tipo === 'ontem') { de.setDate(h.getDate() - 1); ate = new Date(de); }
+  else if (tipo === '7d') de.setDate(h.getDate() - 6);
+  else if (tipo === 'mes') de = new Date(h.getFullYear(), h.getMonth(), 1);
+  else if (tipo === 'mespassado') { de = new Date(h.getFullYear(), h.getMonth() - 1, 1); ate = new Date(h.getFullYear(), h.getMonth(), 0); }
+  $('cmp_de').value = _isoLocal(de); $('cmp_ate').value = _isoLocal(ate);
+}
+document.querySelectorAll('[data-cmp]').forEach(b => b.addEventListener('click', () => { cmpAtalho(b.dataset.cmp); rodarComparativo(); }));
+
+let _cmpIrPara = null; // loja vinda do Início ('' = rede) — abre já comparando o mês
+async function carregarLojasComparativo() {
+  const sel = $('cmp_loja');
+  if (!$('cmp_de').value) cmpAtalho('mes');
+  let primeira = false;
+  if (!sel.dataset.ok) {
+    try {
+      const lojas = await lojasConfiguradas();
+      if (!sel.dataset.ok) {
+        const franq = _papelAtual === 'franqueado';
+        sel.innerHTML = (lojas.length > 1 ? `<option value="">${franq ? 'Todas as minhas lojas' : 'Rede inteira (todas as lojas)'}</option>` : '') + lojas.map(n => `<option>${esc(n)}</option>`).join('');
+        if (franq && lojas.length) sel.value = lojas[0];
+        sel.dataset.ok = '1'; primeira = true;
+      }
+    } catch (e) { sel.innerHTML = '<option value="">Erro ao carregar lojas</option>'; $('status-comparativo').textContent = e.message; return; }
+  }
+  if (_cmpIrPara !== null) {
+    const loja = _cmpIrPara; _cmpIrPara = null;
+    if (!loja || [...sel.options].some(o => o.value === loja)) sel.value = loja;
+    cmpAtalho('mes'); rodarComparativo(); return;
+  }
+  // franqueado (ou quem já tem o último resultado) já vê o comparativo ao abrir
+  if (primeira && (sel.value || lerUltimo('comparativo', cmpPayload()))) rodarComparativo();
+}
+document.querySelector('[data-view="comparativo"]').addEventListener('click', carregarLojasComparativo);
+
+const cmpPayload = () => ({ modulo: 'comparativo', lojas: $('cmp_loja').value ? [$('cmp_loja').value] : [], de: $('cmp_de').value, ate: $('cmp_ate').value, alinhamento: $('cmp_alinha').value });
+async function rodarComparativo() {
+  const st = $('status-comparativo'), payload = cmpPayload(), t0 = Date.now();
+  $('erro-comparativo').innerHTML = '';
+  if (!payload.de || !payload.ate) { st.textContent = 'Escolha o período.'; return; }
+  const ult = lerUltimo('comparativo', payload);
+  if (ult) { _cmpDados = ult.data; desenharComparativo(); }
+  st.innerHTML = '<span class="loader"></span> Comparando…'; _temposExec = [];
+  $('cmp_rodar').disabled = true;
+  try {
+    const d = await chamarEdge(payload, EDGE_COMPRAS_URL);
+    _cmpDados = d; guardarUltimo('comparativo', payload, d); desenharComparativo();
+    st.textContent = `Atualizado às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} ${resumoDesempenho(t0)}`;
+  } catch (e) { $('erro-comparativo').innerHTML = `<div class="panel err">${esc(e.message)}</div>`; st.textContent = ''; }
+  finally { $('cmp_rodar').disabled = false; }
+}
+$('cmp_rodar').addEventListener('click', rodarComparativo);
+
+const _cmpVar = (a, b) => a != null && b ? (a / b - 1) * 100 : null;
+const _cmpSeta = v => v == null ? '<span class="cmp-var" style="color:var(--muted)">—</span>'
+  : `<span class="cmp-var" style="color:${v >= 0 ? 'var(--good)' : 'var(--danger)'}">${v >= 0 ? '▲' : '▼'} ${fmtPct(Math.abs(v), 1)}</span>`;
+const _cmpChave = k => `<span class="cmp-chave${k === 'anoAnterior' ? ' tracejada' : ''}" style="--c:${CMP_COR[k]}"></span>`;
+
+function desenharComparativo() {
+  const d = _cmpDados, box = $('resultado-comparativo'); if (!d) return;
+  const T = d.totais, P = d.periodos;
+  const faixa = p => p.de === p.ate ? _dataBR(p.de) : `${_dataBR(p.de).slice(0, 5)} a ${_dataBR(p.ate)}`;
+  const fmtM = v => v == null ? '—' : fmtMoeda(v), fmtN = v => v == null ? '—' : fmtNum(v);
+  const card = (rot, k, fmt) => `<div class="kpi"><div class="label">${rot}</div><div class="value">${fmt(T.atual[k])}</div>
+    <div class="cmp-ref">${_cmpChave('mesAnterior')}Mês anterior <strong>${fmt(T.mesAnterior[k])}</strong> ${_cmpSeta(_cmpVar(T.atual[k], T.mesAnterior[k]))}</div>
+    <div class="cmp-ref">${_cmpChave('anoAnterior')}Ano anterior <strong>${fmt(T.anoAnterior[k])}</strong> ${_cmpSeta(_cmpVar(T.atual[k], T.anoAnterior[k]))}</div></div>`;
+  const lojasTxt = d.parametros.lojas.length === 1 ? d.parametros.lojas[0] : `${d.parametros.lojas.length} lojas`;
+  const avisos = [
+    d.pendentes?.length ? `Não deu tempo de ler ${d.pendentes.length} loja(s): ${d.pendentes.map(esc).join(', ')}. Clique em Comparar de novo — o que já foi lido fica guardado.` : '',
+    ...(d.erros || []).map(e => `${esc(e.loja)}: ${esc(e.erro)}`),
+  ].filter(Boolean);
+  const temHoje = d.parametros.ate === d.parametros.hoje;
+  box.innerHTML = `
+    ${avisos.length ? `<div class="panel" style="border-color:var(--warn); color:var(--warn); font-size:12.5px">${avisos.join('<br>')}</div>` : ''}
+    <div class="cmp-periodos">
+      <span><strong>${esc(lojasTxt)}</strong></span>
+      <span>${_cmpChave('atual')}Atual ${faixa(P.atual)}${temHoje ? ' <em>(hoje em andamento)</em>' : ''}</span>
+      <span>${_cmpChave('mesAnterior')}Mês anterior ${faixa(P.mesAnterior)}</span>
+      <span>${_cmpChave('anoAnterior')}Ano anterior ${faixa(P.anoAnterior)}${d.parametros.alinhamento === 'semana' ? ' (mesmo dia da semana)' : ''}</span>
+    </div>
+    <div class="kpis k4 cmp-kpis">
+      ${card('Faturamento', 'faturado', fmtM)}
+      ${card('Ticket médio', 'ticketMedio', fmtM)}
+      ${card('Atendimentos', 'atendimentos', fmtN)}
+      ${card('Peças por atendimento', 'pecasPorAtendimento', fmtN)}
+    </div>
+    <div class="panel">
+      <div class="cmp-controles">
+        <div class="cmp-seg" id="cmp_metrica">${Object.entries(CMP_METRICAS).map(([k, v]) => `<button type="button" data-m="${k}" class="${k === _cmpMetrica ? 'on' : ''}">${v}</button>`).join('')}</div>
+        <div class="cmp-seg" id="cmp_modo"><button type="button" data-modo="acumulado" class="${_cmpModo === 'acumulado' ? 'on' : ''}">Acumulado</button><button type="button" data-modo="dia" class="${_cmpModo === 'dia' ? 'on' : ''}">Por dia</button></div>
+      </div>
+      <div class="cmp-legenda">${['atual', 'mesAnterior', 'anoAnterior'].map(k => `<span>${_cmpChave(k)}${CMP_NOME[k]}</span>`).join('')}</div>
+      <div id="cmp_grafico" class="cmp-grafico"></div>
+    </div>
+    <div class="subsecao-titulo">Dia a dia</div>
+    <div class="panel" style="overflow-x:auto">${tabelaDiasComparativo(d)}</div>
+    ${d.lojas.length > 1 ? `<div class="subsecao-titulo">Por loja</div><div class="panel" style="overflow-x:auto">${tabelaLojasComparativo(d)}</div>` : ''}`;
+  box.querySelectorAll('#cmp_metrica button').forEach(b => b.addEventListener('click', () => { _cmpMetrica = b.dataset.m; box.querySelectorAll('#cmp_metrica button').forEach(x => x.classList.toggle('on', x === b)); graficoComparativo(); }));
+  box.querySelectorAll('#cmp_modo button').forEach(b => b.addEventListener('click', () => { _cmpModo = b.dataset.modo; box.querySelectorAll('#cmp_modo button').forEach(x => x.classList.toggle('on', x === b)); graficoComparativo(); }));
+  graficoComparativo();
+}
+
+function tabelaDiasComparativo(d) {
+  const linha = (rot, A, M, Y, cls = '') => `<tr class="${cls}"><td class="prod-name" style="white-space:nowrap">${rot}</td>
+    <td class="num"><strong>${fmtMoeda(A.faturado)}</strong></td><td class="num">${A.ticketMedio != null ? fmtMoeda(A.ticketMedio) : '—'}</td><td class="num">${fmtNum(A.atendimentos)}</td>
+    <td class="num cmp-sep">${fmtMoeda(M.faturado)}</td><td class="num">${_cmpSeta(_cmpVar(A.faturado, M.faturado))}</td><td class="num">${M.ticketMedio != null ? fmtMoeda(M.ticketMedio) : '—'}</td>
+    <td class="num cmp-sep">${fmtMoeda(Y.faturado)}</td><td class="num">${_cmpSeta(_cmpVar(A.faturado, Y.faturado))}</td><td class="num">${Y.ticketMedio != null ? fmtMoeda(Y.ticketMedio) : '—'}</td></tr>`;
+  const ref = (x, comSemana) => `<span style="color:var(--muted); font-size:11px">${dataCurta(x.dia)}${comSemana ? ' ' + DIA_SEM[x.diaSemana] : ''}</span>`;
+  const T = d.totais;
+  return `<table class="cmp-tabela"><thead>
+    <tr><th rowspan="2">Dia</th><th colspan="3" class="cmp-grupo">${_cmpChave('atual')}Atual</th><th colspan="3" class="cmp-grupo cmp-sep">${_cmpChave('mesAnterior')}Mês anterior</th><th colspan="3" class="cmp-grupo cmp-sep">${_cmpChave('anoAnterior')}Ano anterior</th></tr>
+    <tr><th class="num">Faturado</th><th class="num">Ticket</th><th class="num">Atend.</th><th class="num cmp-sep">Faturado</th><th class="num">Variação</th><th class="num">Ticket</th><th class="num cmp-sep">Faturado</th><th class="num">Variação</th><th class="num">Ticket</th></tr></thead><tbody>
+    ${d.dias.map(x => linha(`${dataCurta(x.dia)} <span style="color:var(--muted); font-size:11px">${DIA_SEM[x.diaSemana]}</span><br>${ref(x.mesAnterior)} · ${ref(x.anoAnterior, true)}`, x.atual, x.mesAnterior, x.anoAnterior, x.dia === d.parametros.hoje ? 'cmp-hoje' : '')).join('')}
+    ${linha('<strong>Total do período</strong>', T.atual, T.mesAnterior, T.anoAnterior, 'cmp-total')}
+  </tbody></table>
+  <div class="sub" style="font-size:11px; margin-top:8px; max-width:none">Abaixo de cada dia: a data usada no mês anterior · no ano anterior. Variação = faturado do dia atual contra o dia de referência.</div>`;
+}
+
+function tabelaLojasComparativo(d) {
+  return `<table><thead><tr><th>Loja</th><th class="num">Faturado</th><th class="num">vs mês ant.</th><th class="num">vs ano ant.</th><th class="num">Ticket</th><th class="num">Ticket mês ant.</th><th class="num">Ticket ano ant.</th><th class="num">Atend.</th></tr></thead><tbody>
+    ${d.lojas.map(l => `<tr><td class="prod-name">${esc(l.loja)}</td><td class="num"><strong>${fmtMoeda(l.atual.faturado)}</strong></td>
+      <td class="num">${_cmpSeta(_cmpVar(l.atual.faturado, l.mesAnterior.faturado))}</td><td class="num">${_cmpSeta(_cmpVar(l.atual.faturado, l.anoAnterior.faturado))}</td>
+      <td class="num">${l.atual.ticketMedio != null ? fmtMoeda(l.atual.ticketMedio) : '—'}</td>
+      <td class="num">${l.mesAnterior.ticketMedio != null ? fmtMoeda(l.mesAnterior.ticketMedio) : '—'} ${_cmpSeta(_cmpVar(l.atual.ticketMedio, l.mesAnterior.ticketMedio))}</td>
+      <td class="num">${l.anoAnterior.ticketMedio != null ? fmtMoeda(l.anoAnterior.ticketMedio) : '—'} ${_cmpSeta(_cmpVar(l.atual.ticketMedio, l.anoAnterior.ticketMedio))}</td>
+      <td class="num">${fmtNum(l.atual.atendimentos)}</td></tr>`).join('')}
+  </tbody></table>`;
+}
+
+function cmpSerie(d, k) {
+  let f = 0, a = 0;
+  return d.dias.map(x => {
+    const v = x[k];
+    if (_cmpModo === 'dia') return _cmpMetrica === 'ticketMedio' ? v.ticketMedio : v[_cmpMetrica];
+    f += v.faturado; a += v.atendimentos;
+    return _cmpMetrica === 'faturado' ? f : _cmpMetrica === 'atendimentos' ? a : (a ? f / a : null);
+  });
+}
+
+function graficoComparativo() {
+  const d = _cmpDados, el = $('cmp_grafico'); if (!d || !el) return;
+  const chaves = ['anoAnterior', 'mesAnterior', 'atual']; // atual por cima
+  const S = Object.fromEntries(chaves.map(k => [k, cmpSerie(d, k)]));
+  const n = d.dias.length, W = Math.max(300, el.clientWidth || 800), H = W < 560 ? 230 : 290;
+  const pl = W < 560 ? 52 : 70, pr = W < 560 ? 12 : 104, pt = 14, pb = 30;
+  const todos = chaves.flatMap(k => S[k]).filter(v => v != null);
+  const ehMoeda = _cmpMetrica !== 'atendimentos';
+  const curta = v => fmtMoedaCurta(v) ?? fmtMoeda(v).replace(/,00$/, '');
+  const fmtEixo = v => ehMoeda ? curta(v) : fmtNum(Math.round(v));
+  const fmtVal = v => v == null ? '—' : ehMoeda ? fmtMoeda(v) : fmtNum(v);
+  let max = Math.max(1, ...todos);
+  // ticket médio varia pouco: o eixo começa perto do menor valor (linhas, não barras)
+  let min = _cmpMetrica === 'ticketMedio' && todos.length ? Math.min(...todos) * 0.9 : 0;
+  const passo = (() => { const bruto = (max - min) / 4, p10 = Math.pow(10, Math.floor(Math.log10(bruto))); const m = bruto / p10; return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 2.5 ? 2.5 : m <= 5 ? 5 : 10) * p10; })();
+  max = Math.ceil(max / passo) * passo; min = Math.floor(min / passo) * passo;
+  const x = i => n === 1 ? pl + (W - pl - pr) / 2 : pl + i * (W - pl - pr) / (n - 1);
+  const y = v => pt + (H - pt - pb) * (1 - (v - min) / (max - min || 1));
+  let svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${CMP_METRICAS[_cmpMetrica]} ${_cmpModo === 'dia' ? 'por dia' : 'acumulado'}: atual, mês anterior e ano anterior">`;
+  for (let v = min; v <= max + 1e-9; v += passo) svg += `<line x1="${pl}" x2="${W - pr}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-width="1"/><text x="${pl - 8}" y="${y(v) + 4}" text-anchor="end" class="cmp-eixo">${fmtEixo(v)}</text>`;
+  const cada = Math.max(1, Math.ceil(n / Math.floor((W - pl - pr) / 46)));
+  d.dias.forEach((dd, i) => { if (i % cada === 0 || i === n - 1) svg += `<text x="${x(i)}" y="${H - 10}" text-anchor="middle" class="cmp-eixo">${dataCurta(dd.dia)}</text>`; });
+  const fim = {};
+  for (const k of chaves) {
+    let path = '', aberto = false;
+    S[k].forEach((v, i) => { if (v == null) { aberto = false; return; } path += `${aberto ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`; aberto = true; fim[k] = { i, v }; });
+    if (path) svg += `<path d="${path}" fill="none" stroke="${CMP_COR[k]}" stroke-width="${k === 'atual' ? 2.5 : 2}" stroke-linejoin="round" stroke-linecap="round" ${CMP_TRACO[k] ? `stroke-dasharray="${CMP_TRACO[k]}"` : ''}/>`;
+    if (n <= 16) S[k].forEach((v, i) => { if (v != null) svg += `<circle cx="${x(i)}" cy="${y(v)}" r="4" fill="${CMP_COR[k]}" stroke="var(--panel)" stroke-width="2"/>`; });
+  }
+  // rótulos no fim de cada linha (sem sobrepor)
+  if (pr > 60) {
+    const rot = chaves.filter(k => fim[k]).map(k => ({ k, yy: y(fim[k].v), v: fim[k].v })).sort((a, b) => a.yy - b.yy);
+    for (let i = 1; i < rot.length; i++) if (rot[i].yy - rot[i - 1].yy < 26) rot[i].yy = rot[i - 1].yy + 26;
+    for (const r of rot) svg += `<text x="${W - pr + 8}" y="${r.yy - 2}" class="cmp-rotulo">${CMP_CURTO[r.k]}</text><text x="${W - pr + 8}" y="${r.yy + 11}" class="cmp-rotulo-v">${ehMoeda ? curta(r.v) : fmtNum(r.v)}</text>`;
+  }
+  svg += `<line id="cmp_mira" x1="0" x2="0" y1="${pt}" y2="${H - pb}" stroke="var(--muted)" stroke-width="1" style="display:none"/>`;
+  svg += `<rect x="${pl - 10}" y="0" width="${W - pl - pr + 20}" height="${H}" fill="transparent" id="cmp_alvo"/></svg>`;
+  el.innerHTML = svg + '<div class="cmp-dica" id="cmp_dica" style="display:none"></div>';
+  const alvo = el.querySelector('#cmp_alvo'), mira = el.querySelector('#cmp_mira'), dica = el.querySelector('#cmp_dica');
+  const mostrar = ev => {
+    const r = el.querySelector('svg').getBoundingClientRect(), px = (ev.touches ? ev.touches[0].clientX : ev.clientX) - r.left;
+    const i = n === 1 ? 0 : Math.max(0, Math.min(n - 1, Math.round((px - pl) / ((W - pl - pr) / (n - 1)))));
+    const dd = d.dias[i];
+    mira.setAttribute('x1', x(i)); mira.setAttribute('x2', x(i)); mira.style.display = '';
+    const refData = { atual: dd.dia, mesAnterior: dd.mesAnterior.dia, anoAnterior: dd.anoAnterior.dia };
+    dica.innerHTML = `<div class="cmp-dica-t">${CMP_METRICAS[_cmpMetrica]}${_cmpModo === 'acumulado' ? ' acumulado' : ''} · ${dataCurta(dd.dia)} ${DIA_SEM[dd.diaSemana]}</div>` +
+      ['atual', 'mesAnterior', 'anoAnterior'].map(k => `<div class="cmp-dica-l">${_cmpChave(k)}<span>${CMP_CURTO[k]} <small>${_dataBR(refData[k])}</small></span><strong>${fmtVal(S[k][i])}</strong></div>`).join('') +
+      (S.atual[i] != null ? `<div class="cmp-dica-v">vs mês ant. ${_cmpSeta(_cmpVar(S.atual[i], S.mesAnterior[i]))} · vs ano ant. ${_cmpSeta(_cmpVar(S.atual[i], S.anoAnterior[i]))}</div>` : '');
+    dica.style.display = '';
+    const lx = x(i) + 14, cabe = lx + dica.offsetWidth < W;
+    dica.style.left = (cabe ? lx : x(i) - 14 - dica.offsetWidth) + 'px'; dica.style.top = pt + 'px';
+  };
+  alvo.addEventListener('mousemove', mostrar); alvo.addEventListener('touchstart', mostrar, { passive: true }); alvo.addEventListener('touchmove', mostrar, { passive: true });
+  alvo.addEventListener('mouseleave', () => { mira.style.display = 'none'; dica.style.display = 'none'; });
+}
+let _cmpResize; window.addEventListener('resize', () => { clearTimeout(_cmpResize); _cmpResize = setTimeout(() => { if ($('view-comparativo').classList.contains('active')) graficoComparativo(); }, 150); });
+
 // Botões que levam a outra tela já com a loja escolhida
 function ligarIrPara(box, loja) {
-  box.querySelectorAll('[data-ir]').forEach(b => b.addEventListener('click', () => {
+  box.querySelectorAll('[data-ir]').forEach(b => b.addEventListener('click', (ev) => {
+    ev.preventDefault();
     const v = b.dataset.ir;
+    if (v === 'comparativo') _cmpIrPara = loja || '';
     document.querySelector(`.nav-item[data-view="${v}"]`)?.click();
+    if (v === 'comparativo') return;
     const campo = { pedido: 'ped_loja', vendedores: 'ven_lojas', financeiro: 'fin_lojas' }[v];
     setTimeout(() => { const el = $(campo); if (!el || !loja) return; if (el.tagName === 'SELECT') { if ([...el.options].some(o => o.value === loja)) el.value = loja; } else el.value = loja; el.dispatchEvent(new Event('change')); }, 300);
   }));
