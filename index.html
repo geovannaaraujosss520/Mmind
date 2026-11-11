@@ -309,12 +309,10 @@
   .cli-intro{ font-size:13.5px; color:var(--muted); margin-bottom:12px; }
   .cli-cards{ display:grid; grid-template-columns:repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap:12px; }
   .cli-card{ border:1px solid var(--line); border-radius:12px; padding:12px 14px; background:var(--panel); }
-  .cli-card.falei{ opacity:.55; }
   .cli-card-topo{ display:flex; justify-content:space-between; gap:10px; align-items:flex-start; margin-bottom:6px; }
   .cli-nome{ font-weight:650; font-size:15px; }
   .cli-botoes{ display:flex; gap:6px; flex-shrink:0; align-items:center; }
   .cli-botoes .cli-wa{ margin:0; padding:5px 12px; font-size:12.5px; background:#1d7a43; color:#fff; border-color:#1d7a43; }
-  .cli-botoes .cli-falei{ padding:5px 10px; font-size:12px; }
   .cli-linha{ font-size:13px; margin-top:3px; }
   .cli-contato, .cli-dica-sug{ color:var(--muted); font-size:12px; }
   .cli-motivo-txt{ color:var(--accent-deep); }
@@ -732,7 +730,7 @@
     <header class="view-header">
       <h1>Clientes</h1>
       <div class="sub">Quem chamar hoje, para quem oferecer cada peça e quem faz aniversário.</div>
-      <details class="como-funciona"><summary>Como funciona</summary><div>Usa as vendas da loja com cliente identificado (CPF ou CNPJ válido; consumidor final, fornecedores e prestadores ficam de fora). Visita = dia em que o cliente comprou. Recompra = clientes com 2 ou mais visitas no período. "Voltou em até 90 dias" olha quem fez a primeira compra do período há mais de 90 dias. Tempo até voltar = mediana dos dias entre uma visita e a próxima. O perfil de cada cliente vem do que ele já comprou: categoria preferida (colar, brinco, anel…), preço médio por peça e frequência. Em "Para quem oferecer", entram clientes que compram a mesma categoria ou levaram peças que costumam sair junto com o produto, e que ainda não compraram esse modelo; a ordem considera também a faixa de preço e há quanto tempo o cliente comprou. Telefone e WhatsApp vêm do cadastro da VarejOnline — respeite quem não autorizou receber mensagens.</div></details>
+      <details class="como-funciona"><summary>Como funciona</summary><div>Usa as vendas da loja com cliente identificado (CPF ou CNPJ válido; consumidor final, fornecedores e prestadores ficam de fora). Visita = dia em que o cliente comprou. Recompra = clientes com 2 ou mais visitas no período. "Voltou em até 90 dias" olha quem fez a primeira compra do período há mais de 90 dias. Tempo até voltar = mediana dos dias entre uma visita e a próxima. O perfil de cada cliente vem do que ele já comprou: categoria preferida (colar, brinco, anel…), preço médio por peça e frequência. Em "Para quem oferecer", entram clientes que compram a mesma categoria ou levaram peças que costumam sair junto com o produto, e que ainda não compraram esse modelo; a ordem considera também a faixa de preço e há quanto tempo o cliente comprou. Telefone e WhatsApp vêm do cadastro da VarejOnline.</div></details>
     </header>
     <div class="panel">
       <div class="cli-topo">
@@ -1352,7 +1350,7 @@ function _cliContato(c, loja) {
   const msg = encodeURIComponent(`Olá, ${primeiro}! Tudo bem? Aqui é da Santo Santo Santo${loja ? ' ' + _nomeBonito(String(loja).replace(/^SSS\s+/i, '')) : ''}.`);
   return `${k.telefone ? esc(k.telefone) : '<span style="color:var(--muted)">sem telefone</span>'}
     ${k.whatsapp ? `<br><a href="https://wa.me/${k.whatsapp}?text=${msg}" target="_blank" rel="noopener" class="cli-wa">WhatsApp</a>` : ''}
-    ${k.autorizaWhatsapp === false ? '<br><span class="cli-aviso" title="No cadastro, o cliente não autorizou receber WhatsApp">não autorizou WhatsApp</span>' : ''}`;
+`;
 }
 const _cliData = iso => iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(2, 4)}` : '—';
 const _cliBarras = (linhas, campo, fmt) => {
@@ -1363,8 +1361,6 @@ const _cliBarras = (linhas, campo, fmt) => {
 // ---- Clientes, modo simples: frases, abas de tarefas e cartões ----
 let _cliAba = 'volta', _cliMostrar = {};
 const _cliTitulo = t => _nomeBonito(String(t || '').toLowerCase());
-const _cliFaleiLer = () => { try { return JSON.parse(localStorage.getItem('sss_cli_falei') || '{}'); } catch (_) { return {}; } };
-const _cliFaleiGravar = o => { try { localStorage.setItem('sss_cli_falei', JSON.stringify(o)); } catch (_) {} };
 const _cliMeses = d => d === 1 ? '1 dia' : d < 45 ? `${d} dias` : d < 365 ? `${Math.round(d / 30)} meses` : 'mais de 1 ano';
 const _cliQuando = d => d <= 0 ? 'hoje' : d === 1 ? 'ontem' : `há ${_cliMeses(d)}`;
 
@@ -1379,32 +1375,29 @@ function _cliMensagem(tipo, c, loja, extra) {
 }
 
 function _cliCartao(c, tipo, loja, extra) {
-  const falei = _cliFaleiLer()[`${loja}|${c.id}`];
   const k = c.contato || {};
   const msg = encodeURIComponent(_cliMensagem(tipo, c, loja, extra));
   const linha1 = tipo === 'aniversario'
     ? `<strong>${c.hoje ? 'Faz aniversário hoje!' : `Aniversário ${k.aniversario}`}</strong>${c.jaPassou ? ' (já passou)' : ''} · última compra ${_cliQuando(c.diasSemComprar)}`
     : `Última compra <strong>${_cliQuando(c.diasSemComprar)}</strong> · ${c.visitas} ${c.visitas === 1 ? 'visita' : 'visitas'} · gastou ${fmtMoeda(c.total)}`;
   const gosta = (c.categorias || []).map(x => x.split(' ')[0].toLowerCase()).slice(0, 2).join(' e ');
-  return `<div class="cli-card${falei ? ' falei' : ''}" data-cli="${esc(c.id)}">
+  return `<div class="cli-card" data-cli="${esc(c.id)}">
     <div class="cli-card-topo">
       <div class="cli-nome">${esc(_nomeBonito(c.nome))}</div>
       <div class="cli-botoes">
         ${k.whatsapp ? `<a class="cli-wa" href="https://wa.me/${k.whatsapp}?text=${msg}" target="_blank" rel="noopener">WhatsApp</a>` : ''}
-        <button type="button" class="secondary cli-falei" data-falei="${esc(c.id)}">${falei ? `✓ Falei em ${falei.slice(8, 10)}/${falei.slice(5, 7)}` : 'Já falei'}</button>
       </div>
     </div>
     <div class="cli-linha">${linha1}</div>
     ${gosta ? `<div class="cli-linha">Gosta de <strong>${esc(gosta)}</strong> · costuma gastar ${esc(c.faixaPreco)} por peça</div>` : ''}
     ${tipo === 'oferecer' ? `<div class="cli-linha cli-motivo-txt">Por que oferecer: ${esc(c.motivo)}</div>` : (c.sugestao ? `<div class="cli-linha">Ofereça: <strong>${esc(_cliTitulo(c.sugestao))}</strong> <span class="cli-dica-sug" title="Peça que está vendendo bem na categoria que esse cliente mais compra e que ele ainda não levou">(está vendendo bem)</span></div>` : '')}
-    <div class="cli-linha cli-contato">${k.telefone ? esc(k.telefone) : 'sem telefone no cadastro'}${k.autorizaWhatsapp === false ? ' · <span class="cli-aviso">não autorizou receber WhatsApp</span>' : ''}</div>
+    <div class="cli-linha cli-contato">${k.telefone ? esc(k.telefone) : 'sem telefone no cadastro'}</div>
   </div>`;
 }
 
 function _cliLista(lista, tipo, loja, extra, vazio) {
   if (!lista.length) return `<div class="empty">${vazio}</div>`;
-  const falei = _cliFaleiLer();
-  const ord = [...lista].sort((a, b) => (falei[`${loja}|${a.id}`] ? 1 : 0) - (falei[`${loja}|${b.id}`] ? 1 : 0));
+  const ord = lista;
   const n = _cliMostrar[tipo] || 10;
   return `<div class="cli-cards">${ord.slice(0, n).map(c => _cliCartao(c, tipo, loja, extra)).join('')}</div>
     ${ord.length > n ? `<div style="text-align:center; margin-top:12px"><button type="button" class="secondary" data-cli-mais="${tipo}">Mostrar mais ${Math.min(10, ord.length - n)}${ord.length - n > 10 ? ` (faltam ${ord.length - n})` : ''}</button></div>` : ''}`;
@@ -1426,7 +1419,7 @@ function desenharClientes() {
   const abas = [['volta', `Chamar de volta`, R.sumidos], ['aniversario', 'Aniversariantes do mês', nAniv], ['vip', 'Melhores clientes', null], ['oferecer', 'Oferecer uma peça', null]];
   const nomeMes = new Date().toLocaleDateString('pt-BR', { month: 'long' });
   let conteudo = '';
-  if (_cliAba === 'volta') conteudo = `<div class="cli-intro">Clientes que não compram há mais de ${P.sumidoDias} dias, começando por quem mais gastava. Mande uma mensagem e marque <em>Já falei</em> para não repetir.</div>${_cliLista(d.sumidos, 'volta', loja, null, 'Ninguém sumiu nesse prazo. 🎉')}`;
+  if (_cliAba === 'volta') conteudo = `<div class="cli-intro">Clientes que não compram há mais de ${P.sumidoDias} dias, começando por quem mais gastava. Mande uma mensagem pelo WhatsApp com o texto já pronto.</div>${_cliLista(d.sumidos, 'volta', loja, null, 'Ninguém sumiu nesse prazo. 🎉')}`;
   if (_cliAba === 'aniversario') conteudo = `<div class="cli-intro">Clientes que fazem aniversário em ${nomeMes} (entre os que mais compram e os que sumiram — aniversário é um ótimo motivo para chamar).</div>${_cliLista([...(d.aniversariantes || [])].sort((x, y) => (x.jaPassou - y.jaPassou) || String(x.contato?.aniversario).localeCompare(String(y.contato?.aniversario))), 'aniversario', loja, null, 'Nenhum aniversariante encontrado neste mês (a data precisa estar no cadastro do cliente).')}`;
   if (_cliAba === 'vip') conteudo = `<div class="cli-intro">Quem mais comprou com você no período. Trate como VIP: avise primeiro das novidades.</div>${_cliLista(d.vip, 'vip', loja, null, 'Sem clientes identificados no período.')}`;
   if (_cliAba === 'oferecer') {
@@ -1450,11 +1443,6 @@ function desenharClientes() {
 
   box.querySelectorAll('[data-cli-aba]').forEach(b => b.addEventListener('click', () => { _cliAba = b.dataset.cliAba; desenharClientes(); }));
   box.querySelectorAll('[data-cli-mais]').forEach(b => b.addEventListener('click', () => { _cliMostrar[b.dataset.cliMais] = (_cliMostrar[b.dataset.cliMais] || 10) + 10; desenharClientes(); }));
-  box.querySelectorAll('[data-falei]').forEach(b => b.addEventListener('click', () => {
-    const o = _cliFaleiLer(), k = `${loja}|${b.dataset.falei}`;
-    if (o[k]) delete o[k]; else o[k] = new Date().toISOString().slice(0, 10);
-    _cliFaleiGravar(o); desenharClientes();
-  }));
   box.querySelectorAll('[data-cli-prod]').forEach(b => b.addEventListener('click', () => rodarClientes(b.dataset.cliProd)));
   const buscar = () => { const v = $('cli_of_prod')?.value.trim(); if (v) rodarClientes(v); };
   $('cli_of_buscar')?.addEventListener('click', buscar);
@@ -1526,20 +1514,19 @@ async function exportarClientes() {
     const payload = { modulo: 'clientes', loja: P.loja, meses: P.meses, sumidoDias: P.sumidoDias, exportar: true };
     if (d.oferecer?.busca) payload.produto = d.oferecer.busca;
     const e = await chamarEdge(payload, EDGE_COMPRAS_URL);
-    const falei = _cliFaleiLer(), loja = P.loja;
-    const sn = v => v === true ? 'Sim' : v === false ? 'Não' : '';
+    const loja = P.loja;
     const colunas = (extra = []) => [
-      { titulo: 'Cliente', largura: 30 }, { titulo: 'Telefone', largura: 17 }, { titulo: 'Link WhatsApp', largura: 30 }, { titulo: 'Autorizou WhatsApp', largura: 12 }, { titulo: 'E-mail', largura: 28 }, { titulo: 'Aniversário', largura: 11 },
+      { titulo: 'Cliente', largura: 30 }, { titulo: 'Telefone', largura: 17 }, { titulo: 'Link WhatsApp', largura: 30 }, { titulo: 'E-mail', largura: 28 }, { titulo: 'Aniversário', largura: 11 },
       ...extra,
       { titulo: 'Última compra', largura: 13, tipo: 'data' }, { titulo: 'Dias sem comprar', largura: 10, tipo: 'numero' }, { titulo: 'Visitas', largura: 9, tipo: 'numero' },
       { titulo: 'Gasto no período', largura: 15, tipo: 'moeda' }, { titulo: 'Ticket médio', largura: 13, tipo: 'moeda' }, { titulo: 'Gosta de', largura: 30 }, { titulo: 'Faixa de preço por peça', largura: 18 },
-      { titulo: 'Peça sugerida', largura: 26 }, { titulo: 'Último produto', largura: 34 }, { titulo: 'Já falei em', largura: 12, tipo: 'data' },
+      { titulo: 'Peça sugerida', largura: 26 }, { titulo: 'Último produto', largura: 34 },
     ];
     const linha = (c, extra = []) => [
-      _nomeBonito(c.nome), c.contato?.telefone || '', c.contato?.whatsapp ? `https://wa.me/${c.contato.whatsapp}` : '', sn(c.contato?.autorizaWhatsapp), c.contato?.email || '', c.contato?.aniversario || '',
+      _nomeBonito(c.nome), c.contato?.telefone || '', c.contato?.whatsapp ? `https://wa.me/${c.contato.whatsapp}` : '', c.contato?.email || '', c.contato?.aniversario || '',
       ...extra,
       c.ultimaCompra, c.diasSemComprar, c.visitas, c.total, c.ticket, (c.categorias || []).join(', ').toLowerCase(), c.faixaPreco,
-      c.sugestao ? _cliTitulo(c.sugestao) : '', c.ultimoProduto || '', falei[`${loja}|${c.id}`] || '',
+      c.sugestao ? _cliTitulo(c.sugestao) : '', c.ultimoProduto || '',
     ];
     const abas = [
       { nome: 'Todos os clientes', colunas: colunas([{ titulo: 'Situação', largura: 12 }]), linhas: (e.todos || []).map(c => linha(c, [c.diasSemComprar <= 90 ? 'ativo' : c.diasSemComprar <= P.sumidoDias ? 'esfriando' : 'sumido'])) },

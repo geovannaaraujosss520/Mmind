@@ -2011,7 +2011,6 @@ function contatoDe(t: any) {
   return {
     telefone: tel ? (tel.length === 11 ? `(${tel.slice(0, 2)}) ${tel.slice(2, 7)}-${tel.slice(7)}` : `(${tel.slice(0, 2)}) ${tel.slice(2, 6)}-${tel.slice(6)}`) : null,
     whatsapp: tel && tels[0].tipo !== 'RESIDENCIAL' && tel.length === 11 ? `55${tel}` : null,
-    autorizaWhatsapp: t.autorizaReceberWhatsapp ?? null,
     email: (t.emails ?? [])[0] ?? null,
     aniversario: nasc ? `${nasc[1]}/${nasc[2]}` : null,
   };
