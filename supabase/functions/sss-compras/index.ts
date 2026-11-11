@@ -2034,7 +2034,8 @@ async function moduloClientes(body: any, a: Acesso) {
   type Cli = { id: string; nome: string; documento: string; dias: Set<string>; vendas: number; fat: number; pecas: number; cats: Map<string, number>; modelos: Set<string>; prods: Set<string>; maxPeca: number; ultimoProduto: string; ultima: string; primeira: string };
   const clientes = new Map<string, Cli>();
   const vendasModelos: { cid: string | null; modelos: string[] }[] = [];
-  const produtos = new Map<string, { modelo: string; codigo: string | null; qtd: number; fat: number; ids: Set<string>; cat: string }>();
+  const produtos = new Map<string, { modelo: string; codigo: string | null; qtd: number; qtd60: number; fat: number; ids: Set<string>; cat: string }>();
+  const recente60 = (() => { const d = new Date(Date.parse(hojeIso) - 60 * 86400_000); return d.toISOString().slice(0, 10); })();
   let vendas = 0, vendasIdent = 0, fat = 0, fatIdent = 0;
 
   const parceiros = await fetchAllPages(`${apiBase}/terceiros?classes=FORNECEDOR,PRESTADOR_SERVICO`, chave).catch(() => []);
@@ -2051,8 +2052,8 @@ async function moduloClientes(body: any, a: Acesso) {
       f += v; q += qt;
       const desc = String(it.produto?.descricao ?? ''), modelo = modeloDe(desc), cat = categoriaDe(desc), pid = String(it.produto?.id ?? desc);
       mods.add(modelo); itens.push({ modelo, pid, cat, v, q: qt, desc });
-      const p = produtos.get(modelo) ?? { modelo, codigo: it.produto?.codigoSistema ?? null, qtd: 0, fat: 0, ids: new Set<string>(), cat };
-      p.qtd += qt; p.fat += v; p.ids.add(pid); produtos.set(modelo, p);
+      const p = produtos.get(modelo) ?? { modelo, codigo: it.produto?.codigoSistema ?? null, qtd: 0, qtd60: 0, fat: 0, ids: new Set<string>(), cat };
+      p.qtd += qt; p.fat += v; p.ids.add(pid); if (dia >= recente60) p.qtd60 += qt; produtos.set(modelo, p);
     }
     if (q <= 0) return;
     vendas++; fat += f;
@@ -2074,6 +2075,15 @@ async function moduloClientes(body: any, a: Acesso) {
   }, 15, 3);
 
   const lista = [...clientes.values()];
+  // o que está vendendo agora (últimos 60 dias), por categoria — base da sugestão de peça para cada cliente
+  const emAlta = [...produtos.values()].filter((p) => p.qtd60 > 0).sort((x, y) => y.qtd60 - x.qtd60);
+  const emAltaPorCat = new Map<string, string[]>();
+  for (const p of emAlta) { const l = emAltaPorCat.get(p.cat) ?? []; if (l.length < 15) l.push(p.modelo); emAltaPorCat.set(p.cat, l); }
+  const sugestaoPara = (c: Cli) => {
+    const cats = [...c.cats.entries()].sort((x, y) => y[1] - x[1]).map((x) => x[0]);
+    for (const cat of cats) { const m = (emAltaPorCat.get(cat) ?? []).find((mm) => !c.modelos.has(mm)); if (m) return m; }
+    return emAlta.find((p) => !c.modelos.has(p.modelo))?.modelo ?? null;
+  };
   const perfil = (c: Cli) => {
     const cats = [...c.cats.entries()].sort((x, y) => y[1] - x[1]);
     const totPecas = cats.reduce((s, x) => s + x[1], 0) || 1;
@@ -2083,6 +2093,7 @@ async function moduloClientes(body: any, a: Acesso) {
       pecas: r2(c.pecas), precoMedioPeca: r2(precoPeca), faixaPreco: faixaPrecoDe(precoPeca),
       categoriaPreferida: cats[0]?.[0] ?? null, categorias: cats.slice(0, 3).map(([k, n]) => `${k} ${Math.round(n / totPecas * 100)}%`),
       primeiraCompra: c.primeira, ultimaCompra: c.ultima, diasSemComprar: dias(c.ultima), ultimoProduto: c.ultimoProduto,
+      sugestao: sugestaoPara(c),
     };
   };
 
@@ -2172,8 +2183,9 @@ async function moduloClientes(body: any, a: Acesso) {
     }
   }
 
-  // ---- contatos (telefone/WhatsApp/aniversário) só de quem aparece nas listas ----
-  const ids = [...new Set([...sumidos.slice(0, 150), ...vip, ...(oferecer?.clientes ?? [])].map((c: any) => c.id))];
+  // ---- contatos (telefone/WhatsApp/aniversário) só de quem aparece nas listas + os 200 que mais gastam (aniversariantes) ----
+  const top200 = [...lista].sort((x, y) => y.fat - x.fat).slice(0, 200);
+  const ids = [...new Set([...(oferecer?.clientes ?? []).slice(0, 60), ...vip, ...sumidos.slice(0, 120), ...top200].map((c: any) => c.id))];
   const contatos = new Map<string, any>();
   let k = 0;
   const prazo = Date.now() + 40_000;
@@ -2181,6 +2193,12 @@ async function moduloClientes(body: any, a: Acesso) {
     while (k < ids.length && Date.now() < prazo) { const id = ids[k++]; contatos.set(id, await contatoCliente(apiBase, chave, id)); }
   }));
   const comContato = (c: any) => ({ ...c, contato: contatos.get(c.id) ?? null });
+  const mesAtual = hojeIso.slice(5, 7), diaAtual = hojeIso.slice(8, 10);
+  const aniversariantes = top200.concat(lista.filter((c) => dias(c.ultima) > sumidoDias))
+    .filter((c, i, arr) => arr.findIndex((x) => x.id === c.id) === i)
+    .map((c) => ({ c, k: contatos.get(c.id) })).filter((x) => x.k?.aniversario?.slice(3, 5) === mesAtual)
+    .sort((x, y) => x.k.aniversario.localeCompare(y.k.aniversario))
+    .map((x) => ({ ...perfil(x.c), contato: x.k, jaPassou: x.k.aniversario.slice(0, 2) < diaAtual, hoje: x.k.aniversario.slice(0, 2) === diaAtual }));
 
   return {
     parametros: { loja, desde: `${ini.getFullYear()}-${String(ini.getMonth() + 1).padStart(2, '0')}-${String(ini.getDate()).padStart(2, '0')}`, ate: hojeIso, meses, sumidoDias },
@@ -2202,6 +2220,8 @@ async function moduloClientes(body: any, a: Acesso) {
     sumidos: sumidos.map(comContato), vip: vip.map(comContato),
     oferecer: oferecer?.clientes ? { ...oferecer, clientes: oferecer.clientes.map(comContato) } : oferecer,
     produtos: [...produtos.values()].sort((x, y) => y.qtd - x.qtd).slice(0, 500).map((p) => p.modelo),
+    maisVendidos: emAlta.slice(0, 12).map((p) => ({ modelo: p.modelo, categoria: p.cat, vendidos60: r2(p.qtd60) })),
+    aniversariantes,
     contatosIncompletos: ids.length > contatos.size,
   };
 }
