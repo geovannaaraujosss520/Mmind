@@ -3,7 +3,7 @@
 // Secrets: VAREJONLINE_API_BASE, APP_PASSCODE, PEDIDOS_API_KEY, ALLOWED_ORIGIN (opcional), LIMITE_PEDIDO_SEM_CONFIRMACAO (opcional, em R$).
 // Tabelas: lojas_config, pedidos_vinculos, pedidos_sugeridos.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { saidasComCache, saldosComCache, registrarLojas, lojaDaChave, prepararChamada, reiniciarMedicao, resumoMedicao, medicao, diaDaVenda } from '../_shared/vendas_cache.ts';
+import { saidasComCache, saldosComCache, registrarLojas, lojaDaChave, prepararChamada, abrirChave, reiniciarMedicao, resumoMedicao, medicao, diaDaVenda } from '../_shared/vendas_cache.ts';
 
 
 // ALLOWED_ORIGIN aceita varios enderecos separados por virgula (ex.: GitHub Pages + servidor Node).
@@ -1977,6 +1977,236 @@ async function moduloComparativo(body: any, a: Acesso) {
   };
 }
 
+// =====================================================================
+// CLIENTES: base ativa, recompra, tempo até voltar, clientes que sumiram, VIPs e
+// "para quem oferecer" um produto, pelo perfil de compra de cada cliente.
+// body: { loja, meses?: 6..24 (padrão 12), sumidoDias?: 60|90|120|180 (padrão 90), produto?: texto ou código }
+// Uma loja por vez. Só entram vendas com cliente identificado (CPF/CNPJ válido, fora consumidor final,
+// fornecedores e prestadores).
+// =====================================================================
+const cacheContatos = new Map<string, { t: number; v: any }>();
+const CATEGORIA_SINONIMO: Record<string, string> = { COLARES: 'COLAR', BRINCOS: 'BRINCO', ANEIS: 'ANEL', PULSEIRAS: 'PULSEIRA', CORRENTES: 'CORRENTE', TORNOZELEIRAS: 'TORNOZELEIRA', PINGENTES: 'PINGENTE', BRACELETES: 'BRACELETE', CONJUNTOS: 'CONJUNTO', KITS: 'KIT', PIERCINGS: 'PIERCING', CHOKERS: 'CHOKER', ARGOLAS: 'ARGOLA', ALIANCAS: 'ALIANCA', RELOGIOS: 'RELOGIO' };
+const categoriaDe = (desc: unknown) => { const w = limpa(desc).split(' ')[0] || 'OUTROS'; return CATEGORIA_SINONIMO[w] ?? w; };
+const modeloDe = (desc: unknown) => String(desc ?? '').split(/\s+-\s+/)[0].trim().toUpperCase() || '(sem descrição)';
+const faixaPrecoDe = (v: number) => v < 50 ? 'até R$ 49,99' : v < 100 ? 'R$ 50 a 99' : v < 200 ? 'R$ 100 a 199' : 'R$ 200 ou mais';
+
+async function contatoCliente(apiBase: string, chave: string, id: string) {
+  const k = `${abrirChave(chave).token}|${id}`, c = cacheContatos.get(k);
+  if (c && Date.now() - c.t < 6 * 3600_000) return c.v;
+  let v: any = null;
+  try {
+    const { token } = abrirChave(chave);
+    const r = await fetch(`${apiBase}/terceiros/${encodeURIComponent(id)}?token=${token}`, { signal: AbortSignal.timeout(15000) });
+    if (r.ok) {
+      const t: any = await r.json();
+      const tels = (t.telefones ?? []).map((f: any) => ({ tipo: f.tipoTelefone, num: soDigitos(f.ddd) + soDigitos(f.numero) })).filter((f: any) => f.num.length >= 10)
+        .sort((a: any, b: any) => (a.tipo === 'CELULAR' ? 0 : 1) - (b.tipo === 'CELULAR' ? 0 : 1));
+      const tel = tels[0]?.num ?? null;
+      const nasc = String(t.dataNascimento ?? '').match(/^(\d{2})-(\d{2})-(\d{4})/);
+      v = {
+        telefone: tel ? (tel.length === 11 ? `(${tel.slice(0, 2)}) ${tel.slice(2, 7)}-${tel.slice(7)}` : `(${tel.slice(0, 2)}) ${tel.slice(2, 6)}-${tel.slice(6)}`) : null,
+        whatsapp: tel && tels[0].tipo !== 'RESIDENCIAL' && tel.length === 11 ? `55${tel}` : null,
+        autorizaWhatsapp: t.autorizaReceberWhatsapp ?? null,
+        email: (t.emails ?? [])[0] ?? null,
+        aniversario: nasc ? `${nasc[1]}/${nasc[2]}` : null,
+      };
+    }
+  } catch (_) { /* sem contato */ }
+  cacheContatos.set(k, { t: Date.now(), v });
+  return v;
+}
+
+async function moduloClientes(body: any, a: Acesso) {
+  const apiBase = Deno.env.get('VAREJONLINE_API_BASE');
+  if (!apiBase) throw new Error('VAREJONLINE_API_BASE não configurado.');
+  const tokens = await getLojasTokens();
+  const loja = String(body.loja ?? '') || (a.todas ? '' : a.lojas[0] ?? '');
+  if (!loja || !tokens[loja]) throw new Error('Escolha uma loja.');
+  exigirLoja(a, loja);
+  const chave = tokens[loja];
+  const meses = Math.min(24, Math.max(6, Number(body.meses ?? 12)));
+  const sumidoDias = Math.min(365, Math.max(30, Number(body.sumidoDias ?? 90)));
+  const hojeIso = new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10);
+  const hoje = new Date(+hojeIso.slice(0, 4), +hojeIso.slice(5, 7) - 1, +hojeIso.slice(8, 10));
+  const ini = new Date(hoje); ini.setMonth(ini.getMonth() - meses); ini.setDate(ini.getDate() + 1);
+  const dias = (iso: string) => Math.round((Date.parse(hojeIso) - Date.parse(iso)) / 86400_000);
+
+  type Cli = { id: string; nome: string; documento: string; dias: Set<string>; vendas: number; fat: number; pecas: number; cats: Map<string, number>; modelos: Set<string>; prods: Set<string>; maxPeca: number; ultimoProduto: string; ultima: string; primeira: string };
+  const clientes = new Map<string, Cli>();
+  const vendasModelos: { cid: string | null; modelos: string[] }[] = [];
+  const produtos = new Map<string, { modelo: string; codigo: string | null; qtd: number; fat: number; ids: Set<string>; cat: string }>();
+  let vendas = 0, vendasIdent = 0, fat = 0, fatIdent = 0;
+
+  const parceiros = await fetchAllPages(`${apiBase}/terceiros?classes=FORNECEDOR,PRESTADOR_SERVICO`, chave).catch(() => []);
+  const idsParceiros = new Set<string>(parceiros.filter((t: any) => (t?.classes ?? []).some((c: string) => /FORNECEDOR|PRESTADOR_SERVICO/.test(String(c)))).map((t: any) => String(t.id)));
+
+  await buscarSaidasParalelo(apiBase, chave, ini, hoje, (sd) => {
+    if (!ehVenda(sd)) return;
+    const dia = diaDaVenda(sd); if (!dia) return;
+    let f = 0, q = 0; const mods = new Set<string>();
+    const itens: { modelo: string; pid: string; cat: string; v: number; q: number; desc: string }[] = [];
+    for (const it of sd.mercadorias ?? []) {
+      const qt = Math.max(0, Number(it.quantidade ?? 0)), v = Number(it.valorTotal ?? 0);
+      if (qt <= 0) continue;
+      f += v; q += qt;
+      const desc = String(it.produto?.descricao ?? ''), modelo = modeloDe(desc), cat = categoriaDe(desc), pid = String(it.produto?.id ?? desc);
+      mods.add(modelo); itens.push({ modelo, pid, cat, v, q: qt, desc });
+      const p = produtos.get(modelo) ?? { modelo, codigo: it.produto?.codigoSistema ?? null, qtd: 0, fat: 0, ids: new Set<string>(), cat };
+      p.qtd += qt; p.fat += v; p.ids.add(pid); produtos.set(modelo, p);
+    }
+    if (q <= 0) return;
+    vendas++; fat += f;
+    const t = sd.terceiro;
+    const ok = clienteIdentificado(t) && !idsParceiros.has(String(t?.id));
+    const cid = ok ? String(t.id) : null;
+    vendasModelos.push({ cid, modelos: [...mods] });
+    if (!cid) return;
+    vendasIdent++; fatIdent += f;
+    const c = clientes.get(cid) ?? { id: cid, nome: String(t.nome ?? '').trim(), documento: String(t.documento ?? ''), dias: new Set<string>(), vendas: 0, fat: 0, pecas: 0, cats: new Map(), modelos: new Set<string>(), prods: new Set<string>(), maxPeca: 0, ultimoProduto: '', ultima: '', primeira: '9999' };
+    c.dias.add(dia); c.vendas++; c.fat += f; c.pecas += q;
+    for (const it of itens) {
+      c.cats.set(it.cat, (c.cats.get(it.cat) ?? 0) + it.q); c.modelos.add(it.modelo); c.prods.add(it.pid);
+      c.maxPeca = Math.max(c.maxPeca, it.v / it.q);
+    }
+    if (dia >= c.ultima) { c.ultima = dia; c.ultimoProduto = itens[0]?.desc ?? ''; }
+    if (dia < c.primeira) c.primeira = dia;
+    clientes.set(cid, c);
+  }, 15, 3);
+
+  const lista = [...clientes.values()];
+  const perfil = (c: Cli) => {
+    const cats = [...c.cats.entries()].sort((x, y) => y[1] - x[1]);
+    const totPecas = cats.reduce((s, x) => s + x[1], 0) || 1;
+    const precoPeca = c.pecas ? c.fat / c.pecas : 0;
+    return {
+      id: c.id, nome: c.nome || '(sem nome)', visitas: c.dias.size, compras: c.vendas, total: r2(c.fat), ticket: r2(c.fat / Math.max(1, c.vendas)),
+      pecas: r2(c.pecas), precoMedioPeca: r2(precoPeca), faixaPreco: faixaPrecoDe(precoPeca),
+      categoriaPreferida: cats[0]?.[0] ?? null, categorias: cats.slice(0, 3).map(([k, n]) => `${k} ${Math.round(n / totPecas * 100)}%`),
+      primeiraCompra: c.primeira, ultimaCompra: c.ultima, diasSemComprar: dias(c.ultima), ultimoProduto: c.ultimoProduto,
+    };
+  };
+
+  // ---- indicadores ----
+  const ativos = lista.filter((c) => dias(c.ultima) <= 90).length;
+  const recorrentes = lista.filter((c) => c.dias.size >= 2);
+  const fatRec = recorrentes.reduce((s, c) => s + c.fat, 0);
+  const intervalos: number[] = [];
+  for (const c of lista) {
+    const ds = [...c.dias].sort();
+    for (let i = 1; i < ds.length; i++) intervalos.push(Math.round((Date.parse(ds[i]) - Date.parse(ds[i - 1])) / 86400_000));
+  }
+  intervalos.sort((x, y) => x - y);
+  const mediana = intervalos.length ? intervalos[Math.floor(intervalos.length / 2)] : null;
+  // voltou em até 90 dias: entre quem fez a 1ª compra do período há mais de 90 dias (e depois do 1º mês, para não pegar quem já era cliente antes)
+  const corteIni = new Date(ini); corteIni.setMonth(corteIni.getMonth() + 1);
+  const corteIniIso = `${corteIni.getFullYear()}-${String(corteIni.getMonth() + 1).padStart(2, '0')}-${String(corteIni.getDate()).padStart(2, '0')}`;
+  const coorte = lista.filter((c) => c.primeira >= corteIniIso && dias(c.primeira) > 90);
+  const voltou90 = coorte.filter((c) => [...c.dias].some((d) => d > c.primeira && (Date.parse(d) - Date.parse(c.primeira)) / 86400_000 <= 90)).length;
+  const novos30 = lista.filter((c) => c.primeira >= corteIniIso && dias(c.primeira) <= 30).length;
+
+  const faixasRec = [[30, 'até 30 dias'], [60, '31 a 60 dias'], [90, '61 a 90 dias'], [180, '91 a 180 dias'], [100000, 'mais de 180 dias']] as const;
+  const recencia = faixasRec.map(([lim, nome], i) => {
+    const de = i ? faixasRec[i - 1][0] : -1;
+    const g = lista.filter((c) => { const d = dias(c.ultima); return d > de && d <= lim; });
+    return { faixa: nome, clientes: g.length, faturamento: r2(g.reduce((s, c) => s + c.fat, 0)) };
+  });
+  const faixasInt = [[15, 'até 15 dias'], [30, '16 a 30 dias'], [60, '31 a 60 dias'], [90, '61 a 90 dias'], [180, '91 a 180 dias'], [100000, 'mais de 180 dias']] as const;
+  const intervalosFaixa = faixasInt.map(([lim, nome], i) => { const de = i ? faixasInt[i - 1][0] : -1; return { faixa: nome, voltas: intervalos.filter((d) => d > de && d <= lim).length }; });
+  const frequencia = [['1 visita', 1, 1], ['2 visitas', 2, 2], ['3 a 5 visitas', 3, 5], ['6 ou mais', 6, 1e9]].map(([nome, mn, mx]) => {
+    const g = lista.filter((c) => c.dias.size >= (mn as number) && c.dias.size <= (mx as number));
+    return { faixa: nome, clientes: g.length, faturamento: r2(g.reduce((s, c) => s + c.fat, 0)) };
+  });
+  const porCat = new Map<string, { clientes: number; pecas: number }>();
+  for (const c of lista) for (const [k, n] of c.cats) { const x = porCat.get(k) ?? { clientes: 0, pecas: 0 }; x.clientes++; x.pecas += n; porCat.set(k, x); }
+
+  // ---- listas ----
+  const sumidos = lista.filter((c) => dias(c.ultima) > sumidoDias).sort((x, y) => y.fat - x.fat).slice(0, 300).map(perfil);
+  const vip = [...lista].sort((x, y) => y.fat - x.fat).slice(0, 50).map((c) => ({ ...perfil(c), status: dias(c.ultima) <= 90 ? 'ativo' : dias(c.ultima) <= sumidoDias ? 'esfriando' : 'sumido' }));
+
+  // ---- para quem oferecer ----
+  let oferecer: any = null;
+  const busca = limpa(body.produto ?? '');
+  if (busca) {
+    const alvo = [...produtos.values()].filter((p) => limpa(p.modelo).includes(busca) || (p.codigo && limpa(p.codigo) === busca));
+    if (!alvo.length) oferecer = { busca: body.produto, encontrado: false };
+    else {
+      const modelosAlvo = new Set(alvo.map((p) => p.modelo));
+      const qtdAlvo = alvo.reduce((s, p) => s + p.qtd, 0), fatAlvo = alvo.reduce((s, p) => s + p.fat, 0);
+      const preco = qtdAlvo ? fatAlvo / qtdAlvo : 0;
+      const catCont = new Map<string, number>(); for (const p of alvo) catCont.set(p.cat, (catCont.get(p.cat) ?? 0) + p.qtd);
+      const categoria = [...catCont.entries()].sort((x, y) => y[1] - x[1])[0][0];
+      // o que costuma sair junto no mesmo atendimento
+      const junto = new Map<string, number>(); let vendasComAlvo = 0;
+      for (const v of vendasModelos) {
+        if (!v.modelos.some((m) => modelosAlvo.has(m))) continue;
+        vendasComAlvo++;
+        for (const m of v.modelos) if (!modelosAlvo.has(m)) junto.set(m, (junto.get(m) ?? 0) + 1);
+      }
+      const coCompra = [...junto.entries()].filter(([, n]) => n >= 2).sort((x, y) => y[1] - x[1]).slice(0, 8).map(([m, n]) => ({ modelo: m, vezes: n }));
+      const coSet = new Set(coCompra.map((x) => x.modelo));
+      const jaCompraram = lista.filter((c) => [...c.modelos].some((m) => modelosAlvo.has(m)));
+      const candidatos: any[] = [];
+      for (const c of lista) {
+        if ([...c.modelos].some((m) => modelosAlvo.has(m))) continue;
+        const totP = [...c.cats.values()].reduce((s, n) => s + n, 0) || 1;
+        const naCat = c.cats.get(categoria) ?? 0;
+        const juntoDele = [...c.modelos].filter((m) => coSet.has(m));
+        if (!naCat && !juntoDele.length) continue; // sem relação com o produto
+        let score = 0; const motivos: string[] = [];
+        if (naCat) { score += 3 + 2 * (naCat / totP); motivos.push(`compra ${categoria.toLowerCase()} (${Math.round(naCat / totP * 100)}% das peças)`); }
+        const pm = c.pecas ? c.fat / c.pecas : 0;
+        if (preco && pm >= preco * 0.6 && pm <= preco * 1.5) { score += 2; motivos.push(`gasta ~${fmtBRL(pm)} por peça`); }
+        else if (preco && c.maxPeca >= preco) { score += 1; motivos.push(`já levou peça de ${fmtBRL(c.maxPeca)}`); }
+        if (juntoDele.length) { score += 2; motivos.push(`comprou ${juntoDele[0].toLowerCase()}, que costuma sair junto`); }
+        const d = dias(c.ultima);
+        if (d <= 60) score += 2; else if (d <= 120) score += 1; else if (d > 240) score -= 1;
+        if (c.dias.size >= 3) { score += 1; motivos.push(`${c.dias.size} visitas no período`); }
+        candidatos.push({ ...perfil(c), score: r2(score), motivo: motivos.join(' · ') });
+      }
+      candidatos.sort((x, y) => y.score - x.score || y.total - x.total);
+      oferecer = {
+        busca: body.produto, encontrado: true,
+        alvo: { modelos: alvo.slice(0, 6).map((p) => p.modelo), nModelos: alvo.length, categoria, precoMedio: r2(preco), vendidos: r2(qtdAlvo), vendasComAlvo, coCompra },
+        jaCompraram: jaCompraram.length, candidatos: candidatos.length, clientes: candidatos.slice(0, 150),
+      };
+    }
+  }
+
+  // ---- contatos (telefone/WhatsApp/aniversário) só de quem aparece nas listas ----
+  const ids = [...new Set([...sumidos.slice(0, 150), ...vip, ...(oferecer?.clientes ?? [])].map((c: any) => c.id))];
+  const contatos = new Map<string, any>();
+  let k = 0;
+  const prazo = Date.now() + 40_000;
+  await Promise.all(Array.from({ length: 8 }, async () => {
+    while (k < ids.length && Date.now() < prazo) { const id = ids[k++]; contatos.set(id, await contatoCliente(apiBase, chave, id)); }
+  }));
+  const comContato = (c: any) => ({ ...c, contato: contatos.get(c.id) ?? null });
+
+  return {
+    parametros: { loja, desde: `${ini.getFullYear()}-${String(ini.getMonth() + 1).padStart(2, '0')}-${String(ini.getDate()).padStart(2, '0')}`, ate: hojeIso, meses, sumidoDias },
+    resumo: {
+      vendas, vendasIdentificadas: vendasIdent, pctIdentificadas: vendas ? r2(vendasIdent / vendas * 100) : null,
+      faturamento: r2(fat), faturamentoIdentificado: r2(fatIdent),
+      clientes: lista.length, ativos90: ativos, novos30, recorrentes: recorrentes.length,
+      recompraPct: lista.length ? r2(recorrentes.length / lista.length * 100) : null,
+      voltou90Pct: coorte.length ? r2(voltou90 / coorte.length * 100) : null, voltou90Base: coorte.length,
+      intervaloMedianoDias: mediana,
+      fatRecorrentesPct: fatIdent ? r2(fatRec / fatIdent * 100) : null,
+      ticketRecorrente: recorrentes.length ? r2(fatRec / recorrentes.reduce((s, c) => s + c.vendas, 0)) : null,
+      ticketUmaVisita: lista.length - recorrentes.length ? r2((fatIdent - fatRec) / lista.filter((c) => c.dias.size < 2).reduce((s, c) => s + c.vendas, 0)) : null,
+      sumidos: lista.filter((c) => dias(c.ultima) > sumidoDias).length,
+      fatSumidos: r2(lista.filter((c) => dias(c.ultima) > sumidoDias).reduce((s, c) => s + c.fat, 0)),
+    },
+    recencia, intervalos: intervalosFaixa, frequencia,
+    categorias: [...porCat.entries()].sort((x, y) => y[1].clientes - x[1].clientes).slice(0, 12).map(([categoria, v]) => ({ categoria, clientes: v.clientes, pecas: r2(v.pecas) })),
+    sumidos: sumidos.map(comContato), vip: vip.map(comContato),
+    oferecer: oferecer?.clientes ? { ...oferecer, clientes: oferecer.clientes.map(comContato) } : oferecer,
+    produtos: [...produtos.values()].sort((x, y) => y.qtd - x.qtd).slice(0, 500).map((p) => p.modelo),
+    contatosIncompletos: ids.length > contatos.size,
+  };
+}
+const fmtBRL = (v: number) => `R$ ${v.toFixed(2).replace('.', ',')}`;
+
 // Metas do mes por vendedor: listar { loja, ano, mes } / salvar { loja, ano, mes, metas:[{ vendedorId, vendedorNome, meta }] }
 // Franqueado define a meta da equipe das proprias lojas; admin/equipe de qualquer loja.
 async function moduloMetasVendedores(body: any, a: Acesso) {
@@ -2348,6 +2578,7 @@ Deno.serve(async (req) => {
     if (modulo === 'dre') return resp(await moduloDre(body, a));
     if (modulo === 'painel') return resp(await moduloPainel(body, a));
     if (modulo === 'comparativo') return resp(await moduloComparativo(body, a));
+    if (modulo === 'clientes') return resp(await moduloClientes(body, a));
     if (modulo === 'metasVendedores') return resp(await moduloMetasVendedores(body, a));
     if (modulo === 'sincronizarCentral') return resp(await moduloSincronizarCentral(body));
     if (modulo === 'lojaEditar') { exigirPapel(a, 'admin'); return resp(await moduloLojaEditar(body)); }
