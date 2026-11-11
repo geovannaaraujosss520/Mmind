@@ -280,6 +280,21 @@
   .cmp-tabela tr.cmp-hoje td{ background:var(--gold-tint); }
   .cmp-atalhos{ display:inline-flex; gap:6px; flex-wrap:wrap; }
   .cmp-atalhos button{ padding:7px 11px; font-size:12px; }
+  /* Clientes */
+  .cli-grade{ display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+  @media (max-width: 900px){ .cli-grade{ grid-template-columns:1fr; } }
+  .cli-tit{ font-size:13px; font-weight:600; margin-bottom:10px; }
+  .cli-barras{ display:flex; flex-direction:column; gap:7px; }
+  .cli-barra{ display:grid; grid-template-columns:110px 1fr auto; gap:8px; align-items:center; font-size:12px; }
+  .cli-barra-r{ color:var(--muted); }
+  .cli-barra-t{ height:10px; background:var(--panel-2); border-radius:4px; overflow:hidden; }
+  .cli-barra-t span{ display:block; height:100%; background:var(--accent); border-radius:0 4px 4px 0; }
+  .cli-barra-v{ text-align:right; min-width:70px; } .cli-barra-v small{ color:var(--muted); margin-left:4px; }
+  .cli-alvo{ display:flex; flex-wrap:wrap; gap:6px 18px; font-size:12.5px; color:var(--muted); margin:12px 0 4px; }
+  .cli-alvo strong{ color:var(--text); }
+  a.cli-wa{ display:inline-block; margin-top:3px; font-size:11.5px; font-weight:600; color:#1d7a43; text-decoration:none; border:1px solid #1d7a43; border-radius:8px; padding:1px 8px; }
+  .cli-aviso{ font-size:10.5px; color:var(--warn); }
+  .cli-tabela td{ white-space:normal; vertical-align:top; } .cli-tabela td.cli-motivo{ min-width:220px; max-width:300px; } .cli-tabela td.cli-ult{ min-width:170px; }
   .ticket-ref{ font-size:11.5px; color:var(--muted); margin-top:3px; }
 
   @media (max-width: 900px){
@@ -410,6 +425,7 @@
   <div class="nav-item" data-view="estoque"><span class="dot"></span> Estoque</div>
   <div class="nav-item" data-view="financeiro"><span class="dot"></span> Financeiro</div>
   <div class="nav-item" data-view="comparativo"><span class="dot"></span> Comparativo</div>
+  <div class="nav-item" data-view="clientes"><span class="dot"></span> Clientes</div>
   <div class="nav-item" data-view="vendedores"><span class="dot"></span> Equipe</div>
   <div class="nav-grupo" data-grupo="rede">
     <button type="button" class="nav-grupo-titulo">Rede <span class="seta">▾</span></button>
@@ -681,6 +697,25 @@
     </div>
     <div id="erro-comparativo"></div>
     <div id="resultado-comparativo"></div>
+  </div>
+
+  <!-- ===================== CLIENTES ===================== -->
+  <div class="view" id="view-clientes">
+    <header class="view-header">
+      <h1>Clientes</h1>
+      <div class="sub">Quem compra, quem volta, quem sumiu e para quem oferecer cada peça.</div>
+      <details class="como-funciona"><summary>Como funciona</summary><div>Usa as vendas da loja com cliente identificado (CPF ou CNPJ válido; consumidor final, fornecedores e prestadores ficam de fora). Visita = dia em que o cliente comprou. Recompra = clientes com 2 ou mais visitas no período. "Voltou em até 90 dias" olha quem fez a primeira compra do período há mais de 90 dias. Tempo até voltar = mediana dos dias entre uma visita e a próxima. O perfil de cada cliente vem do que ele já comprou: categoria preferida (colar, brinco, anel…), preço médio por peça e frequência. Em "Para quem oferecer", entram clientes que compram a mesma categoria ou levaram peças que costumam sair junto com o produto, e que ainda não compraram esse modelo; a ordem considera também a faixa de preço e há quanto tempo o cliente comprou. Telefone e WhatsApp vêm do cadastro da VarejOnline — respeite quem não autorizou receber mensagens.</div></details>
+    </header>
+    <div class="panel">
+      <div class="grid">
+        <div style="grid-column: span 2"><label>Loja</label><select id="cli_loja"><option value="">Carregando lojas…</option></select></div>
+        <div><label>Período</label><select id="cli_meses"><option value="6">últimos 6 meses</option><option value="12" selected>últimos 12 meses</option><option value="24">últimos 24 meses</option></select></div>
+        <div><label>Sumido há mais de</label><select id="cli_sumido"><option value="60">60 dias</option><option value="90" selected>90 dias</option><option value="120">120 dias</option><option value="180">180 dias</option></select></div>
+      </div>
+      <div class="actions"><button id="cli_rodar">Analisar clientes</button><span class="status" id="status-clientes"></span></div>
+    </div>
+    <div id="erro-clientes"></div>
+    <div id="resultado-clientes"></div>
   </div>
 
   <!-- ===================== VENDEDORES ===================== -->
@@ -1235,6 +1270,134 @@ function graficoComparativo() {
   alvo.addEventListener('mouseleave', () => { mira.style.display = 'none'; dica.style.display = 'none'; });
 }
 let _cmpResize; window.addEventListener('resize', () => { clearTimeout(_cmpResize); _cmpResize = setTimeout(() => { if ($('view-comparativo').classList.contains('active')) graficoComparativo(); }, 150); });
+
+// =====================================================================
+// CLIENTES — base ativa, recompra, sumidos e para quem oferecer
+// =====================================================================
+let _cliDados = null;
+const _nomeBonito = n => String(n || '').toLowerCase().replace(/(^|\s)\S/g, x => x.toUpperCase());
+async function carregarLojasClientes() {
+  const sel = $('cli_loja'); if (sel.dataset.ok) return;
+  try {
+    const lojas = await lojasConfiguradas();
+    if (sel.dataset.ok) return;
+    sel.innerHTML = '<option value="">Escolha a loja</option>' + lojas.map(n => `<option>${esc(n)}</option>`).join('');
+    if (lojas.length === 1 || _papelAtual === 'franqueado') sel.value = lojas[0] || '';
+    sel.dataset.ok = '1';
+    if (sel.value) rodarClientes();
+  } catch (e) { sel.innerHTML = '<option value="">Erro ao carregar lojas</option>'; $('status-clientes').textContent = e.message; }
+}
+document.querySelector('[data-view="clientes"]').addEventListener('click', carregarLojasClientes);
+$('cli_rodar').addEventListener('click', () => rodarClientes());
+
+async function rodarClientes(produto) {
+  const st = $('status-clientes'), t0 = Date.now();
+  const payload = { modulo: 'clientes', loja: $('cli_loja').value, meses: Number($('cli_meses').value), sumidoDias: Number($('cli_sumido').value) };
+  if (produto) payload.produto = produto;
+  $('erro-clientes').innerHTML = '';
+  if (!payload.loja) { st.textContent = 'Escolha a loja.'; return; }
+  const chaveUlt = { ...payload, produto: undefined };
+  if (!produto) { const ult = lerUltimo('clientes', chaveUlt); if (ult) { _cliDados = ult.data; desenharClientes(); } }
+  st.innerHTML = `<span class="loader"></span> ${produto ? 'Procurando clientes para ' + esc(produto) + '…' : 'Lendo vendas e clientes…'}`; _temposExec = [];
+  $('cli_rodar').disabled = true; const bo = $('cli_of_buscar'); if (bo) bo.disabled = true;
+  try {
+    const d = await chamarEdge(payload, EDGE_COMPRAS_URL);
+    _cliDados = d; if (!produto) guardarUltimo('clientes', chaveUlt, d);
+    desenharClientes();
+    if (produto) $('cli_oferecer')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    st.textContent = `Atualizado às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} ${resumoDesempenho(t0)}`;
+  } catch (e) { $('erro-clientes').innerHTML = `<div class="panel err">${esc(e.message)}</div>`; st.textContent = ''; }
+  finally { $('cli_rodar').disabled = false; const b2 = $('cli_of_buscar'); if (b2) b2.disabled = false; }
+}
+
+function _cliContato(c, loja) {
+  const k = c.contato;
+  if (!k) return '<span style="color:var(--muted)">—</span>';
+  const primeiro = _nomeBonito(String(c.nome).split(' ')[0]);
+  const msg = encodeURIComponent(`Olá, ${primeiro}! Tudo bem? Aqui é da Santo Santo Santo${loja ? ' ' + _nomeBonito(String(loja).replace(/^SSS\s+/i, '')) : ''}.`);
+  return `${k.telefone ? esc(k.telefone) : '<span style="color:var(--muted)">sem telefone</span>'}
+    ${k.whatsapp ? `<br><a href="https://wa.me/${k.whatsapp}?text=${msg}" target="_blank" rel="noopener" class="cli-wa">WhatsApp</a>` : ''}
+    ${k.autorizaWhatsapp === false ? '<br><span class="cli-aviso" title="No cadastro, o cliente não autorizou receber WhatsApp">não autorizou WhatsApp</span>' : ''}`;
+}
+const _cliData = iso => iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(2, 4)}` : '—';
+const _cliBarras = (linhas, campo, fmt) => {
+  const max = Math.max(1, ...linhas.map(l => l[campo]));
+  return `<div class="cli-barras">${linhas.map(l => `<div class="cli-barra"><span class="cli-barra-r">${esc(l.faixa)}</span><span class="cli-barra-t"><span style="width:${(l[campo] / max * 100).toFixed(1)}%"></span></span><span class="cli-barra-v">${fmt(l)}</span></div>`).join('')}</div>`;
+};
+
+function desenharClientes() {
+  const d = _cliDados, box = $('resultado-clientes'); if (!d) return;
+  const R = d.resumo, P = d.parametros, loja = P.loja;
+  const ident = R.pctIdentificadas;
+  box.innerHTML = `
+    <div class="cmp-periodos"><span><strong>${esc(loja)}</strong></span><span>${_cliData(P.desde)} a ${_cliData(P.ate)}</span>
+      <span>${fmtNum(R.vendasIdentificadas)} de ${fmtNum(R.vendas)} vendas com cliente identificado (<strong style="color:${ident != null && ident < 50 ? 'var(--danger)' : 'var(--text)'}">${ident != null ? fmtPct(ident, 0) : '—'}</strong>)</span></div>
+    ${ident != null && ident < 50 ? `<div class="panel" style="border-color:var(--warn); font-size:12.5px; color:var(--warn)">Menos da metade das vendas tem o cliente identificado. Os números abaixo valem só para essa parte — identificar o cliente no caixa (CPF) melhora tudo nesta tela.</div>` : ''}
+    <div class="kpis k4">
+      <div class="kpi"><div class="label">Clientes no período</div><div class="value">${fmtNum(R.clientes)}</div><div class="hint">${fmtNum(R.ativos90)} compraram nos últimos 90 dias · ${fmtNum(R.novos30)} novos nos últimos 30</div></div>
+      <div class="kpi"><div class="label">Recompra</div><div class="value">${R.recompraPct != null ? fmtPct(R.recompraPct, 0) : '—'}</div><div class="hint">voltaram mais de uma vez${R.voltou90Pct != null ? ` · ${fmtPct(R.voltou90Pct, 0)} voltaram em até 90 dias` : ''}</div></div>
+      <div class="kpi"><div class="label">Tempo até voltar</div><div class="value">${R.intervaloMedianoDias != null ? fmtNum(R.intervaloMedianoDias) + ' dias' : '—'}</div><div class="hint">metade das voltas acontece em até esse prazo</div></div>
+      <div class="kpi"><div class="label">Receita de quem volta</div><div class="value">${R.fatRecorrentesPct != null ? fmtPct(R.fatRecorrentesPct, 0) : '—'}</div><div class="hint">ticket ${R.ticketRecorrente != null ? fmtMoeda(R.ticketRecorrente) : '—'} (volta) × ${R.ticketUmaVisita != null ? fmtMoeda(R.ticketUmaVisita) : '—'} (1 visita)</div></div>
+    </div>
+    <div class="cli-grade">
+      <div class="panel"><div class="cli-tit">Última compra</div>${_cliBarras(d.recencia, 'clientes', l => `${fmtNum(l.clientes)} <small>${fmtMoedaCurta(l.faturamento) ?? fmtMoeda(l.faturamento)}</small>`)}</div>
+      <div class="panel"><div class="cli-tit">Visitas por cliente</div>${_cliBarras(d.frequencia, 'clientes', l => `${fmtNum(l.clientes)} <small>${fmtMoedaCurta(l.faturamento) ?? fmtMoeda(l.faturamento)}</small>`)}</div>
+      <div class="panel"><div class="cli-tit">Tempo entre uma compra e a próxima</div>${_cliBarras(d.intervalos, 'voltas', l => fmtNum(l.voltas))}</div>
+    </div>
+
+    <div class="subsecao-titulo" id="cli_oferecer">Para quem oferecer</div>
+    <div class="panel">
+      <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end">
+        <div style="flex:1; min-width:240px"><label>Produto ou modelo</label><input id="cli_of_prod" list="cli_of_lista" placeholder="ex.: COLAR AMOR" value="${esc(d.oferecer?.busca || '')}"><datalist id="cli_of_lista">${(d.produtos || []).map(p => `<option value="${esc(p)}">`).join('')}</datalist></div>
+        <button id="cli_of_buscar">Encontrar clientes</button>
+      </div>
+      ${desenharOferecer(d.oferecer, loja)}
+    </div>
+
+    <div class="subsecao-titulo">Clientes que sumiram — mais de ${P.sumidoDias} dias sem comprar</div>
+    <div class="panel" style="overflow-x:auto">
+      <div class="sub" style="font-size:12px; max-width:none; margin-bottom:8px">${fmtNum(R.sumidos)} clientes, que gastaram ${fmtMoeda(R.fatSumidos)} no período. Em ordem de quanto gastaram — os primeiros valem mais uma ligação.${d.sumidos.length < R.sumidos ? ` Mostrando os ${d.sumidos.length} primeiros.` : ''}</div>
+      ${d.sumidos.length ? tabelaClientes(d.sumidos, loja, 'sumidos') : '<div class="empty">Ninguém sumiu nesse prazo.</div>'}
+    </div>
+
+    <div class="subsecao-titulo">Melhores clientes</div>
+    <div class="panel" style="overflow-x:auto">${d.vip.length ? tabelaClientes(d.vip, loja, 'vip') : '<div class="empty">Sem clientes identificados no período.</div>'}</div>
+    ${d.contatosIncompletos ? '<div class="sub" style="font-size:11px">Alguns contatos não foram carregados a tempo; analise de novo para completar.</div>' : ''}`;
+  const buscar = () => { const v = $('cli_of_prod').value.trim(); if (v) rodarClientes(v); };
+  $('cli_of_buscar').addEventListener('click', buscar);
+  $('cli_of_prod').addEventListener('keydown', e => { if (e.key === 'Enter') buscar(); });
+}
+
+function desenharOferecer(o, loja) {
+  if (!o) return '<div class="sub" style="font-size:12px; max-width:none; margin-top:8px">Digite um produto (ou só o modelo, sem a cor) para ver quais clientes têm o perfil para comprá-lo.</div>';
+  if (!o.encontrado) return `<div class="empty">Nenhum produto vendido no período com “${esc(o.busca)}”.</div>`;
+  const A = o.alvo;
+  return `<div class="cli-alvo">
+      <span><strong>${esc(A.modelos.join(', '))}${A.nModelos > A.modelos.length ? ` e mais ${A.nModelos - A.modelos.length}` : ''}</strong></span>
+      <span>categoria <strong>${esc(A.categoria.toLowerCase())}</strong></span><span>preço médio <strong>${fmtMoeda(A.precoMedio)}</strong></span>
+      <span>${fmtNum(A.vendidos)} vendidos · ${fmtNum(o.jaCompraram)} clientes já compraram</span>
+      ${A.coCompra.length ? `<span>sai junto com: ${A.coCompra.slice(0, 4).map(x => esc(x.modelo.toLowerCase())).join(', ')}</span>` : ''}
+    </div>
+    ${o.clientes.length ? `<div class="sub" style="font-size:12px; max-width:none; margin:6px 0">${fmtNum(o.candidatos)} clientes com o perfil, que ainda não compraram este modelo${o.candidatos > o.clientes.length ? ` — os ${o.clientes.length} mais indicados` : ''}.</div>
+      <div style="overflow-x:auto">${tabelaClientes(o.clientes, loja, 'oferecer')}</div>` : '<div class="empty">Nenhum cliente com perfil parecido que ainda não tenha comprado.</div>'}`;
+}
+
+function tabelaClientes(lista, loja, tipo) {
+  const status = { ativo: '<span class="chip ok">ativo</span>', esfriando: '<span class="chip run">esfriando</span>', sumido: '<span class="chip fail">sumido</span>' };
+  return `<table class="cli-tabela"><thead><tr><th>Cliente</th><th>Contato</th>${tipo === 'oferecer' ? '<th>Por que oferecer</th>' : ''}<th>Última compra</th><th class="num">Visitas</th><th class="num">Gasto no período</th><th>Perfil</th>${tipo === 'vip' ? '<th>Situação</th>' : ''}<th>Aniversário</th></tr></thead><tbody>
+    ${lista.map(c => `<tr>
+      <td class="prod-name">${esc(_nomeBonito(c.nome))}</td>
+      <td style="white-space:nowrap; font-size:12px">${_cliContato(c, loja)}</td>
+      ${tipo === 'oferecer' ? `<td class="cli-motivo" style="font-size:12px">${esc(c.motivo)}</td>` : ''}
+      <td class="cli-ult" style="font-size:12px">${_cliData(c.ultimaCompra)} <span style="color:var(--muted)">(${fmtNum(c.diasSemComprar)} dias)</span><br><span style="color:var(--muted)">${esc(c.ultimoProduto)}</span></td>
+      <td class="num">${fmtNum(c.visitas)}</td>
+      <td class="num"><strong>${fmtMoeda(c.total)}</strong><br><span style="font-size:11px; color:var(--muted)">ticket ${fmtMoeda(c.ticket)}</span></td>
+      <td style="font-size:12px">${esc((c.categorias || []).join(', ').toLowerCase())}<br><span style="color:var(--muted)">${esc(c.faixaPreco)} por peça</span></td>
+      ${tipo === 'vip' ? `<td>${status[c.status] || ''}</td>` : ''}
+      <td style="font-size:12px">${c.contato?.aniversario || '—'}</td>
+    </tr>`).join('')}
+  </tbody></table>`;
+}
 
 // Botões que levam a outra tela já com a loja escolhida
 function ligarIrPara(box, loja) {
