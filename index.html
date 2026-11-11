@@ -738,6 +738,7 @@
       <div class="cli-topo">
         <div style="flex:1; min-width:220px"><label>Loja</label><select id="cli_loja"><option value="">Carregando lojas…</option></select></div>
         <button id="cli_rodar">Ver meus clientes</button>
+        <button id="cli_planilha" class="secondary" disabled title="Gera um arquivo Excel com todos os clientes do período, com telefone e perfil">Baixar planilha</button>
       </div>
       <details class="cli-ajustes"><summary>Ajustes</summary>
         <div class="grid" style="margin-top:8px">
@@ -1322,6 +1323,7 @@ async function carregarLojasClientes() {
 }
 document.querySelector('[data-view="clientes"]').addEventListener('click', carregarLojasClientes);
 $('cli_rodar').addEventListener('click', () => rodarClientes());
+$('cli_planilha').addEventListener('click', exportarClientes);
 
 async function rodarClientes(produto) {
   const st = $('status-clientes'), t0 = Date.now();
@@ -1411,6 +1413,7 @@ function _cliLista(lista, tipo, loja, extra, vazio) {
 function desenharClientes() {
   const d = _cliDados, box = $('resultado-clientes'); if (!d) return;
   const R = d.resumo, P = d.parametros, loja = P.loja;
+  $('cli_planilha').disabled = false;
   const de10 = R.recompraPct != null ? Math.round(R.recompraPct / 10) : null;
   const ident10 = R.pctIdentificadas != null ? Math.round(R.pctIdentificadas / 10) : null;
   const frases = [
@@ -1456,6 +1459,101 @@ function desenharClientes() {
   const buscar = () => { const v = $('cli_of_prod')?.value.trim(); if (v) rodarClientes(v); };
   $('cli_of_buscar')?.addEventListener('click', buscar);
   $('cli_of_prod')?.addEventListener('keydown', e => { if (e.key === 'Enter') buscar(); });
+}
+
+// ---- Planilha .xlsx (Excel) gerada no navegador, sem biblioteca: zip sem compressão + XML ----
+const _crcTab = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+const _crc32 = b => { let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) c = _crcTab[(c ^ b[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+function _zip(arquivos) { // [{nome, texto}]
+  const enc = new TextEncoder(), partes = [], central = []; let pos = 0;
+  for (const f of arquivos) {
+    const nome = enc.encode(f.nome), dados = enc.encode(f.texto), crc = _crc32(dados);
+    const h = new DataView(new ArrayBuffer(30));
+    h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(8, 0, true);
+    h.setUint32(14, crc, true); h.setUint32(18, dados.length, true); h.setUint32(22, dados.length, true); h.setUint16(26, nome.length, true);
+    partes.push(new Uint8Array(h.buffer), nome, dados);
+    const c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true);
+    c.setUint32(16, crc, true); c.setUint32(20, dados.length, true); c.setUint32(24, dados.length, true); c.setUint16(28, nome.length, true); c.setUint32(42, pos, true);
+    central.push(new Uint8Array(c.buffer), nome);
+    pos += 30 + nome.length + dados.length;
+  }
+  const tamCentral = central.reduce((s, x) => s + x.length, 0);
+  const fim = new DataView(new ArrayBuffer(22));
+  fim.setUint32(0, 0x06054b50, true); fim.setUint16(8, arquivos.length, true); fim.setUint16(10, arquivos.length, true); fim.setUint32(12, tamCentral, true); fim.setUint32(16, pos, true);
+  return new Blob([...partes, ...central, new Uint8Array(fim.buffer)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+// abas: [{ nome, colunas: [{titulo, largura?, tipo?: 'moeda'|'numero'|'data'|'texto'}], linhas: [[...]] }]
+function baixarXlsx(arquivo, abas) {
+  const x = v => String(v ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
+  const col = i => { let s = ''; i++; while (i) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; };
+  const estilo = { moeda: 2, numero: 3, data: 4 };
+  const nomesUsados = new Set();
+  const planilhas = abas.map((a, ia) => {
+    let nome = String(a.nome).replace(/[\\\/\?\*\[\]:]/g, ' ').slice(0, 31) || `Aba ${ia + 1}`;
+    while (nomesUsados.has(nome)) nome = nome.slice(0, 28) + ' ' + ia; nomesUsados.add(nome);
+    const linhas = [a.colunas.map(c => c.titulo), ...a.linhas];
+    const xml = linhas.map((l, r) => `<row r="${r + 1}">${l.map((v, c) => {
+      const ref = `${col(c)}${r + 1}`, tipo = a.colunas[c]?.tipo;
+      if (r === 0) return `<c r="${ref}" t="inlineStr" s="1"><is><t>${x(v)}</t></is></c>`;
+      if (v == null || v === '') return '';
+      if (tipo === 'data' && /^\d{4}-\d{2}-\d{2}$/.test(v)) { const d = (Date.UTC(+v.slice(0, 4), +v.slice(5, 7) - 1, +v.slice(8, 10)) - Date.UTC(1899, 11, 30)) / 86400000; return `<c r="${ref}" s="4"><v>${d}</v></c>`; }
+      if ((tipo === 'moeda' || tipo === 'numero') && typeof v === 'number' && isFinite(v)) return `<c r="${ref}" s="${estilo[tipo]}"><v>${v}</v></c>`;
+      return `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${x(v)}</t></is></c>`;
+    }).join('')}</row>`).join('');
+    const ultima = `${col(Math.max(0, a.colunas.length - 1))}${linhas.length}`;
+    return { nome, texto: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>${a.colunas.map((c, i) => `<col min="${i + 1}" max="${i + 1}" width="${c.largura || 16}" customWidth="1"/>`).join('')}</cols><sheetData>${xml}</sheetData><autoFilter ref="A1:${ultima}"/></worksheet>` };
+  });
+  const arquivos = [
+    { nome: '[Content_Types].xml', texto: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${planilhas.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}</Types>` },
+    { nome: '_rels/.rels', texto: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>` },
+    { nome: 'xl/workbook.xml', texto: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${planilhas.map((p, i) => `<sheet name="${x(p.nome)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets><definedNames>${planilhas.map((p, i) => `<definedName name="_xlnm._FilterDatabase" localSheetId="${i}" hidden="1">'${x(p.nome).replace(/'/g, "''")}'!$A$1:$${col(Math.max(0, abas[i].colunas.length - 1))}$${abas[i].linhas.length + 1}</definedName>`).join('')}</definedNames></workbook>` },
+    { nome: 'xl/_rels/workbook.xml.rels', texto: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${planilhas.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}<Relationship Id="rId${planilhas.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>` },
+    { nome: 'xl/styles.xml', texto: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="2"><numFmt numFmtId="164" formatCode="&quot;R$&quot; #,##0.00"/><numFmt numFmtId="165" formatCode="dd/mm/yyyy"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF3E6E6"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>` },
+    ...planilhas.map((p, i) => ({ nome: `xl/worksheets/sheet${i + 1}.xml`, texto: p.texto })),
+  ];
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(_zip(arquivos)); a.download = arquivo;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+async function exportarClientes() {
+  const d = _cliDados; if (!d) return;
+  const st = $('status-clientes'), bt = $('cli_planilha');
+  bt.disabled = true; st.innerHTML = '<span class="loader"></span> Preparando a planilha com os contatos de todos os clientes… (pode levar até 1 minuto)';
+  try {
+    const P = d.parametros;
+    const payload = { modulo: 'clientes', loja: P.loja, meses: P.meses, sumidoDias: P.sumidoDias, exportar: true };
+    if (d.oferecer?.busca) payload.produto = d.oferecer.busca;
+    const e = await chamarEdge(payload, EDGE_COMPRAS_URL);
+    const falei = _cliFaleiLer(), loja = P.loja;
+    const sn = v => v === true ? 'Sim' : v === false ? 'Não' : '';
+    const colunas = (extra = []) => [
+      { titulo: 'Cliente', largura: 30 }, { titulo: 'Telefone', largura: 17 }, { titulo: 'Link WhatsApp', largura: 30 }, { titulo: 'Autorizou WhatsApp', largura: 12 }, { titulo: 'E-mail', largura: 28 }, { titulo: 'Aniversário', largura: 11 },
+      ...extra,
+      { titulo: 'Última compra', largura: 13, tipo: 'data' }, { titulo: 'Dias sem comprar', largura: 10, tipo: 'numero' }, { titulo: 'Visitas', largura: 9, tipo: 'numero' },
+      { titulo: 'Gasto no período', largura: 15, tipo: 'moeda' }, { titulo: 'Ticket médio', largura: 13, tipo: 'moeda' }, { titulo: 'Gosta de', largura: 30 }, { titulo: 'Faixa de preço por peça', largura: 18 },
+      { titulo: 'Peça sugerida', largura: 26 }, { titulo: 'Último produto', largura: 34 }, { titulo: 'Já falei em', largura: 12, tipo: 'data' },
+    ];
+    const linha = (c, extra = []) => [
+      _nomeBonito(c.nome), c.contato?.telefone || '', c.contato?.whatsapp ? `https://wa.me/${c.contato.whatsapp}` : '', sn(c.contato?.autorizaWhatsapp), c.contato?.email || '', c.contato?.aniversario || '',
+      ...extra,
+      c.ultimaCompra, c.diasSemComprar, c.visitas, c.total, c.ticket, (c.categorias || []).join(', ').toLowerCase(), c.faixaPreco,
+      c.sugestao ? _cliTitulo(c.sugestao) : '', c.ultimoProduto || '', falei[`${loja}|${c.id}`] || '',
+    ];
+    const abas = [
+      { nome: 'Todos os clientes', colunas: colunas([{ titulo: 'Situação', largura: 12 }]), linhas: (e.todos || []).map(c => linha(c, [c.diasSemComprar <= 90 ? 'ativo' : c.diasSemComprar <= P.sumidoDias ? 'esfriando' : 'sumido'])) },
+      { nome: 'Chamar de volta', colunas: colunas(), linhas: e.sumidos.map(c => linha(c)) },
+      { nome: 'Aniversariantes do mês', colunas: colunas(), linhas: (e.aniversariantes || []).map(c => linha(c)) },
+      { nome: 'Melhores clientes', colunas: colunas(), linhas: e.vip.map(c => linha(c)) },
+    ];
+    if (e.oferecer?.clientes?.length) abas.push({ nome: `Oferecer ${_cliTitulo(e.oferecer.alvo.modelos[0])}`, colunas: colunas([{ titulo: 'Por que oferecer', largura: 45 }]), linhas: e.oferecer.clientes.map(c => linha(c, [c.motivo])) });
+    const nomeArq = `clientes-${String(loja).toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    baixarXlsx(nomeArq, abas);
+    const semTel = (e.todos || []).filter(c => !c.contato?.telefone).length;
+    st.textContent = `Planilha baixada: ${fmtNum((e.todos || []).length)} clientes${semTel ? ` (${fmtNum(semTel)} sem telefone no cadastro)` : ''}.`;
+  } catch (er) { st.textContent = ''; $('erro-clientes').innerHTML = `<div class="panel err">Não deu para gerar a planilha: ${esc(er.message)}</div>`; }
+  finally { bt.disabled = false; }
 }
 
 function detalhesClientes(d) {
