@@ -5,7 +5,6 @@ Roda em paralelo Compras, Estoque, DRE do mês + metas, Vendedores (e Benchmark,
 - **Ações priorizadas** (Crítico / Atenção / Oportunidade) com impacto em R$: ruptura, meta projetada abaixo, prejuízo operacional, margem abaixo da rede, capital parado, transferências, pedidos da Central parados ou atrasados, mix barato, cliente não identificado, cadastros incompletos.
 - **Nota de saúde 0–100 por loja** = meta projetada (30) + margem operacional (30) + ruptura (25) + excesso/parado (15).
 - **Ritmo do mês**: projeção de fechamento × meta e quanto precisa vender por dia.
-- **Transferências entre lojas** antes de comprar.
 - **Resumo executivo** para copiar e enviar.
 
 ## Compra Recorrente

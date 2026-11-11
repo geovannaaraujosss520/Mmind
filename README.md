@@ -32,7 +32,7 @@ Mmind/
 
 | Tela | Função | Edge Function |
 |---|---|---|
-| Central de Decisão | Diagnóstico em 1 clique: ações priorizadas, saúde por loja, projeção do mês, transferências | ambas |
+| Central de Decisão | Diagnóstico em 1 clique: ações priorizadas, saúde por loja, projeção do mês | ambas |
 | Compra Recorrente | Recomendação de compra por loja (vendas × estoque × pedidos em andamento) | sss-compras |
 | Pedido Central | Pedido sugerido no formato da Central, por fornecedor, com grade de tamanhos e envio pela API | sss-compras |
 | Vínculos | Produto da VarejOnline ↔ item da Central (código + variação), válido para a rede toda | sss-compras |
