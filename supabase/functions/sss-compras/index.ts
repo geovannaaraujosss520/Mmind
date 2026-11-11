@@ -1997,23 +1997,24 @@ async function contatoCliente(apiBase: string, chave: string, id: string) {
   try {
     const { token } = abrirChave(chave);
     const r = await fetch(`${apiBase}/terceiros/${encodeURIComponent(id)}?token=${token}`, { signal: AbortSignal.timeout(15000) });
-    if (r.ok) {
-      const t: any = await r.json();
-      const tels = (t.telefones ?? []).map((f: any) => ({ tipo: f.tipoTelefone, num: soDigitos(f.ddd) + soDigitos(f.numero) })).filter((f: any) => f.num.length >= 10)
-        .sort((a: any, b: any) => (a.tipo === 'CELULAR' ? 0 : 1) - (b.tipo === 'CELULAR' ? 0 : 1));
-      const tel = tels[0]?.num ?? null;
-      const nasc = String(t.dataNascimento ?? '').match(/^(\d{2})-(\d{2})-(\d{4})/);
-      v = {
-        telefone: tel ? (tel.length === 11 ? `(${tel.slice(0, 2)}) ${tel.slice(2, 7)}-${tel.slice(7)}` : `(${tel.slice(0, 2)}) ${tel.slice(2, 6)}-${tel.slice(6)}`) : null,
-        whatsapp: tel && tels[0].tipo !== 'RESIDENCIAL' && tel.length === 11 ? `55${tel}` : null,
-        autorizaWhatsapp: t.autorizaReceberWhatsapp ?? null,
-        email: (t.emails ?? [])[0] ?? null,
-        aniversario: nasc ? `${nasc[1]}/${nasc[2]}` : null,
-      };
-    }
+    if (r.ok) v = contatoDe(await r.json());
   } catch (_) { /* sem contato */ }
   cacheContatos.set(k, { t: Date.now(), v });
   return v;
+}
+function contatoDe(t: any) {
+  if (!t) return null;
+  const tels = (t.telefones ?? []).map((f: any) => ({ tipo: f.tipoTelefone, num: soDigitos(f.ddd) + soDigitos(f.numero) })).filter((f: any) => f.num.length >= 10)
+    .sort((a: any, b: any) => (a.tipo === 'CELULAR' ? 0 : 1) - (b.tipo === 'CELULAR' ? 0 : 1));
+  const tel = tels[0]?.num ?? null;
+  const nasc = String(t.dataNascimento ?? '').match(/^(\d{2})-(\d{2})-(\d{4})/);
+  return {
+    telefone: tel ? (tel.length === 11 ? `(${tel.slice(0, 2)}) ${tel.slice(2, 7)}-${tel.slice(7)}` : `(${tel.slice(0, 2)}) ${tel.slice(2, 6)}-${tel.slice(6)}`) : null,
+    whatsapp: tel && tels[0].tipo !== 'RESIDENCIAL' && tel.length === 11 ? `55${tel}` : null,
+    autorizaWhatsapp: t.autorizaReceberWhatsapp ?? null,
+    email: (t.emails ?? [])[0] ?? null,
+    aniversario: nasc ? `${nasc[1]}/${nasc[2]}` : null,
+  };
 }
 
 async function moduloClientes(body: any, a: Acesso) {
@@ -2192,6 +2193,19 @@ async function moduloClientes(body: any, a: Acesso) {
   await Promise.all(Array.from({ length: 8 }, async () => {
     while (k < ids.length && Date.now() < prazo) { const id = ids[k++]; contatos.set(id, await contatoCliente(apiBase, chave, id)); }
   }));
+  // Planilha: contato de TODOS os clientes do período, lendo o cadastro de clientes em páginas (bem mais rápido que um a um)
+  let todos: any[] | undefined;
+  if (body.exportar) {
+    const falta = new Set(lista.map((c) => c.id).filter((id) => !contatos.get(id)));
+    if (falta.size) {
+      try {
+        await fetchAllPages(`${apiBase}/terceiros?classes=CLIENTE`, chave, (pg) => {
+          for (const t of pg) { const id = String(t?.id); if (falta.has(id)) { const v = contatoDe(t); contatos.set(id, v); cacheContatos.set(`${abrirChave(chave).token}|${id}`, { t: Date.now(), v }); } }
+        });
+      } catch (_) { /* segue com os contatos que já tem */ }
+    }
+    todos = [...lista].sort((x, y) => y.fat - x.fat).map((c) => ({ ...perfil(c), contato: contatos.get(c.id) ?? null }));
+  }
   const comContato = (c: any) => ({ ...c, contato: contatos.get(c.id) ?? null });
   const mesAtual = hojeIso.slice(5, 7), diaAtual = hojeIso.slice(8, 10);
   const aniversariantes = top200.concat(lista.filter((c) => dias(c.ultima) > sumidoDias))
@@ -2220,6 +2234,7 @@ async function moduloClientes(body: any, a: Acesso) {
     sumidos: sumidos.map(comContato), vip: vip.map(comContato),
     oferecer: oferecer?.clientes ? { ...oferecer, clientes: oferecer.clientes.map(comContato) } : oferecer,
     produtos: [...produtos.values()].sort((x, y) => y.qtd - x.qtd).slice(0, 500).map((p) => p.modelo),
+    todos,
     maisVendidos: emAlta.slice(0, 12).map((p) => ({ modelo: p.modelo, categoria: p.cat, vendidos60: r2(p.qtd60) })),
     aniversariantes,
     contatosIncompletos: ids.length > contatos.size,
