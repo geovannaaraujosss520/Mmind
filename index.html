@@ -293,7 +293,35 @@
   .cli-alvo{ display:flex; flex-wrap:wrap; gap:6px 18px; font-size:12.5px; color:var(--muted); margin:12px 0 4px; }
   .cli-alvo strong{ color:var(--text); }
   a.cli-wa{ display:inline-block; margin-top:3px; font-size:11.5px; font-weight:600; color:#1d7a43; text-decoration:none; border:1px solid #1d7a43; border-radius:8px; padding:1px 8px; }
-  .cli-aviso{ font-size:10.5px; color:var(--warn); }
+  .cli-aviso{ font-size:11px; color:var(--warn); }
+  .cli-topo{ display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; }
+  .cli-ajustes{ margin-top:10px; font-size:12.5px; } .cli-ajustes summary{ cursor:pointer; color:var(--muted); }
+  .cli-resumo p{ margin:6px 0; font-size:15px; line-height:1.5; }
+  .cli-resumo-t{ font-size:13px; color:var(--muted); margin-bottom:4px; }
+  .cli-alerta{ background:var(--gold-tint); border-radius:10px; padding:8px 12px; font-size:13.5px !important; }
+  .cli-abas{ display:flex; gap:8px; flex-wrap:wrap; margin:4px 0 12px; }
+  .cli-abas button, .cli-abas button:hover:not(:disabled){ all:unset; cursor:pointer; padding:9px 14px; border-radius:10px; border:1px solid var(--line-strong); background:var(--panel); font-size:13.5px; color:var(--text); }
+  .cli-abas button:hover:not(:disabled){ background:var(--panel-2); }
+  .cli-abas button.on, .cli-abas button.on:hover:not(:disabled){ background:var(--accent-deep); border-color:var(--accent-deep); color:#fff; font-weight:600; }
+  .cli-abas button:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+  .cli-n{ display:inline-block; min-width:20px; padding:0 6px; margin-left:4px; border-radius:10px; background:var(--accent-tint); color:var(--accent-deep); font-size:12px; text-align:center; }
+  .cli-abas button.on .cli-n{ background:rgba(255,255,255,.22); color:#fff; }
+  .cli-intro{ font-size:13.5px; color:var(--muted); margin-bottom:12px; }
+  .cli-cards{ display:grid; grid-template-columns:repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap:12px; }
+  .cli-card{ border:1px solid var(--line); border-radius:12px; padding:12px 14px; background:var(--panel); }
+  .cli-card.falei{ opacity:.55; }
+  .cli-card-topo{ display:flex; justify-content:space-between; gap:10px; align-items:flex-start; margin-bottom:6px; }
+  .cli-nome{ font-weight:650; font-size:15px; }
+  .cli-botoes{ display:flex; gap:6px; flex-shrink:0; align-items:center; }
+  .cli-botoes .cli-wa{ margin:0; padding:5px 12px; font-size:12.5px; background:#1d7a43; color:#fff; border-color:#1d7a43; }
+  .cli-botoes .cli-falei{ padding:5px 10px; font-size:12px; }
+  .cli-linha{ font-size:13px; margin-top:3px; }
+  .cli-contato, .cli-dica-sug{ color:var(--muted); font-size:12px; }
+  .cli-motivo-txt{ color:var(--accent-deep); }
+  .cli-busca{ display:flex; gap:10px; flex-wrap:wrap; } .cli-busca input{ flex:1; min-width:220px; font-size:15px; }
+  .cli-chips{ display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-top:10px; font-size:12.5px; color:var(--muted); }
+  .cli-chips button{ padding:5px 10px; font-size:12px; }
+  .cli-detalhes > summary{ cursor:pointer; font-weight:600; font-size:13.5px; }
   .cli-tabela td{ white-space:normal; vertical-align:top; } .cli-tabela td.cli-motivo{ min-width:220px; max-width:300px; } .cli-tabela td.cli-ult{ min-width:170px; }
   .ticket-ref{ font-size:11.5px; color:var(--muted); margin-top:3px; }
 
@@ -703,16 +731,21 @@
   <div class="view" id="view-clientes">
     <header class="view-header">
       <h1>Clientes</h1>
-      <div class="sub">Quem compra, quem volta, quem sumiu e para quem oferecer cada peça.</div>
+      <div class="sub">Quem chamar hoje, para quem oferecer cada peça e quem faz aniversário.</div>
       <details class="como-funciona"><summary>Como funciona</summary><div>Usa as vendas da loja com cliente identificado (CPF ou CNPJ válido; consumidor final, fornecedores e prestadores ficam de fora). Visita = dia em que o cliente comprou. Recompra = clientes com 2 ou mais visitas no período. "Voltou em até 90 dias" olha quem fez a primeira compra do período há mais de 90 dias. Tempo até voltar = mediana dos dias entre uma visita e a próxima. O perfil de cada cliente vem do que ele já comprou: categoria preferida (colar, brinco, anel…), preço médio por peça e frequência. Em "Para quem oferecer", entram clientes que compram a mesma categoria ou levaram peças que costumam sair junto com o produto, e que ainda não compraram esse modelo; a ordem considera também a faixa de preço e há quanto tempo o cliente comprou. Telefone e WhatsApp vêm do cadastro da VarejOnline — respeite quem não autorizou receber mensagens.</div></details>
     </header>
     <div class="panel">
-      <div class="grid">
-        <div style="grid-column: span 2"><label>Loja</label><select id="cli_loja"><option value="">Carregando lojas…</option></select></div>
-        <div><label>Período</label><select id="cli_meses"><option value="6">últimos 6 meses</option><option value="12" selected>últimos 12 meses</option><option value="24">últimos 24 meses</option></select></div>
-        <div><label>Sumido há mais de</label><select id="cli_sumido"><option value="60">60 dias</option><option value="90" selected>90 dias</option><option value="120">120 dias</option><option value="180">180 dias</option></select></div>
+      <div class="cli-topo">
+        <div style="flex:1; min-width:220px"><label>Loja</label><select id="cli_loja"><option value="">Carregando lojas…</option></select></div>
+        <button id="cli_rodar">Ver meus clientes</button>
       </div>
-      <div class="actions"><button id="cli_rodar">Analisar clientes</button><span class="status" id="status-clientes"></span></div>
+      <details class="cli-ajustes"><summary>Ajustes</summary>
+        <div class="grid" style="margin-top:8px">
+          <div><label>Olhar as compras dos</label><select id="cli_meses"><option value="6">últimos 6 meses</option><option value="12" selected>últimos 12 meses</option><option value="24">últimos 24 meses</option></select></div>
+          <div><label>Considerar "sumido" quem não compra há mais de</label><select id="cli_sumido"><option value="60">60 dias</option><option value="90" selected>90 dias</option><option value="120">120 dias</option><option value="180">180 dias</option></select></div>
+        </div>
+      </details>
+      <div class="status" id="status-clientes" style="margin-top:8px"></div>
     </div>
     <div id="erro-clientes"></div>
     <div id="resultado-clientes"></div>
@@ -1293,7 +1326,7 @@ $('cli_rodar').addEventListener('click', () => rodarClientes());
 async function rodarClientes(produto) {
   const st = $('status-clientes'), t0 = Date.now();
   const payload = { modulo: 'clientes', loja: $('cli_loja').value, meses: Number($('cli_meses').value), sumidoDias: Number($('cli_sumido').value) };
-  if (produto) payload.produto = produto;
+  if (produto) { payload.produto = produto; _cliAba = 'oferecer'; } else _cliMostrar = {};
   $('erro-clientes').innerHTML = '';
   if (!payload.loja) { st.textContent = 'Escolha a loja.'; return; }
   const chaveUlt = { ...payload, produto: undefined };
@@ -1325,18 +1358,114 @@ const _cliBarras = (linhas, campo, fmt) => {
   return `<div class="cli-barras">${linhas.map(l => `<div class="cli-barra"><span class="cli-barra-r">${esc(l.faixa)}</span><span class="cli-barra-t"><span style="width:${(l[campo] / max * 100).toFixed(1)}%"></span></span><span class="cli-barra-v">${fmt(l)}</span></div>`).join('')}</div>`;
 };
 
+// ---- Clientes, modo simples: frases, abas de tarefas e cartões ----
+let _cliAba = 'volta', _cliMostrar = {};
+const _cliTitulo = t => _nomeBonito(String(t || '').toLowerCase());
+const _cliFaleiLer = () => { try { return JSON.parse(localStorage.getItem('sss_cli_falei') || '{}'); } catch (_) { return {}; } };
+const _cliFaleiGravar = o => { try { localStorage.setItem('sss_cli_falei', JSON.stringify(o)); } catch (_) {} };
+const _cliMeses = d => d === 1 ? '1 dia' : d < 45 ? `${d} dias` : d < 365 ? `${Math.round(d / 30)} meses` : 'mais de 1 ano';
+const _cliQuando = d => d <= 0 ? 'hoje' : d === 1 ? 'ontem' : `há ${_cliMeses(d)}`;
+
+function _cliMensagem(tipo, c, loja, extra) {
+  const n = _nomeBonito(String(c.nome).split(' ')[0]);
+  const lj = `Santo Santo Santo${loja ? ' ' + _nomeBonito(String(loja).replace(/^SSS\s+/i, '')) : ''}`;
+  const sug = c.sugestao ? _cliTitulo(c.sugestao) : null;
+  if (tipo === 'volta') return `Oi, ${n}! Aqui é da ${lj}. Faz um tempinho que você não passa por aqui e sentimos sua falta! ${sug ? `Chegou ${sug} e lembrei de você.` : 'Chegaram muitas novidades.'} Quer que eu separe pra você ver?`;
+  if (tipo === 'aniversario') return `Feliz aniversário, ${n}! 🎉 Toda a equipe da ${lj} deseja um dia lindo pra você. Passa aqui na loja quando puder, vai ser um prazer te receber!`;
+  if (tipo === 'vip') return `Oi, ${n}! Aqui é da ${lj}. Você é uma cliente muito especial pra gente${sug ? ` e separei ${sug}, que tem a sua cara` : ''}. Quer que eu mande fotos?`;
+  return `Oi, ${n}! Aqui é da ${lj}. Chegou ${_cliTitulo(extra)} e lembrei de você na hora. Quer que eu mande fotos?`;
+}
+
+function _cliCartao(c, tipo, loja, extra) {
+  const falei = _cliFaleiLer()[`${loja}|${c.id}`];
+  const k = c.contato || {};
+  const msg = encodeURIComponent(_cliMensagem(tipo, c, loja, extra));
+  const linha1 = tipo === 'aniversario'
+    ? `<strong>${c.hoje ? 'Faz aniversário hoje!' : `Aniversário ${k.aniversario}`}</strong>${c.jaPassou ? ' (já passou)' : ''} · última compra ${_cliQuando(c.diasSemComprar)}`
+    : `Última compra <strong>${_cliQuando(c.diasSemComprar)}</strong> · ${c.visitas} ${c.visitas === 1 ? 'visita' : 'visitas'} · gastou ${fmtMoeda(c.total)}`;
+  const gosta = (c.categorias || []).map(x => x.split(' ')[0].toLowerCase()).slice(0, 2).join(' e ');
+  return `<div class="cli-card${falei ? ' falei' : ''}" data-cli="${esc(c.id)}">
+    <div class="cli-card-topo">
+      <div class="cli-nome">${esc(_nomeBonito(c.nome))}</div>
+      <div class="cli-botoes">
+        ${k.whatsapp ? `<a class="cli-wa" href="https://wa.me/${k.whatsapp}?text=${msg}" target="_blank" rel="noopener">WhatsApp</a>` : ''}
+        <button type="button" class="secondary cli-falei" data-falei="${esc(c.id)}">${falei ? `✓ Falei em ${falei.slice(8, 10)}/${falei.slice(5, 7)}` : 'Já falei'}</button>
+      </div>
+    </div>
+    <div class="cli-linha">${linha1}</div>
+    ${gosta ? `<div class="cli-linha">Gosta de <strong>${esc(gosta)}</strong> · costuma gastar ${esc(c.faixaPreco)} por peça</div>` : ''}
+    ${tipo === 'oferecer' ? `<div class="cli-linha cli-motivo-txt">Por que oferecer: ${esc(c.motivo)}</div>` : (c.sugestao ? `<div class="cli-linha">Ofereça: <strong>${esc(_cliTitulo(c.sugestao))}</strong> <span class="cli-dica-sug" title="Peça que está vendendo bem na categoria que esse cliente mais compra e que ele ainda não levou">(está vendendo bem)</span></div>` : '')}
+    <div class="cli-linha cli-contato">${k.telefone ? esc(k.telefone) : 'sem telefone no cadastro'}${k.autorizaWhatsapp === false ? ' · <span class="cli-aviso">não autorizou receber WhatsApp</span>' : ''}</div>
+  </div>`;
+}
+
+function _cliLista(lista, tipo, loja, extra, vazio) {
+  if (!lista.length) return `<div class="empty">${vazio}</div>`;
+  const falei = _cliFaleiLer();
+  const ord = [...lista].sort((a, b) => (falei[`${loja}|${a.id}`] ? 1 : 0) - (falei[`${loja}|${b.id}`] ? 1 : 0));
+  const n = _cliMostrar[tipo] || 10;
+  return `<div class="cli-cards">${ord.slice(0, n).map(c => _cliCartao(c, tipo, loja, extra)).join('')}</div>
+    ${ord.length > n ? `<div style="text-align:center; margin-top:12px"><button type="button" class="secondary" data-cli-mais="${tipo}">Mostrar mais ${Math.min(10, ord.length - n)}${ord.length - n > 10 ? ` (faltam ${ord.length - n})` : ''}</button></div>` : ''}`;
+}
+
 function desenharClientes() {
   const d = _cliDados, box = $('resultado-clientes'); if (!d) return;
   const R = d.resumo, P = d.parametros, loja = P.loja;
-  const ident = R.pctIdentificadas;
+  const de10 = R.recompraPct != null ? Math.round(R.recompraPct / 10) : null;
+  const ident10 = R.pctIdentificadas != null ? Math.round(R.pctIdentificadas / 10) : null;
+  const frases = [
+    `Nos últimos ${P.meses} meses, <strong>${fmtNum(R.clientes)} clientes</strong> compraram com você e deixaram o CPF.`,
+    de10 != null ? `De cada 10 clientes, <strong>${de10} ${de10 === 1 ? 'volta' : 'voltam'}</strong> a comprar.` : '',
+    R.intervaloMedianoDias != null ? `Quem volta, costuma voltar em <strong>cerca de ${_cliMeses(R.intervaloMedianoDias)}</strong>.` : '',
+    R.sumidos ? `<strong>${fmtNum(R.sumidos)} clientes sumiram</strong> (mais de ${P.sumidoDias} dias sem comprar). Juntos eles gastaram ${fmtMoeda(R.fatSumidos)} — vale chamar de volta.` : '',
+  ].filter(Boolean);
+  const nAniv = (d.aniversariantes || []).filter(c => !c.jaPassou).length;
+  const abas = [['volta', `Chamar de volta`, R.sumidos], ['aniversario', 'Aniversariantes do mês', nAniv], ['vip', 'Melhores clientes', null], ['oferecer', 'Oferecer uma peça', null]];
+  const nomeMes = new Date().toLocaleDateString('pt-BR', { month: 'long' });
+  let conteudo = '';
+  if (_cliAba === 'volta') conteudo = `<div class="cli-intro">Clientes que não compram há mais de ${P.sumidoDias} dias, começando por quem mais gastava. Mande uma mensagem e marque <em>Já falei</em> para não repetir.</div>${_cliLista(d.sumidos, 'volta', loja, null, 'Ninguém sumiu nesse prazo. 🎉')}`;
+  if (_cliAba === 'aniversario') conteudo = `<div class="cli-intro">Clientes que fazem aniversário em ${nomeMes} (entre os que mais compram e os que sumiram — aniversário é um ótimo motivo para chamar).</div>${_cliLista([...(d.aniversariantes || [])].sort((x, y) => (x.jaPassou - y.jaPassou) || String(x.contato?.aniversario).localeCompare(String(y.contato?.aniversario))), 'aniversario', loja, null, 'Nenhum aniversariante encontrado neste mês (a data precisa estar no cadastro do cliente).')}`;
+  if (_cliAba === 'vip') conteudo = `<div class="cli-intro">Quem mais comprou com você no período. Trate como VIP: avise primeiro das novidades.</div>${_cliLista(d.vip, 'vip', loja, null, 'Sem clientes identificados no período.')}`;
+  if (_cliAba === 'oferecer') {
+    const o = d.oferecer;
+    conteudo = `<div class="cli-intro">Escolha uma peça e veja quem tem o perfil para comprar — pessoas que gostam da mesma categoria, gastam na mesma faixa de preço ou levaram peças que combinam com ela.</div>
+      <div class="cli-busca"><input id="cli_of_prod" list="cli_of_lista" placeholder="Qual peça você quer vender? Ex.: COLAR AMOR" value="${esc(o?.busca || '')}"><datalist id="cli_of_lista">${(d.produtos || []).map(p => `<option value="${esc(p)}">`).join('')}</datalist><button id="cli_of_buscar">Encontrar clientes</button></div>
+      ${(d.maisVendidos || []).length ? `<div class="cli-chips"><span>Mais vendidos agora:</span>${d.maisVendidos.map(p => `<button type="button" class="secondary" data-cli-prod="${esc(p.modelo)}">${esc(_cliTitulo(p.modelo))}</button>`).join('')}</div>` : ''}
+      ${!o ? '' : !o.encontrado ? `<div class="empty">Nenhuma peça vendida no período com “${esc(o.busca)}”.</div>` :
+        `<div class="cli-intro" style="margin-top:14px"><strong>${esc(_cliTitulo(o.alvo.modelos[0]))}</strong>${o.alvo.nModelos > 1 ? ` (+${o.alvo.nModelos - 1})` : ''} · ${fmtMoeda(o.alvo.precoMedio)} · ${fmtNum(o.jaCompraram)} clientes já compraram${o.alvo.coCompra.length ? ` · combina com ${esc(_cliTitulo(o.alvo.coCompra[0].modelo))}` : ''}. <strong>${fmtNum(o.candidatos)} clientes</strong> têm o perfil e ainda não compraram:</div>
+        ${_cliLista(o.clientes, 'oferecer', loja, o.alvo.modelos[0], 'Nenhum cliente com perfil parecido que ainda não tenha comprado.')}`}`;
+  }
   box.innerHTML = `
-    <div class="cmp-periodos"><span><strong>${esc(loja)}</strong></span><span>${_cliData(P.desde)} a ${_cliData(P.ate)}</span>
-      <span>${fmtNum(R.vendasIdentificadas)} de ${fmtNum(R.vendas)} vendas com cliente identificado (<strong style="color:${ident != null && ident < 50 ? 'var(--danger)' : 'var(--text)'}">${ident != null ? fmtPct(ident, 0) : '—'}</strong>)</span></div>
-    ${ident != null && ident < 50 ? `<div class="panel" style="border-color:var(--warn); font-size:12.5px; color:var(--warn)">Menos da metade das vendas tem o cliente identificado. Os números abaixo valem só para essa parte — identificar o cliente no caixa (CPF) melhora tudo nesta tela.</div>` : ''}
+    <div class="panel cli-resumo">
+      <div class="cli-resumo-t">Como estão seus clientes — ${esc(loja)}</div>
+      ${frases.map(f => `<p>${f}</p>`).join('')}
+      ${ident10 != null && ident10 < 7 ? `<p class="cli-alerta">Só ${ident10} de cada 10 vendas têm o CPF do cliente. <strong>Peça o CPF no caixa</strong>: sem ele, o cliente não aparece aqui e você não consegue chamá-lo de volta.</p>` : ''}
+    </div>
+    <div class="cli-abas" role="tablist">${abas.map(([k, t, n]) => `<button type="button" role="tab" class="${k === _cliAba ? 'on' : ''}" data-cli-aba="${k}">${t}${n ? ` <span class="cli-n">${fmtNum(n)}</span>` : ''}</button>`).join('')}</div>
+    <div class="panel" id="cli_oferecer">${conteudo}</div>
+    <details class="panel cli-detalhes"><summary>Ver números detalhados</summary>${detalhesClientes(d)}</details>`;
+
+  box.querySelectorAll('[data-cli-aba]').forEach(b => b.addEventListener('click', () => { _cliAba = b.dataset.cliAba; desenharClientes(); }));
+  box.querySelectorAll('[data-cli-mais]').forEach(b => b.addEventListener('click', () => { _cliMostrar[b.dataset.cliMais] = (_cliMostrar[b.dataset.cliMais] || 10) + 10; desenharClientes(); }));
+  box.querySelectorAll('[data-falei]').forEach(b => b.addEventListener('click', () => {
+    const o = _cliFaleiLer(), k = `${loja}|${b.dataset.falei}`;
+    if (o[k]) delete o[k]; else o[k] = new Date().toISOString().slice(0, 10);
+    _cliFaleiGravar(o); desenharClientes();
+  }));
+  box.querySelectorAll('[data-cli-prod]').forEach(b => b.addEventListener('click', () => rodarClientes(b.dataset.cliProd)));
+  const buscar = () => { const v = $('cli_of_prod')?.value.trim(); if (v) rodarClientes(v); };
+  $('cli_of_buscar')?.addEventListener('click', buscar);
+  $('cli_of_prod')?.addEventListener('keydown', e => { if (e.key === 'Enter') buscar(); });
+}
+
+function detalhesClientes(d) {
+  const R = d.resumo, P = d.parametros, loja = P.loja, ident = R.pctIdentificadas;
+  return `<div style="margin-top:14px">
+    <div class="cmp-periodos"><span>${_cliData(P.desde)} a ${_cliData(P.ate)}</span><span>${fmtNum(R.vendasIdentificadas)} de ${fmtNum(R.vendas)} vendas com cliente identificado (${ident != null ? fmtPct(ident, 0) : '—'})</span></div>
     <div class="kpis k4">
-      <div class="kpi"><div class="label">Clientes no período</div><div class="value">${fmtNum(R.clientes)}</div><div class="hint">${fmtNum(R.ativos90)} compraram nos últimos 90 dias · ${fmtNum(R.novos30)} novos nos últimos 30</div></div>
-      <div class="kpi"><div class="label">Recompra</div><div class="value">${R.recompraPct != null ? fmtPct(R.recompraPct, 0) : '—'}</div><div class="hint">voltaram mais de uma vez${R.voltou90Pct != null ? ` · ${fmtPct(R.voltou90Pct, 0)} voltaram em até 90 dias` : ''}</div></div>
-      <div class="kpi"><div class="label">Tempo até voltar</div><div class="value">${R.intervaloMedianoDias != null ? fmtNum(R.intervaloMedianoDias) + ' dias' : '—'}</div><div class="hint">metade das voltas acontece em até esse prazo</div></div>
+      <div class="kpi"><div class="label">Clientes no período</div><div class="value">${fmtNum(R.clientes)}</div><div class="hint">${fmtNum(R.ativos90)} nos últimos 90 dias · ${fmtNum(R.novos30)} novos nos últimos 30</div></div>
+      <div class="kpi"><div class="label">Recompra</div><div class="value">${R.recompraPct != null ? fmtPct(R.recompraPct, 0) : '—'}</div><div class="hint">2+ visitas${R.voltou90Pct != null ? ` · ${fmtPct(R.voltou90Pct, 0)} voltaram em até 90 dias` : ''}</div></div>
+      <div class="kpi"><div class="label">Tempo até voltar</div><div class="value">${R.intervaloMedianoDias != null ? fmtNum(R.intervaloMedianoDias) + ' dias' : '—'}</div><div class="hint">mediana entre uma visita e a próxima</div></div>
       <div class="kpi"><div class="label">Receita de quem volta</div><div class="value">${R.fatRecorrentesPct != null ? fmtPct(R.fatRecorrentesPct, 0) : '—'}</div><div class="hint">ticket ${R.ticketRecorrente != null ? fmtMoeda(R.ticketRecorrente) : '—'} (volta) × ${R.ticketUmaVisita != null ? fmtMoeda(R.ticketUmaVisita) : '—'} (1 visita)</div></div>
     </div>
     <div class="cli-grade">
@@ -1344,42 +1473,11 @@ function desenharClientes() {
       <div class="panel"><div class="cli-tit">Visitas por cliente</div>${_cliBarras(d.frequencia, 'clientes', l => `${fmtNum(l.clientes)} <small>${fmtMoedaCurta(l.faturamento) ?? fmtMoeda(l.faturamento)}</small>`)}</div>
       <div class="panel"><div class="cli-tit">Tempo entre uma compra e a próxima</div>${_cliBarras(d.intervalos, 'voltas', l => fmtNum(l.voltas))}</div>
     </div>
-
-    <div class="subsecao-titulo" id="cli_oferecer">Para quem oferecer</div>
-    <div class="panel">
-      <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end">
-        <div style="flex:1; min-width:240px"><label>Produto ou modelo</label><input id="cli_of_prod" list="cli_of_lista" placeholder="ex.: COLAR AMOR" value="${esc(d.oferecer?.busca || '')}"><datalist id="cli_of_lista">${(d.produtos || []).map(p => `<option value="${esc(p)}">`).join('')}</datalist></div>
-        <button id="cli_of_buscar">Encontrar clientes</button>
-      </div>
-      ${desenharOferecer(d.oferecer, loja)}
-    </div>
-
-    <div class="subsecao-titulo">Clientes que sumiram — mais de ${P.sumidoDias} dias sem comprar</div>
-    <div class="panel" style="overflow-x:auto">
-      <div class="sub" style="font-size:12px; max-width:none; margin-bottom:8px">${fmtNum(R.sumidos)} clientes, que gastaram ${fmtMoeda(R.fatSumidos)} no período. Em ordem de quanto gastaram — os primeiros valem mais uma ligação.${d.sumidos.length < R.sumidos ? ` Mostrando os ${d.sumidos.length} primeiros.` : ''}</div>
-      ${d.sumidos.length ? tabelaClientes(d.sumidos, loja, 'sumidos') : '<div class="empty">Ninguém sumiu nesse prazo.</div>'}
-    </div>
-
-    <div class="subsecao-titulo">Melhores clientes</div>
-    <div class="panel" style="overflow-x:auto">${d.vip.length ? tabelaClientes(d.vip, loja, 'vip') : '<div class="empty">Sem clientes identificados no período.</div>'}</div>
-    ${d.contatosIncompletos ? '<div class="sub" style="font-size:11px">Alguns contatos não foram carregados a tempo; analise de novo para completar.</div>' : ''}`;
-  const buscar = () => { const v = $('cli_of_prod').value.trim(); if (v) rodarClientes(v); };
-  $('cli_of_buscar').addEventListener('click', buscar);
-  $('cli_of_prod').addEventListener('keydown', e => { if (e.key === 'Enter') buscar(); });
-}
-
-function desenharOferecer(o, loja) {
-  if (!o) return '<div class="sub" style="font-size:12px; max-width:none; margin-top:8px">Digite um produto (ou só o modelo, sem a cor) para ver quais clientes têm o perfil para comprá-lo.</div>';
-  if (!o.encontrado) return `<div class="empty">Nenhum produto vendido no período com “${esc(o.busca)}”.</div>`;
-  const A = o.alvo;
-  return `<div class="cli-alvo">
-      <span><strong>${esc(A.modelos.join(', '))}${A.nModelos > A.modelos.length ? ` e mais ${A.nModelos - A.modelos.length}` : ''}</strong></span>
-      <span>categoria <strong>${esc(A.categoria.toLowerCase())}</strong></span><span>preço médio <strong>${fmtMoeda(A.precoMedio)}</strong></span>
-      <span>${fmtNum(A.vendidos)} vendidos · ${fmtNum(o.jaCompraram)} clientes já compraram</span>
-      ${A.coCompra.length ? `<span>sai junto com: ${A.coCompra.slice(0, 4).map(x => esc(x.modelo.toLowerCase())).join(', ')}</span>` : ''}
-    </div>
-    ${o.clientes.length ? `<div class="sub" style="font-size:12px; max-width:none; margin:6px 0">${fmtNum(o.candidatos)} clientes com o perfil, que ainda não compraram este modelo${o.candidatos > o.clientes.length ? ` — os ${o.clientes.length} mais indicados` : ''}.</div>
-      <div style="overflow-x:auto">${tabelaClientes(o.clientes, loja, 'oferecer')}</div>` : '<div class="empty">Nenhum cliente com perfil parecido que ainda não tenha comprado.</div>'}`;
+    <div class="subsecao-titulo">Clientes que sumiram (tabela)</div>
+    <div style="overflow-x:auto">${d.sumidos.length ? tabelaClientes(d.sumidos, loja, 'sumidos') : '<div class="empty">Ninguém sumiu nesse prazo.</div>'}</div>
+    <div class="subsecao-titulo">Melhores clientes (tabela)</div>
+    <div style="overflow-x:auto">${d.vip.length ? tabelaClientes(d.vip, loja, 'vip') : '<div class="empty">Sem clientes.</div>'}</div>
+  </div>`;
 }
 
 function tabelaClientes(lista, loja, tipo) {
