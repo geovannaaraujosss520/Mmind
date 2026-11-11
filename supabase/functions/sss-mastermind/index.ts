@@ -791,6 +791,14 @@ async function moduloBenchmark(apiBase: string, lojasTokens: Record<string, stri
     .select("loja, cidade, populacao, data_abertura_est");
   if (error) throw new Error(`Erro ao ler perfil_lojas: ${error.message}`);
   const perfilPorLoja = new Map((perfis ?? []).map((p: any) => [p.loja, p]));
+  // Cidades com mais de uma loja ativa (ex.: Brasília, Goiânia, Ribeirão): a população é dividida entre as unidades,
+  // senão cada unidade aparece com metade da receita por habitante que realmente tem.
+  const normCidade = (c: unknown) => String(c ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/\s*[-\/]\s*[A-Z]{2}$/, "").trim();
+  const lojasPorCidade = new Map<string, number>();
+  for (const p of perfis ?? []) {
+    if (!lojasTokens[(p as any).loja] || !(p as any).populacao) continue;
+    const c = normCidade((p as any).cidade); if (c) lojasPorCidade.set(c, (lojasPorCidade.get(c) ?? 0) + 1);
+  }
 
   const hoje = new Date();
   const inicioJanela = new Date(hoje);
@@ -827,6 +835,7 @@ async function moduloBenchmark(apiBase: string, lojasTokens: Record<string, stri
     }
 
     let saldos: any[] = [];
+    let primeiraVendaJanela: Date | null = null;
     let receitaBruta = 0;
     let qtdVendidaTotal = 0;
     const receitaPorProduto = new Map<string, number>();
@@ -839,7 +848,7 @@ async function moduloBenchmark(apiBase: string, lojasTokens: Record<string, stri
       // Bucket por mês civil da própria venda (não por "dias atrás"), pra achar o mês de pico real.
       let mesIdx: number | null = null;
       const dataSaida = dataVarejo(saida.data);
-      if (dataSaida) mesIdx = dataSaida.getMonth();
+      if (dataSaida) { mesIdx = dataSaida.getMonth(); if (!primeiraVendaJanela || dataSaida < primeiraVendaJanela) primeiraVendaJanela = dataSaida; }
 
       for (const item of saida.mercadorias ?? []) {
         const valor = Number(item.valorTotal ?? 0);
@@ -877,15 +886,28 @@ async function moduloBenchmark(apiBase: string, lojasTokens: Record<string, stri
     const diasAbertura = dataAberturaIso
       ? Math.max(1, Math.round((hoje.getTime() - new Date(dataAberturaIso).getTime()) / 86400000))
       : null;
-    const receitaPorHabitante = Number((receitaBruta / perfil.populacao).toFixed(4));
-    const receitaPorHabitantePorDiaAberto = diasAbertura
-      ? Number((receitaBruta / perfil.populacao / diasAbertura).toFixed(6))
-      : null;
+    // Dias que a receita cobre: a janela inteira, ou desde a 1ª venda dentro dela (loja aberta há menos tempo).
+    const pv = primeiraVendaJanela as Date | null;
+    const diasComVenda = pv
+      ? Math.max(1, Math.min(diasJanela, Math.round((hoje.getTime() - pv.getTime()) / 86400000) + 1))
+      : diasJanela;
+    const lojasNaCidade = lojasPorCidade.get(normCidade(perfil.cidade)) ?? 1;
+    const populacaoAtendida = Math.max(1, Math.round(perfil.populacao / lojasNaCidade));
+    // Receita por habitante em 12 meses: loja com menos de 1 ano de vendas é projetada para 12 meses,
+    // para não ficar para trás só por ser nova.
+    const receitaAnual = receitaBruta * (365 / diasComVenda);
+    const receitaPorHabitante = Number((receitaAnual / populacaoAtendida).toFixed(4));
+    const receitaPorHabitantePorDiaAberto = Number((receitaBruta / populacaoAtendida / diasComVenda).toFixed(6));
 
     return {
       nomeLoja,
       cidade: perfil.cidade,
       populacao: perfil.populacao,
+      lojasNaCidade,
+      populacaoAtendida,
+      diasComVenda,
+      projetadoAno: diasComVenda < diasJanela * 0.95,
+      receitaAnual: Number(receitaAnual.toFixed(2)),
       dataAberturaEstimada: dataAberturaIso,
       diasAbertura,
       receitaBruta: Number(receitaBruta.toFixed(2)),

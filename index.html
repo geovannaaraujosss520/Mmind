@@ -714,7 +714,7 @@
     <header class="view-header">
       <h1>Comparativo entre lojas</h1>
       <div class="sub">Lojas de cidades diferentes, comparadas de forma justa.</div>
-      <details class="como-funciona"><summary>Como funciona</summary><div>Compara lojas de cidades diferentes de forma justa (abaixo, também a compatibilidade de mix de produtos entre elas): em vez de faturamento bruto, calcula receita por habitante e por dia de loja aberta, e agrupa lojas com padrão de consumo parecido — mesmo estando em cidades e portes diferentes.</div></details>
+      <details class="como-funciona"><summary>Como funciona</summary><div>Compara lojas de cidades diferentes de forma justa (abaixo, também a compatibilidade de mix de produtos entre elas): em vez de faturamento bruto, calcula a receita por habitante em 12 meses (loja nova é projetada para 12 meses; cidade com mais de uma loja divide a população), e agrupa lojas com padrão de consumo parecido — mesmo estando em cidades e portes diferentes.</div></details>
     </header>
     <div class="panel">
       <div class="grid">
@@ -2243,7 +2243,7 @@ function renderBenchmark(data, box) {
     <div class="panel" style="overflow-x:auto;">
       <table>
         <thead><tr>
-          <th>Loja</th><th>Cidade</th><th>Receita/habitante</th><th>Padrão</th>
+          <th>Loja</th><th>Cidade</th><th class="num">Receita 12 meses</th><th class="num">População atendida</th><th class="num">Receita/habitante</th><th>Padrão</th>
           <th>Giro estoque</th><th>Top 10 produtos</th><th>Mês de pico</th><th>Sazonalidade</th>
         </tr></thead>
         <tbody>
@@ -2251,7 +2251,9 @@ function renderBenchmark(data, box) {
             <tr>
               <td class="prod-name">${l.nomeLoja}</td>
               <td>${l.cidade || '—'}</td>
-              <td>${fmtMoeda(l.receitaPorHabitante)}</td>
+              <td class="num">${fmtMoeda(l.receitaAnual ?? l.receitaBruta)}${l.projetadoAno ? `<br><span style="font-size:10.5px; color:var(--muted)" title="Vendas de ${l.diasComVenda} dias (${fmtMoeda(l.receitaBruta)}) projetadas para 12 meses">projetado · ${l.diasComVenda} dias</span>` : ''}</td>
+              <td class="num">${fmtNum(l.populacaoAtendida ?? l.populacao)}${(l.lojasNaCidade || 1) > 1 ? `<br><span style="font-size:10.5px; color:var(--muted)">${fmtNum(l.populacao)} ÷ ${l.lojasNaCidade} lojas</span>` : ''}</td>
+              <td class="num"><strong>${fmtMoeda(l.receitaPorHabitante)}</strong></td>
               <td style="font-size:11px">${l.grupoPadrao || '—'}</td>
               <td>${l.giroEstoque != null ? fmtNum(l.giroEstoque) + 'x' : '—'}</td>
               <td>${l.concentracaoTop10Percent != null ? l.concentracaoTop10Percent + '%' : '—'}</td>
@@ -2261,6 +2263,7 @@ function renderBenchmark(data, box) {
           `).join('')}
         </tbody>
       </table>
+      <div class="sub" style="font-size:11px; margin-top:8px; max-width:none">Receita/habitante = vendas dos últimos 12 meses ÷ população atendida. Loja com menos de 1 ano de vendas tem a receita projetada para 12 meses. Cidade com mais de uma loja: a população é dividida entre elas. População vem do cadastro de perfil das lojas.</div>
     </div>
   `;
 
