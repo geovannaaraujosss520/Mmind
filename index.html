@@ -313,7 +313,7 @@
   .senha-box label{ font-size:10px; margin-bottom:3px; }
   .senha-box input{ padding:6px 9px; font-size:12px; }
   .main{ max-width:1280px; width:100%; margin:0 auto; padding:26px 24px 80px; }
-  .subsecao-titulo, [id^="cen_transf"]{ scroll-margin-top:90px; }
+  .subsecao-titulo{ scroll-margin-top:90px; }
   @media (max-width: 900px){
     .sidebar{ flex-wrap:wrap; gap:10px 14px; padding:10px 16px; }
     .nav-wrap{ order:3; flex-basis:100%; }
@@ -455,12 +455,11 @@
     <header class="view-header">
       <h1>Central de Decisão</h1>
       <div class="sub">O que pede atenção na rede agora, em ordem de impacto.</div>
-      <details class="como-funciona"><summary>Como funciona</summary><div>Um clique cruza compras, estoque, DRE do mês e metas de todas as lojas e devolve o que fazer agora: ações priorizadas por impacto em R$, nota de saúde por loja, projeção de fechamento do mês e transferências entre lojas que evitam compra.</div></details>
+      <details class="como-funciona"><summary>Como funciona</summary><div>Um clique cruza compras, estoque, DRE do mês e metas de todas as lojas e devolve o que fazer agora: ações priorizadas por impacto em R$, nota de saúde por loja, e projeção de fechamento do mês.</div></details>
     </header>
     <div class="panel">
       <div class="grid">
         <div style="grid-column: span 2"><label>Lojas (vazio = todas)</label><input id="cen_lojas" placeholder="ex: SSS NATAL, SSS BAURU"></div>
-        <div><label>Cobertura alvo p/ transferência (dias)</label><input id="cen_alvo" type="number" value="30" min="7"></div>
         <div style="display:flex; flex-direction:column; justify-content:flex-end; gap:6px;"><label class="opt-row"><input type="checkbox" id="cen_vend" checked> Incluir vendedores</label><label class="opt-row"><input type="checkbox" id="cen_bench"> Incluir benchmark (mais lento)</label></div>
       </div>
       <div class="sub" style="margin-top:10px; font-size:12px">Usa os parâmetros já preenchidos em Compra Recorrente e Alertas de Estoque. O DRE considera do dia 1º do mês até hoje. Ao terminar, as outras telas também ficam preenchidas.</div>
@@ -663,13 +662,13 @@
     </header>
     <div class="panel">
       <div class="grid">
-        <div style="grid-column: span 2"><label>Loja</label><select id="cmp_loja"><option value="">Carregando lojas…</option></select></div>
-        <div><label>De</label><input id="cmp_de" type="date"></div>
-        <div><label>Até</label><input id="cmp_ate" type="date"></div>
-        <div><label>Ano anterior por</label><select id="cmp_alinha"><option value="data">mesma data</option><option value="semana">mesmo dia da semana</option></select></div>
+        <div style="grid-column: span 2"><label>Loja</label><select id="cpv_loja"><option value="">Carregando lojas…</option></select></div>
+        <div><label>De</label><input id="cpv_de" type="date"></div>
+        <div><label>Até</label><input id="cpv_ate" type="date"></div>
+        <div><label>Ano anterior por</label><select id="cpv_alinha"><option value="data">mesma data</option><option value="semana">mesmo dia da semana</option></select></div>
       </div>
       <div class="actions" style="flex-wrap:wrap">
-        <button id="cmp_rodar">Comparar</button>
+        <button id="cpv_rodar">Comparar</button>
         <span class="cmp-atalhos">
           <button class="secondary" data-cmp="hoje">Hoje</button>
           <button class="secondary" data-cmp="ontem">Ontem</button>
@@ -1046,14 +1045,14 @@ function cmpAtalho(tipo) {
   else if (tipo === '7d') de.setDate(h.getDate() - 6);
   else if (tipo === 'mes') de = new Date(h.getFullYear(), h.getMonth(), 1);
   else if (tipo === 'mespassado') { de = new Date(h.getFullYear(), h.getMonth() - 1, 1); ate = new Date(h.getFullYear(), h.getMonth(), 0); }
-  $('cmp_de').value = _isoLocal(de); $('cmp_ate').value = _isoLocal(ate);
+  $('cpv_de').value = _isoLocal(de); $('cpv_ate').value = _isoLocal(ate);
 }
 document.querySelectorAll('[data-cmp]').forEach(b => b.addEventListener('click', () => { cmpAtalho(b.dataset.cmp); rodarComparativo(); }));
 
 let _cmpIrPara = null; // loja vinda do Início ('' = rede) — abre já comparando o mês
 async function carregarLojasComparativo() {
-  const sel = $('cmp_loja');
-  if (!$('cmp_de').value) cmpAtalho('mes');
+  const sel = $('cpv_loja');
+  if (!$('cpv_de').value) cmpAtalho('mes');
   let primeira = false;
   if (!sel.dataset.ok) {
     try {
@@ -1076,7 +1075,7 @@ async function carregarLojasComparativo() {
 }
 document.querySelector('[data-view="comparativo"]').addEventListener('click', carregarLojasComparativo);
 
-const cmpPayload = () => ({ modulo: 'comparativo', lojas: $('cmp_loja').value ? [$('cmp_loja').value] : [], de: $('cmp_de').value, ate: $('cmp_ate').value, alinhamento: $('cmp_alinha').value });
+const cmpPayload = () => ({ modulo: 'comparativo', lojas: $('cpv_loja').value ? [$('cpv_loja').value] : [], de: $('cpv_de').value, ate: $('cpv_ate').value, alinhamento: $('cpv_alinha').value });
 async function rodarComparativo() {
   const st = $('status-comparativo'), payload = cmpPayload(), t0 = Date.now();
   $('erro-comparativo').innerHTML = '';
@@ -1084,15 +1083,15 @@ async function rodarComparativo() {
   const ult = lerUltimo('comparativo', payload);
   if (ult) { _cmpDados = ult.data; desenharComparativo(); }
   st.innerHTML = '<span class="loader"></span> Comparando…'; _temposExec = [];
-  $('cmp_rodar').disabled = true;
+  $('cpv_rodar').disabled = true;
   try {
     const d = await chamarEdge(payload, EDGE_COMPRAS_URL);
     _cmpDados = d; guardarUltimo('comparativo', payload, d); desenharComparativo();
     st.textContent = `Atualizado às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} ${resumoDesempenho(t0)}`;
   } catch (e) { $('erro-comparativo').innerHTML = `<div class="panel err">${esc(e.message)}</div>`; st.textContent = ''; }
-  finally { $('cmp_rodar').disabled = false; }
+  finally { $('cpv_rodar').disabled = false; }
 }
-$('cmp_rodar').addEventListener('click', rodarComparativo);
+$('cpv_rodar').addEventListener('click', rodarComparativo);
 
 const _cmpVar = (a, b) => a != null && b ? (a / b - 1) * 100 : null;
 const _cmpSeta = v => v == null ? '<span class="cmp-var" style="color:var(--muted)">—</span>'
@@ -1129,17 +1128,17 @@ function desenharComparativo() {
     </div>
     <div class="panel">
       <div class="cmp-controles">
-        <div class="cmp-seg" id="cmp_metrica">${Object.entries(CMP_METRICAS).map(([k, v]) => `<button type="button" data-m="${k}" class="${k === _cmpMetrica ? 'on' : ''}">${v}</button>`).join('')}</div>
-        <div class="cmp-seg" id="cmp_modo"><button type="button" data-modo="acumulado" class="${_cmpModo === 'acumulado' ? 'on' : ''}">Acumulado</button><button type="button" data-modo="dia" class="${_cmpModo === 'dia' ? 'on' : ''}">Por dia</button></div>
+        <div class="cmp-seg" id="cpv_metrica">${Object.entries(CMP_METRICAS).map(([k, v]) => `<button type="button" data-m="${k}" class="${k === _cmpMetrica ? 'on' : ''}">${v}</button>`).join('')}</div>
+        <div class="cmp-seg" id="cpv_modo"><button type="button" data-modo="acumulado" class="${_cmpModo === 'acumulado' ? 'on' : ''}">Acumulado</button><button type="button" data-modo="dia" class="${_cmpModo === 'dia' ? 'on' : ''}">Por dia</button></div>
       </div>
       <div class="cmp-legenda">${['atual', 'mesAnterior', 'anoAnterior'].map(k => `<span>${_cmpChave(k)}${CMP_NOME[k]}</span>`).join('')}</div>
-      <div id="cmp_grafico" class="cmp-grafico"></div>
+      <div id="cpv_grafico" class="cmp-grafico"></div>
     </div>
     <div class="subsecao-titulo">Dia a dia</div>
     <div class="panel" style="overflow-x:auto">${tabelaDiasComparativo(d)}</div>
     ${d.lojas.length > 1 ? `<div class="subsecao-titulo">Por loja</div><div class="panel" style="overflow-x:auto">${tabelaLojasComparativo(d)}</div>` : ''}`;
-  box.querySelectorAll('#cmp_metrica button').forEach(b => b.addEventListener('click', () => { _cmpMetrica = b.dataset.m; box.querySelectorAll('#cmp_metrica button').forEach(x => x.classList.toggle('on', x === b)); graficoComparativo(); }));
-  box.querySelectorAll('#cmp_modo button').forEach(b => b.addEventListener('click', () => { _cmpModo = b.dataset.modo; box.querySelectorAll('#cmp_modo button').forEach(x => x.classList.toggle('on', x === b)); graficoComparativo(); }));
+  box.querySelectorAll('#cpv_metrica button').forEach(b => b.addEventListener('click', () => { _cmpMetrica = b.dataset.m; box.querySelectorAll('#cpv_metrica button').forEach(x => x.classList.toggle('on', x === b)); graficoComparativo(); }));
+  box.querySelectorAll('#cpv_modo button').forEach(b => b.addEventListener('click', () => { _cmpModo = b.dataset.modo; box.querySelectorAll('#cpv_modo button').forEach(x => x.classList.toggle('on', x === b)); graficoComparativo(); }));
   graficoComparativo();
 }
 
@@ -1181,7 +1180,7 @@ function cmpSerie(d, k) {
 }
 
 function graficoComparativo() {
-  const d = _cmpDados, el = $('cmp_grafico'); if (!d || !el) return;
+  const d = _cmpDados, el = $('cpv_grafico'); if (!d || !el) return;
   const chaves = ['anoAnterior', 'mesAnterior', 'atual']; // atual por cima
   const S = Object.fromEntries(chaves.map(k => [k, cmpSerie(d, k)]));
   const n = d.dias.length, W = Math.max(300, el.clientWidth || 800), H = W < 560 ? 230 : 290;
@@ -1215,10 +1214,10 @@ function graficoComparativo() {
     for (let i = 1; i < rot.length; i++) if (rot[i].yy - rot[i - 1].yy < 26) rot[i].yy = rot[i - 1].yy + 26;
     for (const r of rot) svg += `<text x="${W - pr + 8}" y="${r.yy - 2}" class="cmp-rotulo">${CMP_CURTO[r.k]}</text><text x="${W - pr + 8}" y="${r.yy + 11}" class="cmp-rotulo-v">${ehMoeda ? curta(r.v) : fmtNum(r.v)}</text>`;
   }
-  svg += `<line id="cmp_mira" x1="0" x2="0" y1="${pt}" y2="${H - pb}" stroke="var(--muted)" stroke-width="1" style="display:none"/>`;
-  svg += `<rect x="${pl - 10}" y="0" width="${W - pl - pr + 20}" height="${H}" fill="transparent" id="cmp_alvo"/></svg>`;
-  el.innerHTML = svg + '<div class="cmp-dica" id="cmp_dica" style="display:none"></div>';
-  const alvo = el.querySelector('#cmp_alvo'), mira = el.querySelector('#cmp_mira'), dica = el.querySelector('#cmp_dica');
+  svg += `<line id="cpv_mira" x1="0" x2="0" y1="${pt}" y2="${H - pb}" stroke="var(--muted)" stroke-width="1" style="display:none"/>`;
+  svg += `<rect x="${pl - 10}" y="0" width="${W - pl - pr + 20}" height="${H}" fill="transparent" id="cpv_alvo"/></svg>`;
+  el.innerHTML = svg + '<div class="cmp-dica" id="cpv_dica" style="display:none"></div>';
+  const alvo = el.querySelector('#cpv_alvo'), mira = el.querySelector('#cpv_mira'), dica = el.querySelector('#cpv_dica');
   const mostrar = ev => {
     const r = el.querySelector('svg').getBoundingClientRect(), px = (ev.touches ? ev.touches[0].clientX : ev.clientX) - r.left;
     const i = n === 1 ? 0 : Math.max(0, Math.min(n - 1, Math.round((px - pl) / ((W - pl - pr) / (n - 1)))));
@@ -2596,7 +2595,6 @@ function analisar(res) {
   const fin = res.financeiro?.erro ? null : res.financeiro;
   const bench = res.benchmark && !res.benchmark.erro ? res.benchmark : null;
   const vend = res.vendedores && !res.vendedores.erro ? res.vendedores : null;
-  const alvoDias = Number($('cen_alvo').value || 30);
   const limiteAlto = Number($('est_limiteAlto').value || 90);
 
   const lojas = new Map();
@@ -2671,40 +2669,6 @@ function analisar(res) {
     l.scoreComp = comp;
   }
 
-  // ---- Transferências entre lojas (sobra em uma, falta em outra) ----
-  const doadores = new Map(); // chave -> [{loja, sobra, desc}]
-  const receptores = new Map(); // loja|chave -> {loja, chave, falta, desc}
-  for (const l of lojas.values()) {
-    (l.est?.alertasAlto || []).forEach(p => {
-      const sobra = Math.floor(p.estoqueAtual - (p.vendaMediaDiaria || 0) * alvoDias);
-      if (sobra > 0) { const k = chaveProduto(p); if (!doadores.has(k)) doadores.set(k, []); doadores.get(k).push({ loja: l, sobra, desc: p.descricao, cobertura: p.diasCobertura }); }
-    });
-    (l.est?.semMovimento || []).forEach(p => {
-      const sobra = Math.floor(p.estoqueAtual);
-      if (sobra > 0) { const k = chaveProduto(p); if (!doadores.has(k)) doadores.set(k, []); doadores.get(k).push({ loja: l, sobra, desc: p.descricao, cobertura: null }); }
-    });
-    const addRec = (p, falta) => {
-      if (falta <= 0) return; const k = chaveProduto(p), id = l.nome + '|' + k;
-      const atual = receptores.get(id);
-      if (!atual || atual.falta < falta) receptores.set(id, { loja: l, chave: k, falta: Math.ceil(falta), desc: p.descricao });
-    };
-    (l.est?.alertasBaixo || []).forEach(p => addRec(p, (p.vendaMediaDiaria || 0) * alvoDias - p.estoqueAtual));
-    l.risco.forEach(r => addRec(r, r.qtdRecomendadaCompra || 0));
-  }
-  const transferencias = [];
-  [...receptores.values()].sort((a, b) => b.falta - a.falta).forEach(r => {
-    let falta = r.falta;
-    (doadores.get(r.chave) || []).filter(d => d.loja !== r.loja && d.sobra > 0).sort((a, b) => b.sobra - a.sobra).forEach(d => {
-      if (falta <= 0) return;
-      const qtd = Math.min(falta, d.sobra);
-      if (qtd < 1) return;
-      d.sobra -= qtd; falta -= qtd;
-      const c = custoDe(r.loja, r.chave);
-      transferencias.push({ de: d.loja.nome, para: r.loja.nome, desc: r.desc || d.desc, qtd, valor: c != null ? qtd * c : null, parado: d.cobertura == null });
-    });
-  });
-  transferencias.sort((a, b) => (b.valor ?? -1) - (a.valor ?? -1) || b.qtd - a.qtd);
-
   // ---- Fila de ações priorizadas ----
   const acoes = [];
   for (const l of lojas.values()) {
@@ -2759,13 +2723,8 @@ function analisar(res) {
       detalhe: 'Possíveis causas: descontos acima do padrão, mix puxado por itens de margem baixa ou custo de reposição desatualizado.' });
     if (l.nAlto + l.nParado > 0) acoes.push({ sev: 'oportunidade', loja: l.nome, ir: 'estoque', impacto: l.capitalParado || null, impLabel: 'capital parado (estimativa mínima)',
       titulo: `${l.nAlto} ${l.nAlto === 1 ? 'item' : 'itens'} com excesso e ${l.nParado} sem venda`,
-      detalhe: `Candidatos a promoção, kit ou transferência. Não recomprar até normalizar.${l.coberturaCusto != null && l.coberturaCusto < 1 ? ` Valor calculado só para ${fmtPct(l.coberturaCusto * 100)} dos itens (custo conhecido).` : ''}` });
+      detalhe: `Candidatos a promoção ou kit. Não recomprar até normalizar.${l.coberturaCusto != null && l.coberturaCusto < 1 ? ` Valor calculado só para ${fmtPct(l.coberturaCusto * 100)} dos itens (custo conhecido).` : ''}` });
   }
-  const porPar = new Map();
-  transferencias.forEach(t => { const k = t.de + '→' + t.para; const p = porPar.get(k) || { de: t.de, para: t.para, n: 0, qtd: 0, valor: 0 }; p.n++; p.qtd += t.qtd; p.valor += t.valor || 0; porPar.set(k, p); });
-  [...porPar.values()].forEach(p => acoes.push({ sev: 'oportunidade', loja: p.para, ir: 'transf', impacto: p.valor || null, impLabel: 'compra evitada',
-    titulo: `Transferir ${p.n} ${p.n === 1 ? 'produto' : 'produtos'} de ${p.de} → ${p.para}`,
-    detalhe: `${fmtNum(p.qtd)} unidades que sobram em ${p.de} e faltam em ${p.para}. Veja a lista de transferências abaixo.` }));
   const ordemSev = { critico: 0, atencao: 1, oportunidade: 2 };
   acoes.sort((a, b) => ordemSev[a.sev] - ordemSev[b.sev] || (b.impacto ?? -1) - (a.impacto ?? -1));
 
@@ -2782,12 +2741,10 @@ function analisar(res) {
     nRisco: soma(l => l.risco.length), valorRisco: soma(l => l.valorRisco),
     valorCompra: rec?.valorTotalEstimadoCompraRede ?? soma(l => l.valorCompra),
     capitalParado: soma(l => l.capitalParado),
-    economiaTransf: transferencias.reduce((s, t) => s + (t.valor || 0), 0),
-    nTransf: transferencias.length,
     margemBrutaMedia,
   };
   rede.pctMetaProj = rede.meta && rede.temProj ? pct(rede.proj, rede.meta) : null;
-  return { lojas: lista, acoes, transferencias, rede, bench };
+  return { lojas: lista, acoes, rede, bench };
 }
 
 function classeScore(s) { return s == null ? '' : s >= 70 ? 's-bom' : s >= 45 ? 's-medio' : 's-ruim'; }
@@ -2851,12 +2808,10 @@ function renderCentral(a, box) {
       <div class="kpi"><div class="label">Itens em risco de ruptura</div><div class="value" style="color:${r.nRisco ? 'var(--danger)' : 'inherit'}">${r.nRisco}</div>
         <div class="hint">${fmtMoeda(r.valorRisco)} para cobrir</div>${deltaHTML(r.nRisco, ant.nRisco, { inverso: true })}</div>
     </div>
-    <div class="kpis k4">
+    <div class="kpis">
       <div class="kpi"><div class="label">Ações críticas</div><div class="value" style="color:${nCrit ? 'var(--danger)' : 'var(--good)'}">${nCrit}</div><div class="hint">${a.acoes.length} ações no total</div></div>
-      <div class="kpi"><div class="label">Compra recomendada — rede</div><div class="value">${fmtMoeda(r.valorCompra || 0)}</div>
-        ${r.economiaTransf ? `<div class="hint">−${fmtMoeda(r.economiaTransf)} se fizer as transferências</div>` : ''}</div>
+      <div class="kpi"><div class="label">Compra recomendada — rede</div><div class="value">${fmtMoeda(r.valorCompra || 0)}</div><div class="hint">Soma da compra recorrente sugerida</div></div>
       <div class="kpi"><div class="label">Capital parado (mín. estimado)</div><div class="value" style="color:var(--warn)">${fmtMoeda(r.capitalParado)}</div><div class="hint">Excesso acima do limite + itens sem venda</div></div>
-      <div class="kpi"><div class="label">Transferências sugeridas</div><div class="value">${r.nTransf}</div><div class="hint">Produtos que sobram numa loja e faltam em outra</div></div>
     </div>
 
     <div class="subsecao-titulo">O que fazer agora — ações priorizadas</div>
@@ -2896,15 +2851,6 @@ function renderCentral(a, box) {
       <div class="sub" style="font-size:11px; margin-top:10px">Nota 0–100 = meta projetada (30) + margem operacional (30) + ruptura (25) + excesso/parado (15). Componentes sem dado são redistribuídos. Passe o mouse na nota para ver a composição.</div>
     </div>
 
-    <div class="subsecao-titulo" id="cen_transf">Transferências entre lojas — antes de comprar, remaneje</div>
-    <div class="panel" style="overflow-x:auto">
-      ${a.transferencias.length ? `<table><thead><tr><th>Produto</th><th>De</th><th>Para</th><th>Qtd</th><th>Compra evitada</th><th>Origem</th></tr></thead><tbody>
-        ${a.transferencias.map(t => `<tr><td class="prod-name">${esc(t.desc)}</td><td>${esc(t.de)}</td><td>${esc(t.para)}</td><td>${fmtNum(t.qtd)}</td><td>${t.valor != null ? fmtMoeda(t.valor) : '—'}</td><td style="font-size:11px">${t.parado ? 'parado (sem venda)' : 'excesso'}</td></tr>`).join('')}
-      </tbody></table>
-      <div class="sub" style="font-size:11px; margin-top:10px">Doador mantém ${$('cen_alvo').value || 30} dias de cobertura; receptor recebe até cobrir ${$('cen_alvo').value || 30} dias (ou a compra recomendada). Considere frete/logística antes de executar.</div>`
-      : '<div class="empty">Nenhum produto com sobra em uma loja e falta em outra (cruzamento por código do sistema).</div>'}
-    </div>
-
     <div class="subsecao-titulo">Resumo executivo (pronto para enviar)</div>
     <div class="resumo-exec" id="cen_resumo"></div>
   `;
@@ -2920,8 +2866,7 @@ function renderCentral(a, box) {
   $('cen_floja').addEventListener('change', e => { fLoja = e.target.value; aplicar(); });
   box.querySelectorAll('[data-acao-i]').forEach(b => b.addEventListener('click', () => {
     const x = a.acoes[Number(b.dataset.acaoI)];
-    if (x.ir === 'transf') $('cen_transf').scrollIntoView({ behavior: 'smooth' });
-    else irPara(x.ir, x.loja);
+    irPara(x.ir, x.loja);
   }));
 
   // Resumo executivo
@@ -2930,7 +2875,6 @@ function renderCentral(a, box) {
   linhas.push(`Faturamento do mês: ${fmtMoeda(r.receita || 0)}${r.temProj ? ` · projeção ${fmtMoeda(r.proj)}` : ''}${r.pctMetaProj != null ? ` (${fmtPct(r.pctMetaProj)} da meta)` : ''}`);
   linhas.push(`Resultado operacional: ${fmtMoeda(r.resultado || 0)} (margem ${fmtPct(r.margemOp, 1)})`);
   linhas.push(`Ruptura: ${r.nRisco} itens em risco (${fmtMoeda(r.valorRisco)}) · Capital parado ≥ ${fmtMoeda(r.capitalParado)}`);
-  if (r.nTransf) linhas.push(`Transferências sugeridas: ${r.nTransf} (evita ${fmtMoeda(r.economiaTransf)} em compra)`);
   const vl = a.lojas.filter(l => l.vend); if (vl.length) { const pa = vl.reduce((s2, l) => s2 + l.vend.loja.pecas, 0) / Math.max(1, vl.reduce((s2, l) => s2 + l.vend.loja.atendimentos, 0)); linhas.push(`Peças por atendimento (rede): ${fmtNum(pa)}`); }
   const criticas = a.acoes.filter(x => x.sev === 'critico').slice(0, 6);
   if (criticas.length) { linhas.push('', '🔴 Prioridades:'); criticas.forEach(x => linhas.push(`• ${x.loja}: ${x.titulo}${x.impacto != null ? ` — ${fmtMoeda(x.impacto)}` : ''}`)); }
@@ -3904,7 +3848,7 @@ function renderCompat() {
       <div class="kpi"><div class="label">Oportunidades de sortimento</div><div class="value">${fmtMoeda(potencial)}</div><div class="hint">potencial estimado no período, somando as lojas</div></div>
     </div>
     ${d.grupos.length ? `<div class="panel"><div style="font-size:13px; font-weight:600; margin-bottom:10px">Grupos de lojas gêmeas</div>${d.grupos.map(g => `<div style="margin-bottom:10px"><span class="chip ok" style="margin-right:8px">média ${fmtPct(g.compatibilidadeMedia)}</span>${g.lojas.map(l => `<span class="bandeira-pill">${esc(l)}</span>`).join('')}</div>`).join('')}
-      <div class="sub" style="font-size:11px">Use os grupos para: comparar metas entre lojas parecidas, testar lançamentos numa loja e replicar nas gêmeas, e transferir estoque entre elas.</div></div>` : ''}
+      <div class="sub" style="font-size:11px">Use os grupos para: comparar metas entre lojas parecidas, e testar lançamentos numa loja e replicar nas gêmeas.</div></div>` : ''}
     ${(d.erros || []).length ? `<div class="panel err">${d.erros.map(e => `${esc(e.loja)}: ${esc(e.erro)}`).join('<br>')}</div>` : ''}
     <div class="tabs">
       <div class="tab active" data-cmp-tab="loja">Por loja</div>
