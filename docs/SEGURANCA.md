@@ -21,6 +21,8 @@ A Hostinger **não precisa de nenhuma chave**: ela só entrega os arquivos do pa
 - Mensagens de erro da VarejOnline não incluem a URL com token.
 - Todas as tabelas criadas pelo Insight têm RLS ligada (acesso só pelas funções).
 - Senha do time e chave de aquecimento comparadas em tempo constante; tentativa errada espera 0,4 s, 0,8 s, 1,2 s… (até 8 s) por IP.
+- Login vale 24 horas: depois disso o painel sai sozinho e pede a senha de novo. No login por e-mail o servidor também recusa o token (hora do login no campo `amr` do token), mesmo que o navegador tente renovar.
+- A senha do time não fica mais gravada no navegador (versões antigas guardavam em `sss_senha_mastermind`; o painel apaga ao abrir).
 - Permissão por loja conferida no servidor (franqueado não acessa outra loja nem pelo console do navegador).
 
 ## Pendências (fazer no Supabase)

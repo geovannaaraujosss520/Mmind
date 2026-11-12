@@ -939,9 +939,8 @@ function esc(s){ return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;
 function fmtNum(n){ return Number(n).toLocaleString('pt-BR', {maximumFractionDigits: 1}); }
 function fmtMoeda(n){ return Number(n).toLocaleString('pt-BR', {style:'currency', currency:'BRL'}); }
 
-const senhaSalva = localStorage.getItem('sss_senha_mastermind');
-if (senhaSalva) $('senhaAcesso').value = senhaSalva;
-$('senhaAcesso').addEventListener('change', () => localStorage.setItem('sss_senha_mastermind', $('senhaAcesso').value));
+// a senha do time não fica mais gravada no navegador (versões antigas guardavam aqui)
+try { localStorage.removeItem('sss_senha_mastermind'); } catch { }
 
 // Com login: token do usuário (Authorization). Sem login: senha do time (transição).
 let tokenAcesso = null;
@@ -4802,7 +4801,7 @@ const ROTULO_PAPEL = { admin: 'Administrador', equipe: 'Equipe', franqueado: 'Fr
 const _fetchOriginal = window.fetch.bind(window);
 window.fetch = async (...args) => {
   const r = await _fetchOriginal(...args);
-  if (r.status === 401 && String(args[0]).includes('/functions/v1/')) r.clone().json().then(d => { if (d && d.acesso === 'login') mostrarLogin(d.error); }).catch(() => {});
+  if (r.status === 401 && String(args[0]).includes('/functions/v1/')) r.clone().json().then(d => { if (d && d.acesso === 'login') { if (/24 horas/.test(d.error || '')) encerrarPorTempo(); else mostrarLogin(d.error); } }).catch(() => {});
   return r;
 };
 function mostrarLogin(msg) {
@@ -4868,8 +4867,13 @@ async function iniciarAcesso() {
     if (tokenAcesso) $('senhaAcesso').value = 'login';
   }
   if (!tokenAcesso && !loginObrigatorio) { try { const s = sessionStorage.getItem('sss_passcode'); if (s) { $('senhaAcesso').value = s; modoSenhaTime = true; } } catch { } }
-  if (tokenAcesso || $('senhaAcesso').value) { if (await carregarPerfil()) return; }
-  mostrarLogin();
+  let aviso = ''; try { aviso = sessionStorage.getItem('sss_msg_login') || ''; sessionStorage.removeItem('sss_msg_login'); } catch { }
+  if ((tokenAcesso || $('senhaAcesso').value) && loginVencidoCliente()) {
+    if (!aviso) { await encerrarPorTempo(); return; }
+    tokenAcesso = null; $('senhaAcesso').value = ''; // já tentou sair e a sessão continuou: não tenta de novo (evita recarregar sem parar)
+  }
+  if (tokenAcesso || $('senhaAcesso').value) { if (await carregarPerfil()) { if (!horaDoLogin()) marcarLogin(); return; } }
+  mostrarLogin(aviso);
 }
 
 $('login_trocaModo').addEventListener('click', ev => { ev.preventDefault(); modoSenhaTime = !modoSenhaTime; mostrarLogin(); });
@@ -4889,7 +4893,8 @@ $('login_form').addEventListener('submit', async ev => {
       tokenAcesso = data.session.access_token; $('senhaAcesso').value = 'login';
       try { sessionStorage.removeItem('sss_passcode'); } catch { }
     }
-    $('senhaAcesso').dispatchEvent(new Event('change'));
+    $('senhaAcesso').dispatchEvent(new Event('change')); // telas recarregam as listas de lojas
+    marcarLogin();
     await carregarPerfil();
   } finally { btn.disabled = false; }
 });
@@ -4907,11 +4912,43 @@ $('troca_form').addEventListener('submit', async ev => {
 async function sair(ev) {
   ev && ev.preventDefault();
   try { sessionStorage.removeItem('sss_passcode'); } catch { }
+  try { localStorage.removeItem('sss_login_em'); } catch { }
   limparUltimos();
   if (sbAuth && tokenAcesso) { try { await sbAuth.auth.signOut(); } catch { } }
   location.reload();
 }
 $('btnSair').addEventListener('click', sair);
+
+// ---------- O acesso vale 24 horas ----------
+// Conta a partir da hora em que a pessoa digitou a senha (no login por e-mail, vem do próprio token;
+// na senha do time, da hora gravada no login). Passou de 24 h: sai e pede o login de novo.
+const LOGIN_VALIDADE_MS = 24 * 3600 * 1000;
+function horaDoLogin() {
+  if (tokenAcesso) {
+    try {
+      const b = tokenAcesso.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+      const p = JSON.parse(atob(b + '='.repeat((4 - b.length % 4) % 4)));
+      const ts = Math.max(0, ...(Array.isArray(p.amr) ? p.amr : []).map(x => Number(x?.timestamp) || 0));
+      if (ts) return ts * 1000;
+    } catch { }
+  }
+  try { return Number(localStorage.getItem('sss_login_em')) || 0; } catch { return 0; }
+}
+function marcarLogin() { try { localStorage.setItem('sss_login_em', String(Date.now())); } catch { } }
+function loginVencidoCliente() { const t = horaDoLogin(); return t > 0 && Date.now() - t > LOGIN_VALIDADE_MS; }
+let _encerrando = false;
+async function encerrarPorTempo() {
+  if (_encerrando) return; _encerrando = true;
+  try { sessionStorage.removeItem('sss_passcode'); sessionStorage.setItem('sss_msg_login', 'Sua sessão terminou: o acesso vale por 24 horas. Entre de novo.'); } catch { }
+  try { localStorage.removeItem('sss_login_em'); } catch { }
+  limparUltimos();
+  if (sbAuth && tokenAcesso) { try { await sbAuth.auth.signOut(); } catch { } }
+  try { localStorage.removeItem('sss-mastermind-auth'); } catch { } // garante a saída mesmo sem internet
+  location.reload();
+}
+function conferirValidade() { if ($('telaLogin').hidden && (tokenAcesso || $('senhaAcesso').value) && loginVencidoCliente()) encerrarPorTempo(); }
+setInterval(conferirValidade, 60 * 1000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) conferirValidade(); });
 $('troca_sair').addEventListener('click', sair);
 
 // ---------- Tela Usuários (administrador) ----------
