@@ -2241,6 +2241,126 @@ async function moduloClientes(body: any, a: Acesso) {
 }
 const fmtBRL = (v: number) => `R$ ${v.toFixed(2).replace('.', ',')}`;
 
+// =====================================================================
+// PRODUTOS (Início): top 10 mais vendidos nos últimos 30 dias e oportunidades —
+// produtos com estoque na loja e nenhuma venda há 90 dias ou mais.
+// body: { loja?: string }  ('' = rede/todas as lojas liberadas: só o top 10; oportunidades precisam de uma loja)
+// =====================================================================
+async function moduloProdutos(body: any, a: Acesso) {
+  const apiBase = Deno.env.get('VAREJONLINE_API_BASE');
+  if (!apiBase) throw new Error('VAREJONLINE_API_BASE não configurado.');
+  const tokens = await getLojasTokens();
+  let loja = String(body.loja ?? '');
+  if (loja) exigirLoja(a, loja);
+  const permitidas = lojasDoAcesso(a, undefined);
+  const nomes = loja ? [loja] : Object.keys(tokens).filter((n) => !permitidas || permitidas.includes(n));
+  if (!nomes.length || nomes.some((n) => !tokens[n])) throw new Error('Loja não encontrada.');
+  if (!loja && nomes.length === 1) loja = nomes[0];
+
+  const hojeIso = new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10);
+  const hoje = new Date(+hojeIso.slice(0, 4), +hojeIso.slice(5, 7) - 1, +hojeIso.slice(8, 10));
+  const isoMenos = (n: number) => new Date(Date.parse(hojeIso) - n * 86400_000).toISOString().slice(0, 10);
+  const d30 = isoMenos(29), d60 = isoMenos(59), d90 = isoMenos(89);
+  // loja: 12 meses (para dizer quando foi a última venda do parado); rede: 60 dias (top 10 + mês anterior)
+  const ini = new Date(hoje); if (loja) { ini.setFullYear(ini.getFullYear() - 1); ini.setDate(ini.getDate() + 1); } else ini.setDate(ini.getDate() - 59);
+
+  const modelos = new Map<string, { modelo: string; qtd: number; fat: number; qtdAnt: number; variacoes: Set<string>; lojas: Set<string>; ids: Set<string> }>();
+  const porProduto = new Map<string, { ultima: string; qtd: number; custo: number; fat: number }>();
+  const entVenda = new Set<string>();
+  const erros: { loja: string; erro: string }[] = [];
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(4, nomes.length) }, async () => {
+    while (i < nomes.length) {
+      const nome = nomes[i++];
+      try {
+        await buscarSaidasParalelo(apiBase, tokens[nome], ini, hoje, (sd) => {
+          if (!ehVenda(sd)) return;
+          const dia = diaDaVenda(sd); if (!dia) return;
+          if (loja && sd.entidade?.id != null && dia >= d90) entVenda.add(String(sd.entidade.id));
+          for (const it of sd.mercadorias ?? []) {
+            const q = Number(it.quantidade ?? 0); if (q <= 0) continue;
+            const v = Number(it.valorTotal ?? 0), desc = String(it.produto?.descricao ?? ''), pid = String(it.produto?.id ?? desc);
+            if (loja) {
+              const p = porProduto.get(pid) ?? { ultima: '', qtd: 0, custo: 0, fat: 0 };
+              if (dia > p.ultima) p.ultima = dia; p.qtd += q; p.custo += Number(it.valorCusto ?? 0); p.fat += v; porProduto.set(pid, p);
+            }
+            if (dia < d60) continue;
+            const mod = modeloDe(desc);
+            const m = modelos.get(mod) ?? { modelo: mod, qtd: 0, fat: 0, qtdAnt: 0, variacoes: new Set<string>(), lojas: new Set<string>(), ids: new Set<string>() };
+            if (dia >= d30) { m.qtd += q; m.fat += v; m.variacoes.add(desc); m.lojas.add(nome); m.ids.add(pid); } else m.qtdAnt += q;
+            modelos.set(mod, m);
+          }
+        }, 15, 3);
+      } catch (e) { erros.push({ loja: nome, erro: e instanceof Error ? e.message : String(e) }); }
+    }
+  }));
+
+  // estoque da loja (só a unidade que vende, como na compra recorrente)
+  let estoque: Map<string, { qtd: number; desc: string; codigo: string | null }> | null = null;
+  let erroEstoque: string | null = null;
+  if (loja && !erros.length) {
+    try {
+      let saldos: any[] = await saldosComCache(fetchAllPages, `${apiBase}/saldos-mercadorias`, tokens[loja], () => {});
+      if (!saldos.length && entVenda.size) saldos = await saldosComCache(fetchAllPages, `${apiBase}/saldos-mercadorias?entidades=${[...entVenda].join(',')}`, tokens[loja], () => {});
+      const ents = new Set(saldos.map((s: any) => String(s.entidade?.id ?? '?')));
+      if (ents.size > 1 && entVenda.size && [...entVenda].some((e) => ents.has(e))) saldos = saldos.filter((s: any) => entVenda.has(String(s.entidade?.id)));
+      estoque = new Map();
+      for (const s of saldos) {
+        const id = s.produto?.id; if (id == null) continue;
+        const k = String(id), cur = estoque.get(k) ?? { qtd: 0, desc: String(s.produto?.descricao ?? ''), codigo: s.produto?.codigoSistema ?? null };
+        cur.qtd += Number(s.quantidade ?? 0); estoque.set(k, cur);
+      }
+    } catch (e) { erroEstoque = e instanceof Error ? e.message : String(e); }
+  }
+
+  const top10 = [...modelos.values()].filter((m) => m.qtd > 0).sort((x, y) => y.qtd - x.qtd || y.fat - x.fat).slice(0, 10).map((m, pos) => ({
+    posicao: pos + 1, modelo: m.modelo, pecas: r2(m.qtd), faturado: r2(m.fat), precoMedio: m.qtd ? r2(m.fat / m.qtd) : null,
+    pecasMesAnterior: r2(m.qtdAnt), variacao: m.qtdAnt ? r2((m.qtd / m.qtdAnt - 1) * 100) : null,
+    variacoes: m.variacoes.size, lojas: m.lojas.size,
+    estoque: estoque ? r2([...m.ids].reduce((s, id) => s + Math.max(0, estoque!.get(id)?.qtd ?? 0), 0)) : null,
+  }));
+
+  let oportunidades: any[] | null = null, totalParados = 0, pecasParadas = 0, valorParado = 0;
+  if (estoque) {
+    const parados = [...estoque.entries()].filter(([id, e]) => e.qtd > 0 && !((porProduto.get(id)?.ultima ?? '') >= d90)).map(([id, e]) => {
+      const v = porProduto.get(id);
+      const custoUnit = v && v.qtd ? v.custo / v.qtd : null, precoUnit = v && v.qtd ? v.fat / v.qtd : null;
+      return {
+        produtoId: id, produto: e.desc, codigo: e.codigo, estoque: r2(e.qtd),
+        ultimaVenda: v?.ultima || null, diasSemVender: v?.ultima ? Math.round((Date.parse(hojeIso) - Date.parse(v.ultima)) / 86400_000) : null,
+        vendidos12m: r2(v?.qtd ?? 0), precoMedio: precoUnit != null ? r2(precoUnit) : null,
+        valorParado: custoUnit != null ? r2(custoUnit * e.qtd) : null, valorVendaParado: precoUnit != null ? r2(precoUnit * e.qtd) : null,
+      };
+    });
+    // parados que não venderam em 12 meses: custo e preço do cadastro do produto (custo referencial / tabela padrão)
+    const semValor = parados.filter((p) => p.valorParado == null).map((p) => p.produtoId);
+    if (semValor.length) {
+      const cad = new Map<string, any>(); const lotes: string[][] = [];
+      for (let k = 0; k < semValor.length; k += 100) lotes.push(semValor.slice(k, k + 100));
+      const prazo = Date.now() + 25_000; let li = 0;
+      await Promise.all(Array.from({ length: 4 }, async () => {
+        while (li < lotes.length && Date.now() < prazo) {
+          const lote = lotes[li++];
+          try { await fetchAllPages(`${apiBase}/produtos?idsProdutos=${lote.join(',')}`, tokens[loja], (pg) => { for (const pr of pg) cad.set(String(pr.id), { custo: Number(pr.custoReferencial ?? 0), preco: Number(pr.preco ?? 0) }); }); } catch (_) { /* fica sem valor */ }
+        }
+      }));
+      for (const p of parados) {
+        const c = cad.get(p.produtoId); if (!c) continue;
+        if (p.valorParado == null && c.custo > 0) p.valorParado = r2(c.custo * p.estoque);
+        if (p.valorVendaParado == null && c.preco > 0) { p.valorVendaParado = r2(c.preco * p.estoque); p.precoMedio = r2(c.preco); }
+      }
+    }
+    totalParados = parados.length; pecasParadas = r2(parados.reduce((s, p) => s + p.estoque, 0));
+    valorParado = r2(parados.reduce((s, p) => s + (p.valorParado ?? 0), 0));
+    // primeiro o que tem mais dinheiro parado (custo); sem custo conhecido, pela quantidade
+    oportunidades = parados.sort((x, y) => (y.valorParado ?? -1) - (x.valorParado ?? -1) || y.estoque - x.estoque).slice(0, 10);
+  }
+  return {
+    parametros: { loja: loja || null, lojas: nomes.length, hoje: hojeIso, de30: d30, sem90Desde: d90 },
+    top10, oportunidades, totalParados, pecasParadas, valorParado, erroEstoque, erros,
+  };
+}
+
 // Metas do mes por vendedor: listar { loja, ano, mes } / salvar { loja, ano, mes, metas:[{ vendedorId, vendedorNome, meta }] }
 // Franqueado define a meta da equipe das proprias lojas; admin/equipe de qualquer loja.
 async function moduloMetasVendedores(body: any, a: Acesso) {
@@ -2613,6 +2733,7 @@ Deno.serve(async (req) => {
     if (modulo === 'painel') return resp(await moduloPainel(body, a));
     if (modulo === 'comparativo') return resp(await moduloComparativo(body, a));
     if (modulo === 'clientes') return resp(await moduloClientes(body, a));
+    if (modulo === 'produtos') return resp(await moduloProdutos(body, a));
     if (modulo === 'metasVendedores') return resp(await moduloMetasVendedores(body, a));
     if (modulo === 'sincronizarCentral') return resp(await moduloSincronizarCentral(body));
     if (modulo === 'lojaEditar') { exigirPapel(a, 'admin'); return resp(await moduloLojaEditar(body)); }
