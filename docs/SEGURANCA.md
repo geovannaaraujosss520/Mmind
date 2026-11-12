@@ -11,6 +11,7 @@
 | `AQUECER_CHAVE` | Supabase → Secrets **e** GitHub → Actions secrets | pré-aquecimento | código, Hostinger |
 | Token VarejOnline de cada loja | tabela `lojas_config` (via tela Lojas) | funções | qualquer arquivo |
 | `SUPABASE_SERVICE_ROLE_KEY` | automático no Supabase | funções | **qualquer outro lugar** |
+| Chave de IA de cada pessoa (Anthropic, `sk-ant-…`) | só no navegador de quem cadastrou | assistente (vai no cabeçalho `x-ia-chave`, o servidor não grava) | banco, código, chat |
 | Chave pública (anon / publishable) | Supabase (o painel busca em `?config=1`) | login no navegador | — é pública por natureza; a proteção são as RLS |
 
 A Hostinger **não precisa de nenhuma chave**: ela só entrega os arquivos do painel (ramo `site`).

@@ -19,7 +19,7 @@ function origemPermitida(req: Request): string {
 const cors: Record<string, string> = {
   'Access-Control-Allow-Origin': ORIGENS_PERMITIDAS.includes('*') ? '*' : ORIGENS_PERMITIDAS[0],
   'Vary': 'Origin',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-app-passcode',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-app-passcode, x-ia-chave',
 };
 // =====================================================================
 // ACESSO — login por usuário (Supabase Auth) + senha do time (transição)
@@ -2384,6 +2384,144 @@ async function moduloProdutos(body: any, a: Acesso) {
   };
 }
 
+// =====================================================================
+// ASSISTENTE DE IA — conversa sobre os números do Insight, com a chave de IA do próprio usuário.
+// A chave (Anthropic) vem no cabeçalho x-ia-chave a cada pergunta: não é gravada nem registrada.
+// O modelo só enxerga dados pelas ferramentas abaixo, que usam o mesmo acesso do usuário
+// (franqueado só vê as próprias lojas).
+// body: { mensagens: [{ role: 'user'|'assistant', content: string }], telaAtual?: string, lojaAtual?: string }
+// =====================================================================
+const IA_MODELO_PADRAO = 'claude-sonnet-5-5';
+const IA_MODELOS = new Set(['claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-opus-5-5']);
+
+const iaFerramentas = [
+  { name: 'resumo_do_mes', description: 'Mês atual por loja e da rede: faturado no mês, meta, % da meta, projeção de fechamento, falta por dia, vendas de hoje e ontem, ticket médio (e o do mesmo período do mês anterior), atendimentos, PA, compras na Central no mês. Use para "como está minha loja", metas e ranking do mês.', input_schema: { type: 'object', properties: {}, required: [] } },
+  { name: 'comparar_periodos', description: 'Compara um período com o mesmo período do mês anterior e do ano anterior: faturamento líquido (cobrado − devoluções) e bruto (cobrado + descontos), atendimentos, ticket, PA, dia a dia (até 31 dias) e por loja.', input_schema: { type: 'object', properties: { de: { type: 'string', description: 'AAAA-MM-DD' }, ate: { type: 'string', description: 'AAAA-MM-DD' }, loja: { type: 'string', description: 'Nome exato da loja; vazio = todas as liberadas' }, alinhamento: { type: 'string', enum: ['data', 'semana'], description: 'Ano anterior pela mesma data ou pelo mesmo dia da semana' } }, required: ['de', 'ate'] } },
+  { name: 'produtos_top_e_parados', description: 'Top 10 produtos mais vendidos nos últimos 30 dias (com tendência e estoque) e os produtos com estoque e sem venda há 90+ dias (oportunidades), com custo parado. Parados só com uma loja informada.', input_schema: { type: 'object', properties: { loja: { type: 'string', description: 'Nome exato da loja; vazio = rede (só top 10)' } }, required: [] } },
+  { name: 'clientes', description: 'Clientes de uma loja (vendas com CPF): recompra, tempo até voltar, clientes que sumiram, aniversariantes do mês, melhores clientes e, se informar um produto, para quem oferecer esse produto pelo perfil de compra. Traz telefone.', input_schema: { type: 'object', properties: { loja: { type: 'string' }, produto: { type: 'string', description: 'Opcional: produto ou modelo para achar clientes com perfil' }, sumidoDias: { type: 'number', description: '60, 90, 120 ou 180 (padrão 90)' } }, required: ['loja'] } },
+  { name: 'equipe_vendedores', description: 'Desempenho dos vendedores no período: faturamento, participação, atendimentos, PA, ticket, desconto, cliente identificado, perfil (destaque/atenção).', input_schema: { type: 'object', properties: { de: { type: 'string', description: 'AAAA-MM-DD' }, ate: { type: 'string', description: 'AAAA-MM-DD' }, loja: { type: 'string', description: 'Nome exato da loja; vazio = todas as liberadas' } }, required: ['de', 'ate'] } },
+  { name: 'estoque_e_compra', description: 'Estoque atual da loja com venda média diária e quanto comprar para os próximos 30 dias; filtra por texto do produto. Use para "tenho X em estoque?", "o que está acabando?", "o que comprar?".', input_schema: { type: 'object', properties: { loja: { type: 'string' }, busca: { type: 'string', description: 'Opcional: parte do nome ou código do produto' } }, required: ['loja'] } },
+];
+
+// resumos enxutos (o modelo não precisa do JSON inteiro de cada tela)
+async function iaExecutar(nome: string, entrada: any, a: Acesso): Promise<any> {
+  const loja = String(entrada?.loja ?? '').trim();
+  if (loja) exigirLoja(a, loja);
+  if (nome === 'resumo_do_mes') {
+    const d: any = await moduloPainel({}, a);
+    const campos = ['loja', 'erro', 'faturadoMes', 'meta', 'percentMeta', 'projecao', 'faltaPorDia', 'hoje', 'ontem', 'ticketMedio', 'ticketMedioMesAnterior', 'atendimentos', 'pecasPorAtendimento', 'comprasCentralMes', 'pedidosPendentes'];
+    return { ano: d.ano, mes: d.mes, dia: d.dia, diasNoMes: d.diasNoMes, rede: d.rede, lojas: (d.lojas ?? []).map((l: any) => Object.fromEntries(campos.filter((c) => l[c] !== undefined).map((c) => [c, l[c]]))) };
+  }
+  if (nome === 'comparar_periodos') {
+    const d: any = await moduloComparativo({ de: entrada.de, ate: entrada.ate, lojas: loja ? [loja] : [], alinhamento: entrada.alinhamento }, a);
+    const enx = (x: any) => ({ liquido: x.faturadoLiquido, bruto: x.faturadoBruto, descontos: x.descontos, devolucoes: x.devolucoes, atendimentos: x.atendimentos, ticketLiquido: x.ticketLiquido, pa: x.pecasPorAtendimento });
+    return {
+      periodos: d.periodos, lojas: d.parametros.lojas, totais: { atual: enx(d.totais.atual), mesAnterior: enx(d.totais.mesAnterior), anoAnterior: enx(d.totais.anoAnterior) },
+      dias: d.dias.length <= 31 ? d.dias.map((x: any) => ({ dia: x.dia, atual: x.atual.faturadoLiquido, atend: x.atual.atendimentos, mesAnt: x.mesAnterior.faturadoLiquido, anoAnt: x.anoAnterior.faturadoLiquido })) : 'período longo: use os totais',
+      porLoja: d.lojas.length > 1 ? d.lojas.map((l: any) => ({ loja: l.loja, atual: enx(l.atual), mesAnterior: enx(l.mesAnterior), anoAnterior: enx(l.anoAnterior) })) : undefined,
+      avisos: [...(d.pendentes?.length ? [`lojas não lidas a tempo: ${d.pendentes.join(', ')}`] : []), ...(d.erros ?? []).map((e: any) => `${e.loja}: ${e.erro}`)],
+    };
+  }
+  if (nome === 'produtos_top_e_parados') {
+    const d: any = await moduloProdutos({ loja }, a);
+    return { loja: d.parametros.loja ?? 'rede', top10: d.top10, parados: d.oportunidades, totalParados: d.totalParados, pecasParadas: d.pecasParadas, custoParado: d.valorParado };
+  }
+  if (nome === 'clientes') {
+    if (!loja) throw new Error('Informe a loja.');
+    const d: any = await moduloClientes({ loja, produto: entrada.produto, sumidoDias: entrada.sumidoDias }, a);
+    const c = (x: any) => ({ nome: x.nome, telefone: x.contato?.telefone ?? null, aniversario: x.contato?.aniversario ?? null, ultimaCompra: x.ultimaCompra, diasSemComprar: x.diasSemComprar, visitas: x.visitas, gasto: x.total, gosta: x.categorias, faixaPreco: x.faixaPreco, sugestao: x.sugestao, motivo: x.motivo });
+    return {
+      resumo: d.resumo, sumidos: d.sumidos.slice(0, 15).map(c), aniversariantes: (d.aniversariantes ?? []).slice(0, 15).map(c), melhores: d.vip.slice(0, 10).map(c),
+      oferecer: d.oferecer ? (d.oferecer.encontrado ? { produto: d.oferecer.alvo, jaCompraram: d.oferecer.jaCompraram, candidatos: d.oferecer.candidatos, clientes: d.oferecer.clientes.slice(0, 15).map(c) } : 'produto não encontrado nas vendas do período') : undefined,
+      maisVendidos: d.maisVendidos,
+    };
+  }
+  if (nome === 'equipe_vendedores') {
+    const d: any = await moduloVendedores(Deno.env.get('VAREJONLINE_API_BASE')!, await getLojasTokens(), { desde: entrada.de, ate: entrada.ate, lojas: lojasDoAcesso(a, loja ? [loja] : undefined) });
+    const v = (x: any) => ({ nome: x.nome, faturamento: x.faturamento, participacao: x.participacao, atendimentos: x.atendimentos, pa: x.pecasPorAtendimento, ticket: x.ticketMedio, desconto: x.descontoPercent, clienteIdentificado: x.percentClienteIdentificado, perfil: x.perfil });
+    return { periodo: d.parametros, rede: d.rede, lojas: (d.lojas ?? []).map((l: any) => ({ loja: l.nomeLoja, erro: l.erro, totais: l.loja ? { faturamento: l.loja.faturamento, atendimentos: l.loja.atendimentos, pa: l.loja.pecasPorAtendimento, ticket: l.loja.ticketMedio, desconto: l.loja.descontoPercent } : undefined, vendedores: (l.vendedores ?? []).slice(0, 15).map(v) })) };
+  }
+  if (nome === 'estoque_e_compra') {
+    if (!loja) throw new Error('Informe a loja.');
+    const r: any = await moduloRecorrente(Deno.env.get('VAREJONLINE_API_BASE')!, await getLojasTokens(), { lojas: [loja], diasHistorico: 60, diasPeriodoAlvo: 30 });
+    const recs = r.lojas?.[0]?.recomendacoes ?? [];
+    const b = limpa(entrada.busca ?? '');
+    const lista = b ? recs.filter((x: any) => limpa(x.descricao).includes(b) || limpa(x.codigoSistema ?? '') === b) : recs;
+    const e = (x: any) => ({ produto: x.descricao, codigo: x.codigoSistema, estoque: x.estoqueAtual, vendePorDia: x.vendaMediaDiaria, diasCobertura: x.diasCobertura, comprar: x.qtdRecomendadaCompra, risco: x.riscoRuptura });
+    return b ? { encontrados: lista.length, itens: lista.slice(0, 25).map(e) } : {
+      zeradosQueVendem: recs.filter((x: any) => (x.estoqueAtual ?? 0) <= 0 && x.vendaMediaDiaria > 0).slice(0, 15).map(e),
+      vaoFaltar: recs.filter((x: any) => x.riscoRuptura && x.qtdRecomendadaCompra > 0).sort((x: any, y: any) => y.vendaMediaDiaria - x.vendaMediaDiaria).slice(0, 15).map(e),
+      produtosAnalisados: recs.length,
+    };
+  }
+  throw new Error(`Ferramenta desconhecida: ${nome}`);
+}
+
+async function moduloAssistente(req: Request, body: any, a: Acesso) {
+  const chave = (req.headers.get('x-ia-chave') ?? '').trim();
+  if (!/^sk-ant-/.test(chave)) throw new ErroAcesso('Cadastre sua chave de IA (Anthropic, começa com sk-ant-) no assistente.', 400);
+  const modelo = IA_MODELOS.has(String(body.modelo)) ? String(body.modelo) : IA_MODELO_PADRAO;
+  const tokens = await getLojasTokens();
+  const lojas = a.todas ? Object.keys(tokens).sort() : a.lojas.filter((l) => tokens[l]);
+  const hoje = new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10);
+  const sistema = `Você é o assistente do Insight, o painel da rede de franquias Santo Santo Santo (artigos religiosos e acessórios).
+Hoje é ${hoje} (horário de Brasília). Quem pergunta: ${a.nome} (${a.papel === 'franqueado' ? 'franqueado' : 'franqueadora'}).
+Lojas que essa pessoa pode consultar (use o nome exato nas ferramentas): ${lojas.join(', ') || 'nenhuma'}.${body.lojaAtual ? `\nLoja aberta na tela agora: ${body.lojaAtual}.` : ''}${body.telaAtual ? ` Tela atual: ${body.telaAtual}.` : ''}
+Regras:
+- Responda em português do Brasil, direto e curto, para quem não é analista. Comece pela resposta; depois, se ajudar, 2 a 4 tópicos.
+- Números só das ferramentas; nunca invente nem estime. Se faltar dado, diga o que falta. Valores em R$ no formato 1.234,56.
+- Se a pergunta não disser a loja e a pessoa tiver só uma, use essa. Com várias, use a loja da tela ou pergunte.
+- Termine com uma sugestão prática quando fizer sentido (ex.: repor um produto, chamar clientes, mudar a vitrine).
+- Mensagens de WhatsApp: curtas, calorosas, sem prometer desconto que ninguém autorizou.
+- Não fale de outras lojas além das liberadas. Não mostre CPF.`;
+
+  const historico: any[] = (Array.isArray(body.mensagens) ? body.mensagens : []).slice(-12)
+    .filter((m: any) => (m?.role === 'user' || m?.role === 'assistant') && typeof m.content === 'string' && m.content.trim())
+    .map((m: any) => ({ role: m.role, content: String(m.content).slice(0, 4000) }));
+  if (!historico.length || historico[historico.length - 1].role !== 'user') throw new Error('Envie uma pergunta.');
+
+  const prazo = Date.now() + 120_000;
+  const usadas: string[] = [];
+  let uso = { entrada: 0, saida: 0 };
+  for (let volta = 0; volta < 7; volta++) {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': chave, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: modelo, max_tokens: 1500, system: sistema, tools: iaFerramentas, messages: historico }),
+      signal: AbortSignal.timeout(Math.max(10_000, prazo - Date.now())),
+    });
+    const j: any = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      const msg = j?.error?.message ?? `erro ${r.status}`;
+      if (r.status === 401) throw new ErroAcesso('A chave de IA não foi aceita pela Anthropic. Confira se copiou a chave inteira ou crie outra.', 400);
+      if (r.status === 429) throw new Error('Limite de uso da sua chave de IA atingido. Espere um pouco ou aumente o limite no console da Anthropic.');
+      if (r.status === 400 && /credit|billing|balance/i.test(msg)) throw new Error('Sua conta da Anthropic está sem crédito. Adicione créditos em console.anthropic.com → Billing.');
+      throw new Error(`IA: ${msg}`);
+    }
+    uso.entrada += j.usage?.input_tokens ?? 0; uso.saida += j.usage?.output_tokens ?? 0;
+    historico.push({ role: 'assistant', content: j.content });
+    const chamadas = (j.content ?? []).filter((c: any) => c.type === 'tool_use');
+    if (j.stop_reason !== 'tool_use' || !chamadas.length) {
+      const texto = (j.content ?? []).filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n').trim();
+      return { resposta: texto || 'Não consegui responder agora.', consultas: usadas, modelo, uso };
+    }
+    if (Date.now() > prazo) break;
+    const resultados = await Promise.all(chamadas.map(async (c: any) => {
+      usadas.push(c.name);
+      try {
+        const out = await iaExecutar(c.name, c.input ?? {}, a);
+        let txt = JSON.stringify(out);
+        if (txt.length > 60_000) txt = txt.slice(0, 60_000) + '…(cortado)';
+        return { type: 'tool_result', tool_use_id: c.id, content: txt };
+      } catch (e) {
+        return { type: 'tool_result', tool_use_id: c.id, content: `Erro: ${e instanceof Error ? e.message : String(e)}`, is_error: true };
+      }
+    }));
+    historico.push({ role: 'user', content: resultados });
+  }
+  return { resposta: 'A pergunta exigiu consultas demais. Tente perguntar uma coisa de cada vez (ex.: uma loja ou um período).', consultas: usadas, modelo, uso };
+}
+
 // Metas do mes por vendedor: listar { loja, ano, mes } / salvar { loja, ano, mes, metas:[{ vendedorId, vendedorNome, meta }] }
 // Franqueado define a meta da equipe das proprias lojas; admin/equipe de qualquer loja.
 async function moduloMetasVendedores(body: any, a: Acesso) {
@@ -2757,6 +2895,7 @@ Deno.serve(async (req) => {
     if (modulo === 'comparativo') return resp(await moduloComparativo(body, a));
     if (modulo === 'clientes') return resp(await moduloClientes(body, a));
     if (modulo === 'produtos') return resp(await moduloProdutos(body, a));
+    if (modulo === 'assistente') return resp(await moduloAssistente(req, body, a));
     if (modulo === 'metasVendedores') return resp(await moduloMetasVendedores(body, a));
     if (modulo === 'sincronizarCentral') return resp(await moduloSincronizarCentral(body));
     if (modulo === 'lojaEditar') { exigirPapel(a, 'admin'); return resp(await moduloLojaEditar(body)); }
