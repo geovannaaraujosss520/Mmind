@@ -461,6 +461,8 @@
   .ia-config{ font-size:13px; } .ia-config ol{ padding-left:20px; margin:8px 0 14px; } .ia-config li{ margin:4px 0; }
   .ia-config input, .ia-config select{ width:100%; } .ia-config-acoes{ display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
   .ia-nota{ font-size:11.5px; color:var(--muted); margin-top:12px; }
+  .ia-modelo-linha{ display:flex; gap:6px; } .ia-modelo-linha input{ flex:1; min-width:0; } .ia-modelo-linha button{ padding:6px 10px; font-size:12px; white-space:nowrap; }
+  #iaModeloStatus{ margin-top:6px; }
   @media (max-width: 600px){
     .ia-botao{ right:14px; bottom:14px; padding:11px 15px; }
     .ia-painel{ right:0; bottom:0; width:100vw; max-width:100vw; height:100dvh; border-radius:0; }
@@ -476,7 +478,7 @@
 </button>
 <aside class="ia-painel" id="iaPainel" hidden aria-label="Assistente de IA">
   <div class="ia-topo">
-    <div><strong>Assistente Insight</strong><div class="ia-sub">Pergunte sobre seus números</div></div>
+    <div><strong>Assistente Insight</strong><div class="ia-sub" id="iaSub">Pergunte sobre seus números</div></div>
     <div class="ia-topo-acoes">
       <button type="button" class="secondary" id="iaNova" title="Nova conversa">Nova</button>
       <button type="button" class="secondary" id="iaConfig" title="Chave e modelo de IA">Chave</button>
@@ -5087,6 +5089,14 @@ if ('serviceWorker' in navigator) {
 const IA = { msgs: [], ocupado: false };
 const _iaChaveK = () => `sss_ia_chave|${_usuarioCache || 'anon'}`;
 const _iaModeloK = () => `sss_ia_modelo|${_usuarioCache || 'anon'}`;
+const _iaProvK = () => `sss_ia_provedor|${_usuarioCache || 'anon'}`;
+const IA_PROV = {
+  anthropic: { nome: 'Anthropic (Claude)', link: 'https://console.anthropic.com/settings/keys', site: 'console.anthropic.com', ph: 'sk-ant-...', modelo: 'claude-sonnet-5-5' },
+  openai: { nome: 'OpenAI (ChatGPT)', link: 'https://platform.openai.com/api-keys', site: 'platform.openai.com', ph: 'sk-...', modelo: '' },
+  google: { nome: 'Google (Gemini)', link: 'https://aistudio.google.com/apikey', site: 'aistudio.google.com', ph: 'AIza...', modelo: '' },
+  openrouter: { nome: 'OpenRouter (vários modelos)', link: 'https://openrouter.ai/keys', site: 'openrouter.ai', ph: 'sk-or-...', modelo: '' },
+};
+const iaProv = () => IA_PROV[iaLer(_iaProvK())] ? iaLer(_iaProvK()) : 'anthropic';
 const iaLer = k => { try { return localStorage.getItem(k) || ''; } catch (_) { return ''; } };
 const iaGravar = (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch (_) {} };
 const IA_SUGESTOES = ['Como está minha loja este mês?', 'Quais produtos estão parados há mais de 90 dias?', 'Compare este mês com o ano passado', 'Quem são os clientes que sumiram e o que oferecer a eles?', 'Quem vendeu mais na equipe este mês?', 'O que está acabando no estoque?'];
@@ -5126,35 +5136,55 @@ function iaDesenhar(config = false) {
   const corpo = $('iaCorpo'), temChave = !!iaLer(_iaChaveK());
   $('iaRodape').hidden = !temChave || config;
   if (!temChave || config) {
+    const prov = iaProv();
     corpo.innerHTML = `<div class="ia-config">
-      <p><strong>Use sua própria chave de IA (Anthropic / Claude).</strong> Ela fica guardada só neste navegador, vai junto com cada pergunta e não é salva no servidor do Insight. O uso é cobrado na sua conta da Anthropic.</p>
-      <ol>
-        <li>Entre em <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> com seu e-mail.</li>
-        <li>Em <strong>Billing</strong>, adicione créditos (US$ 5 já dão para muitas perguntas).</li>
-        <li>Em <strong>API Keys</strong>, clique em <strong>Create Key</strong>, dê um nome (ex.: Insight) e copie a chave (começa com <code>sk-ant-</code>).</li>
-        <li>Cole aqui e salve.</li>
-      </ol>
+      <p><strong>Use sua própria chave de IA.</strong> Ela fica guardada só neste navegador, vai junto com cada pergunta e não é salva no servidor do Insight. O uso é cobrado na sua conta do provedor.</p>
+      <label for="iaProv">Provedor</label>
+      <select id="iaProv">${Object.entries(IA_PROV).map(([k, v]) => `<option value="${k}">${v.nome}</option>`).join('')}</select>
+      <ol id="iaPassos"></ol>
       <label for="iaChave">Sua chave</label>
-      <input id="iaChave" type="password" autocomplete="off" placeholder="sk-ant-..." value="">
+      <input id="iaChave" type="password" autocomplete="off" value="">
       <label for="iaModelo" style="margin-top:10px">Modelo</label>
-      <select id="iaModelo"><option value="claude-sonnet-5-5">Claude Sonnet — equilibrado (recomendado)</option><option value="claude-haiku-5-5">Claude Haiku — mais rápido e barato</option><option value="claude-opus-5-5">Claude Opus — mais caprichado, custa mais</option></select>
-      <div class="ia-config-acoes"><button type="button" id="iaSalvar">Salvar chave</button>${temChave ? '<button type="button" class="secondary" id="iaVoltar">Voltar</button><button type="button" class="secondary" id="iaRemover">Remover chave</button>' : ''}</div>
-      <p class="ia-nota">As perguntas e os números consultados vão para a Anthropic pela sua conta. O assistente só enxerga as lojas que você já pode ver no Insight.</p>
+      <div class="ia-modelo-linha"><input id="iaModelo" list="iaModelosLista" autocomplete="off" placeholder="ex.: nome do modelo"><datalist id="iaModelosLista"></datalist><button type="button" class="secondary" id="iaCarregar">Carregar modelos</button></div>
+      <div class="ia-nota" id="iaModeloStatus">Clique em "Carregar modelos" para ver os modelos da sua conta e escolher um.</div>
+      <div class="ia-config-acoes"><button type="button" id="iaSalvar">Salvar</button>${temChave ? '<button type="button" class="secondary" id="iaVoltar">Voltar</button><button type="button" class="secondary" id="iaRemover">Remover chave</button>' : ''}</div>
+      <p class="ia-nota">As perguntas e os números consultados vão para o provedor escolhido pela sua conta. O assistente só enxerga as lojas que você já pode ver no Insight.</p>
     </div>`;
-    $('iaModelo').value = iaLer(_iaModeloK()) || 'claude-sonnet-5-5';
+    const passos = p => `<li>Entre em <a href="${IA_PROV[p].link}" target="_blank" rel="noopener">${IA_PROV[p].site}</a> e crie uma chave de API (adicione créditos ou ative a cobrança, se o provedor pedir).</li><li>Copie a chave e cole abaixo.</li><li>Clique em <strong>Carregar modelos</strong>, escolha um e salve.</li>`;
+    const aplicarProv = p => { $('iaPassos').innerHTML = passos(p); $('iaChave').placeholder = IA_PROV[p].ph + (temChave && p === prov ? ' (deixe vazio para manter a atual)' : ''); };
+    $('iaProv').value = prov; aplicarProv(prov);
+    $('iaModelo').value = iaLer(_iaModeloK()) || IA_PROV[prov].modelo;
+    $('iaProv').addEventListener('change', e => { aplicarProv(e.target.value); $('iaModelo').value = IA_PROV[e.target.value].modelo; $('iaModelosLista').innerHTML = ''; });
+    const chaveDigitada = () => $('iaChave').value.trim() || ($('iaProv').value === prov ? iaLer(_iaChaveK()) : '');
+    $('iaCarregar').addEventListener('click', async () => {
+      const ch = chaveDigitada(), st = $('iaModeloStatus');
+      if (!ch) { st.textContent = 'Cole a chave primeiro.'; $('iaChave').focus(); return; }
+      st.innerHTML = '<span class="loader"></span> Buscando os modelos da sua conta…'; $('iaCarregar').disabled = true;
+      try {
+        const d = await chamarEdge({ modulo: 'assistente', acao: 'modelos', provedor: $('iaProv').value }, EDGE_COMPRAS_URL, { 'x-ia-chave': ch });
+        $('iaModelosLista').innerHTML = d.modelos.map(m => `<option value="${esc(m)}">`).join('');
+        if (!$('iaModelo').value && d.modelos.length) $('iaModelo').value = d.modelos[0];
+        st.textContent = d.modelos.length ? `${d.modelos.length} modelos disponíveis. Clique no campo Modelo para escolher (prefira um modelo recente; os "mini/flash/haiku" são mais baratos).` : 'Nenhum modelo com suporte a ferramentas encontrado nessa conta.';
+      } catch (e) { st.textContent = e.message; }
+      finally { $('iaCarregar').disabled = false; }
+    });
     $('iaSalvar').addEventListener('click', () => {
-      const v = $('iaChave').value.trim();
-      if (!/^sk-ant-[\w-]{20,}$/.test(v) && !(temChave && !v)) { $('iaChave').focus(); $('iaChave').setCustomValidity('A chave começa com sk-ant- e é bem comprida.'); $('iaChave').reportValidity(); return; }
+      const p = $('iaProv').value, v = $('iaChave').value.trim(), mod = $('iaModelo').value.trim();
+      if (v && (v.length < 20 || /\s/.test(v))) { $('iaChave').setCustomValidity('Essa não parece uma chave de API completa.'); $('iaChave').reportValidity(); return; }
+      if (!v && !(temChave && p === prov)) { $('iaChave').setCustomValidity('Cole a chave do provedor.'); $('iaChave').reportValidity(); return; }
+      if (!mod) { $('iaModelo').setCustomValidity('Escolha o modelo (use Carregar modelos).'); $('iaModelo').reportValidity(); return; }
       if (v) iaGravar(_iaChaveK(), v);
+      iaGravar(_iaProvK(), p); iaGravar(_iaModeloK(), mod);
       IA.msgs = IA.msgs.filter(m => !m.erro);
-      iaGravar(_iaModeloK(), $('iaModelo').value);
       iaDesenhar(); $('iaTexto')?.focus();
     });
     $('iaChave').addEventListener('input', () => $('iaChave').setCustomValidity(''));
+    $('iaModelo').addEventListener('input', () => $('iaModelo').setCustomValidity(''));
     $('iaVoltar')?.addEventListener('click', () => iaDesenhar());
-    $('iaRemover')?.addEventListener('click', () => { iaGravar(_iaChaveK(), ''); IA.msgs = []; iaDesenhar(); });
+    $('iaRemover')?.addEventListener('click', () => { iaGravar(_iaChaveK(), ''); iaGravar(_iaModeloK(), ''); IA.msgs = []; iaDesenhar(); });
     return;
   }
+  $('iaSub').textContent = `${IA_PROV[iaProv()].nome.replace(/ \(.*/, '')} · ${iaLer(_iaModeloK()) || IA_PROV[iaProv()].modelo || 'sem modelo'}`;
   if (!IA.msgs.length) {
     corpo.innerHTML = `<div class="ia-vazio"><p>Pergunte sobre vendas, metas, estoque, clientes ou equipe. Eu consulto os números do Insight e respondo.</p>
       <div class="ia-sugestoes">${IA_SUGESTOES.map(s => `<button type="button" class="secondary" data-ia-sug="${esc(s)}">${esc(s)}</button>`).join('')}</div></div>`;
@@ -5175,7 +5205,7 @@ async function iaEnviar(texto) {
   const lojaTela = ['ini_loja', 'cpv_loja', 'cli_loja', 'ped_loja'].map(id => $(id)?.value).find(Boolean) || '';
   try {
     const d = await chamarEdge({
-      modulo: 'assistente', modelo: iaLer(_iaModeloK()) || undefined,
+      modulo: 'assistente', provedor: iaProv(), modelo: iaLer(_iaModeloK()) || IA_PROV[iaProv()].modelo || undefined,
       mensagens: IA.msgs.filter(m => !m.erro).map(m => ({ role: m.role, content: m.content })),
       telaAtual: ativo ? ativo.textContent.trim() : '', lojaAtual: lojaTela,
     }, EDGE_COMPRAS_URL, { 'x-ia-chave': iaLer(_iaChaveK()) });
@@ -5184,7 +5214,7 @@ async function iaEnviar(texto) {
     IA.msgs.pop(); // a pergunta volta para a caixa de texto
     $('iaTexto').value = texto;
     IA.msgs.push({ role: 'assistant', content: e.message, erro: true });
-    if (/chave de IA/.test(e.message)) setTimeout(() => iaDesenhar(true), 1800);
+    if (/chave de IA|modelo/.test(e.message)) setTimeout(() => iaDesenhar(true), 1800);
   } finally { IA.ocupado = false; $('iaEnviar').disabled = false; iaDesenhar(); $('iaTexto').focus(); }
 }
 

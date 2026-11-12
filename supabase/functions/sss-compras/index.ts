@@ -2385,14 +2385,12 @@ async function moduloProdutos(body: any, a: Acesso) {
 }
 
 // =====================================================================
-// ASSISTENTE DE IA — conversa sobre os números do Insight, com a chave de IA do próprio usuário.
-// A chave (Anthropic) vem no cabeçalho x-ia-chave a cada pergunta: não é gravada nem registrada.
+// ASSISTENTE DE IA — conversa sobre os números do Insight, com a chave de IA do próprio usuário
+// (Anthropic, OpenAI, Google Gemini ou OpenRouter). A chave vem no cabeçalho x-ia-chave a cada pergunta: não é gravada nem registrada.
 // O modelo só enxerga dados pelas ferramentas abaixo, que usam o mesmo acesso do usuário
 // (franqueado só vê as próprias lojas).
 // body: { mensagens: [{ role: 'user'|'assistant', content: string }], telaAtual?: string, lojaAtual?: string }
 // =====================================================================
-const IA_MODELO_PADRAO = 'claude-sonnet-5-5';
-const IA_MODELOS = new Set(['claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-opus-5-5']);
 
 const iaFerramentas = [
   { name: 'resumo_do_mes', description: 'Mês atual por loja e da rede: faturado no mês, meta, % da meta, projeção de fechamento, falta por dia, vendas de hoje e ontem, ticket médio (e o do mesmo período do mês anterior), atendimentos, PA, compras na Central no mês. Use para "como está minha loja", metas e ranking do mês.', input_schema: { type: 'object', properties: {}, required: [] } },
@@ -2457,10 +2455,65 @@ async function iaExecutar(nome: string, entrada: any, a: Acesso): Promise<any> {
   throw new Error(`Ferramenta desconhecida: ${nome}`);
 }
 
+// Provedores de IA aceitos (a pessoa escolhe e usa a própria chave). Só endereços fixos: nada de URL livre.
+type IaProvedor = 'anthropic' | 'openai' | 'google' | 'openrouter';
+const IA_PROVEDORES: Record<IaProvedor, { nome: string; padrao: string }> = {
+  anthropic: { nome: 'Anthropic (Claude)', padrao: 'claude-sonnet-5-5' },
+  openai: { nome: 'OpenAI (ChatGPT)', padrao: '' },
+  google: { nome: 'Google (Gemini)', padrao: '' },
+  openrouter: { nome: 'OpenRouter (vários modelos)', padrao: '' },
+};
+const iaErroHttp = (prov: string, status: number, msg: string) => {
+  if (status === 401 || status === 403) return new ErroAcesso(`A chave de IA não foi aceita pelo provedor (${prov}). Confira se copiou a chave inteira ou crie outra.`, 400);
+  if (status === 429) return new Error('Limite de uso da sua chave de IA atingido. Espere um pouco ou aumente o limite na conta do provedor.');
+  if (status === 402 || /credit|billing|balance|quota|insufficient/i.test(msg)) return new Error('Sua conta no provedor de IA está sem crédito ou sem cota. Adicione créditos na conta do provedor.');
+  if (status === 404 || /model/i.test(msg)) return new Error(`O provedor não reconheceu o modelo escolhido (${msg}). Troque o modelo em "Chave".`);
+  return new Error(`IA (${prov}): ${msg}`);
+};
+async function iaJson(url: string, init: RequestInit, prov: string, prazo: number): Promise<any> {
+  const r = await fetch(url, { ...init, signal: AbortSignal.timeout(Math.max(10_000, prazo - Date.now())) });
+  const j: any = await r.json().catch(() => ({}));
+  if (!r.ok) throw iaErroHttp(prov, r.status, String(j?.error?.message ?? j?.error ?? j?.message ?? `erro ${r.status}`).slice(0, 300));
+  return j;
+}
+// esquema no formato do Gemini (tipos em maiúsculas, sem "required" vazio)
+const iaEsquemaGoogle = (s: any): any => {
+  if (!s || typeof s !== 'object') return s;
+  const o: any = { type: String(s.type ?? 'object').toUpperCase() };
+  if (s.description) o.description = s.description;
+  if (s.enum) o.enum = s.enum;
+  if (s.properties) o.properties = Object.fromEntries(Object.entries(s.properties).map(([k, v]) => [k, iaEsquemaGoogle(v)]));
+  if (Array.isArray(s.required) && s.required.length) o.required = s.required;
+  return o;
+};
+
+// lista de modelos da conta da pessoa (para escolher na tela)
+async function iaListarModelos(prov: IaProvedor, chave: string): Promise<string[]> {
+  const prazo = Date.now() + 20_000;
+  if (prov === 'anthropic') {
+    const j = await iaJson('https://api.anthropic.com/v1/models?limit=100', { headers: { 'x-api-key': chave, 'anthropic-version': '2023-06-01' } }, prov, prazo);
+    return (j.data ?? []).map((m: any) => String(m.id));
+  }
+  if (prov === 'openai') {
+    const j = await iaJson('https://api.openai.com/v1/models', { headers: { authorization: `Bearer ${chave}` } }, prov, prazo);
+    return (j.data ?? []).map((m: any) => String(m.id)).filter((id: string) => /^(gpt|o\d|chatgpt)/.test(id) && !/audio|realtime|tts|image|embed|transcri|search|moderation|instruct|dall/i.test(id)).sort().reverse();
+  }
+  if (prov === 'google') {
+    const j = await iaJson('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', { headers: { 'x-goog-api-key': chave } }, prov, prazo);
+    return (j.models ?? []).filter((m: any) => (m.supportedGenerationMethods ?? []).includes('generateContent') && /gemini/.test(m.name) && !/embed|image|tts|audio|live/i.test(m.name)).map((m: any) => String(m.name).replace(/^models\//, ''));
+  }
+  const j = await iaJson('https://openrouter.ai/api/v1/models', { headers: { authorization: `Bearer ${chave}` } }, prov, prazo);
+  return (j.data ?? []).filter((m: any) => (m.supported_parameters ?? []).includes('tools')).map((m: any) => String(m.id)).sort();
+}
+
 async function moduloAssistente(req: Request, body: any, a: Acesso) {
   const chave = (req.headers.get('x-ia-chave') ?? '').trim();
-  if (!/^sk-ant-/.test(chave)) throw new ErroAcesso('Cadastre sua chave de IA (Anthropic, começa com sk-ant-) no assistente.', 400);
-  const modelo = IA_MODELOS.has(String(body.modelo)) ? String(body.modelo) : IA_MODELO_PADRAO;
+  const prov = (String(body.provedor ?? 'anthropic') in IA_PROVEDORES ? String(body.provedor ?? 'anthropic') : 'anthropic') as IaProvedor;
+  if (chave.length < 20 || /\s/.test(chave)) throw new ErroAcesso('Cadastre sua chave de IA no assistente (botão "Chave").', 400);
+  if (body.acao === 'modelos') return { provedor: prov, modelos: await iaListarModelos(prov, chave) };
+  const modelo = /^[\w.:\/-]{2,100}$/.test(String(body.modelo ?? '')) ? String(body.modelo) : IA_PROVEDORES[prov].padrao;
+  if (!modelo) throw new Error('Escolha o modelo de IA em "Chave" (botão "Carregar modelos").');
+
   const tokens = await getLojasTokens();
   const lojas = a.todas ? Object.keys(tokens).sort() : a.lojas.filter((l) => tokens[l]);
   const hoje = new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10);
@@ -2475,51 +2528,69 @@ Regras:
 - Mensagens de WhatsApp: curtas, calorosas, sem prometer desconto que ninguém autorizou.
 - Não fale de outras lojas além das liberadas. Não mostre CPF.`;
 
-  const historico: any[] = (Array.isArray(body.mensagens) ? body.mensagens : []).slice(-12)
+  const conversa: { role: 'user' | 'assistant'; content: string }[] = (Array.isArray(body.mensagens) ? body.mensagens : []).slice(-12)
     .filter((m: any) => (m?.role === 'user' || m?.role === 'assistant') && typeof m.content === 'string' && m.content.trim())
     .map((m: any) => ({ role: m.role, content: String(m.content).slice(0, 4000) }));
-  if (!historico.length || historico[historico.length - 1].role !== 'user') throw new Error('Envie uma pergunta.');
+  if (!conversa.length || conversa[conversa.length - 1].role !== 'user') throw new Error('Envie uma pergunta.');
 
   const prazo = Date.now() + 120_000;
   const usadas: string[] = [];
-  let uso = { entrada: 0, saida: 0 };
-  for (let volta = 0; volta < 7; volta++) {
-    const r = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'x-api-key': chave, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({ model: modelo, max_tokens: 1500, system: sistema, tools: iaFerramentas, messages: historico }),
-      signal: AbortSignal.timeout(Math.max(10_000, prazo - Date.now())),
-    });
-    const j: any = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      const msg = j?.error?.message ?? `erro ${r.status}`;
-      if (r.status === 401) throw new ErroAcesso('A chave de IA não foi aceita pela Anthropic. Confira se copiou a chave inteira ou crie outra.', 400);
-      if (r.status === 429) throw new Error('Limite de uso da sua chave de IA atingido. Espere um pouco ou aumente o limite no console da Anthropic.');
-      if (r.status === 400 && /credit|billing|balance/i.test(msg)) throw new Error('Sua conta da Anthropic está sem crédito. Adicione créditos em console.anthropic.com → Billing.');
-      throw new Error(`IA: ${msg}`);
+  const uso = { entrada: 0, saida: 0 };
+  const executar = async (nome: string, args: any) => {
+    usadas.push(nome);
+    try { let t = JSON.stringify(await iaExecutar(nome, args ?? {}, a)); if (t.length > 60_000) t = t.slice(0, 60_000) + '…(cortado)'; return { ok: true, texto: t }; }
+    catch (e) { return { ok: false, texto: `Erro: ${e instanceof Error ? e.message : String(e)}` }; }
+  };
+  const fim = (texto: string) => ({ resposta: texto || 'Não consegui responder agora.', consultas: usadas, provedor: prov, modelo, uso });
+
+  if (prov === 'anthropic') {
+    const msgs: any[] = conversa.map((m) => ({ ...m }));
+    for (let volta = 0; volta < 7 && Date.now() < prazo; volta++) {
+      const j = await iaJson('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': chave, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+        body: JSON.stringify({ model: modelo, max_tokens: 1500, system: sistema, tools: iaFerramentas, messages: msgs }) }, prov, prazo);
+      uso.entrada += j.usage?.input_tokens ?? 0; uso.saida += j.usage?.output_tokens ?? 0;
+      msgs.push({ role: 'assistant', content: j.content });
+      const chamadas = (j.content ?? []).filter((c: any) => c.type === 'tool_use');
+      if (j.stop_reason !== 'tool_use' || !chamadas.length) return fim((j.content ?? []).filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n').trim());
+      const res = await Promise.all(chamadas.map(async (c: any) => { const r = await executar(c.name, c.input); return { type: 'tool_result', tool_use_id: c.id, content: r.texto, ...(r.ok ? {} : { is_error: true }) }; }));
+      msgs.push({ role: 'user', content: res });
     }
-    uso.entrada += j.usage?.input_tokens ?? 0; uso.saida += j.usage?.output_tokens ?? 0;
-    historico.push({ role: 'assistant', content: j.content });
-    const chamadas = (j.content ?? []).filter((c: any) => c.type === 'tool_use');
-    if (j.stop_reason !== 'tool_use' || !chamadas.length) {
-      const texto = (j.content ?? []).filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n').trim();
-      return { resposta: texto || 'Não consegui responder agora.', consultas: usadas, modelo, uso };
-    }
-    if (Date.now() > prazo) break;
-    const resultados = await Promise.all(chamadas.map(async (c: any) => {
-      usadas.push(c.name);
-      try {
-        const out = await iaExecutar(c.name, c.input ?? {}, a);
-        let txt = JSON.stringify(out);
-        if (txt.length > 60_000) txt = txt.slice(0, 60_000) + '…(cortado)';
-        return { type: 'tool_result', tool_use_id: c.id, content: txt };
-      } catch (e) {
-        return { type: 'tool_result', tool_use_id: c.id, content: `Erro: ${e instanceof Error ? e.message : String(e)}`, is_error: true };
+  } else if (prov === 'openai' || prov === 'openrouter') {
+    const url = prov === 'openai' ? 'https://api.openai.com/v1/chat/completions' : 'https://openrouter.ai/api/v1/chat/completions';
+    const extra: Record<string, string> = prov === 'openrouter' ? { 'X-Title': 'Insight SSS' } : {};
+    const tools = iaFerramentas.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } }));
+    const msgs: any[] = [{ role: 'system', content: sistema }, ...conversa];
+    for (let volta = 0; volta < 7 && Date.now() < prazo; volta++) {
+      const j = await iaJson(url, { method: 'POST', headers: { authorization: `Bearer ${chave}`, 'content-type': 'application/json', ...extra },
+        body: JSON.stringify({ model: modelo, messages: msgs, tools }) }, prov, prazo);
+      uso.entrada += j.usage?.prompt_tokens ?? 0; uso.saida += j.usage?.completion_tokens ?? 0;
+      const m = j.choices?.[0]?.message ?? {};
+      const chamadas = m.tool_calls ?? [];
+      if (!chamadas.length) return fim(String(m.content ?? '').trim());
+      msgs.push({ role: 'assistant', content: m.content ?? null, tool_calls: chamadas });
+      for (const c of chamadas) {
+        let args: any = {}; try { args = JSON.parse(c.function?.arguments || '{}'); } catch (_) { /* argumentos inválidos */ }
+        const r = await executar(c.function?.name, args);
+        msgs.push({ role: 'tool', tool_call_id: c.id, content: r.texto });
       }
-    }));
-    historico.push({ role: 'user', content: resultados });
+    }
+  } else {
+    const tools = [{ functionDeclarations: iaFerramentas.map((t) => ({ name: t.name, description: t.description, parameters: iaEsquemaGoogle(t.input_schema) })) }];
+    const contents: any[] = conversa.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
+    for (let volta = 0; volta < 7 && Date.now() < prazo; volta++) {
+      const j = await iaJson(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelo)}:generateContent`, { method: 'POST', headers: { 'x-goog-api-key': chave, 'content-type': 'application/json' },
+        body: JSON.stringify({ systemInstruction: { parts: [{ text: sistema }] }, contents, tools }) }, prov, prazo);
+      uso.entrada += j.usageMetadata?.promptTokenCount ?? 0; uso.saida += j.usageMetadata?.candidatesTokenCount ?? 0;
+      const partes = j.candidates?.[0]?.content?.parts ?? [];
+      const chamadas = partes.filter((p: any) => p.functionCall);
+      if (!chamadas.length) return fim(partes.map((p: any) => p.text ?? '').join('').trim());
+      contents.push({ role: 'model', parts: partes });
+      const res = [];
+      for (const c of chamadas) { const r = await executar(c.functionCall.name, c.functionCall.args); res.push({ functionResponse: { name: c.functionCall.name, response: { resultado: r.texto } } }); }
+      contents.push({ role: 'user', parts: res });
+    }
   }
-  return { resposta: 'A pergunta exigiu consultas demais. Tente perguntar uma coisa de cada vez (ex.: uma loja ou um período).', consultas: usadas, modelo, uso };
+  return fim('A pergunta exigiu consultas demais. Tente perguntar uma coisa de cada vez (ex.: uma loja ou um período).');
 }
 
 // Metas do mes por vendedor: listar { loja, ano, mes } / salvar { loja, ano, mes, metas:[{ vendedorId, vendedorNome, meta }] }
