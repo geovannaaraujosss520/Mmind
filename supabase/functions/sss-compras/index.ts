@@ -2051,6 +2051,121 @@ function contatoDe(t: any) {
   };
 }
 
+// =====================================================================
+// CLIENTES › ONDE MORAM: cidade, bairro e distância da casa (CEP) até a loja.
+// Endereço vem do cadastro do cliente na VarejOnline; coordenadas do CEP pela AwesomeAPI
+// (cep.awesomeapi.com.br), guardadas em cep_geo. A loja é localizada pelo CNPJ (BrasilAPI).
+// =====================================================================
+const distKm = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
+  const R = 6371, rad = (x: number) => x * Math.PI / 180;
+  const dLat = rad(b.lat - a.lat), dLng = rad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+};
+async function geoDeCep(cep: string): Promise<any> {
+  try {
+    const r = await fetch(`https://cep.awesomeapi.com.br/json/${cep}`, { signal: AbortSignal.timeout(8000) });
+    if (r.ok) { const j: any = await r.json(); const lat = Number(j.lat), lng = Number(j.lng); if (isFinite(lat) && isFinite(lng) && lat && lng) return { cep, lat, lng, cidade: j.city ?? null, bairro: j.district ?? null, uf: j.state ?? null, fonte: 'awesomeapi' }; }
+  } catch (_) { /* tenta a outra */ }
+  try {
+    const r = await fetch(`https://brasilapi.com.br/api/cep/v2/${cep}`, { signal: AbortSignal.timeout(8000) });
+    if (r.ok) { const j: any = await r.json(); const c = j.location?.coordinates ?? {}; const lat = Number(c.latitude), lng = Number(c.longitude);
+      if (isFinite(lat) && isFinite(lng) && lat && lng) return { cep, lat, lng, cidade: j.city ?? null, bairro: j.neighborhood ?? null, uf: j.state ?? null, fonte: 'brasilapi' }; }
+  } catch (_) { /* sem coordenada */ }
+  return { cep, lat: null, lng: null, fonte: 'nao_encontrado' };
+}
+// lê do cache e completa os que faltam (até o prazo); devolve Map cep -> {lat,lng} e quantos ficaram faltando
+async function coordenadasCeps(ceps: string[], prazo: number): Promise<{ mapa: Map<string, any>; faltando: number; tabelaOk: boolean }> {
+  const mapa = new Map<string, any>(); let tabelaOk = true;
+  const velho = new Date(Date.now() - 30 * 86400_000).toISOString();
+  for (let i = 0; i < ceps.length; i += 400) {
+    const { data, error } = await sb().from('cep_geo').select('cep, lat, lng, fonte, atualizado_em').in('cep', ceps.slice(i, i + 400));
+    if (error) { tabelaOk = false; break; }
+    for (const r of data ?? []) if (r.lat != null || r.atualizado_em > velho) mapa.set(r.cep, r);
+  }
+  const falta = ceps.filter((c) => !mapa.has(c));
+  let k = 0; const novos: any[] = [];
+  await Promise.all(Array.from({ length: 6 }, async () => {
+    while (k < falta.length && Date.now() < prazo) { const g = await geoDeCep(falta[k++]); mapa.set(g.cep, g); novos.push({ ...g, atualizado_em: new Date().toISOString() }); }
+  }));
+  if (tabelaOk && novos.length) for (let i = 0; i < novos.length; i += 500) await sb().from('cep_geo').upsert(novos.slice(i, i + 500), { onConflict: 'cep' });
+  return { mapa, faltando: falta.length - novos.length, tabelaOk };
+}
+async function localDaLoja(loja: string): Promise<any> {
+  const { data } = await sb().from('lojas_config').select('cnpj').eq('nome', loja).maybeSingle();
+  const cnpj = soDigitos(data?.cnpj);
+  if (cnpj.length !== 14) return null;
+  const chave = 'CNPJ' + cnpj;
+  const { data: c } = await sb().from('cep_geo').select('lat, lng, bairro, cidade').eq('cep', chave).maybeSingle();
+  if (c?.lat != null) return { ...c, fonte: 'cadastro do CNPJ' };
+  try {
+    const r = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`, { signal: AbortSignal.timeout(10000) });
+    if (!r.ok) return null;
+    const j: any = await r.json(); const cep = soDigitos(j.cep);
+    if (cep.length !== 8) return null;
+    const g = await geoDeCep(cep);
+    if (g.lat == null) return null;
+    const reg = { cep: chave, lat: g.lat, lng: g.lng, bairro: j.bairro ?? g.bairro, cidade: j.municipio ?? g.cidade, uf: j.uf ?? g.uf, fonte: g.fonte, atualizado_em: new Date().toISOString() };
+    await sb().from('cep_geo').upsert(reg, { onConflict: 'cep' });
+    return { lat: reg.lat, lng: reg.lng, bairro: reg.bairro, cidade: reg.cidade, fonte: 'cadastro do CNPJ' };
+  } catch (_) { return null; }
+}
+
+async function clientesLocalizacao(apiBase: string, chave: string, loja: string, lista: { id: string; fat: number; dias: Set<string> }[]) {
+  const prazo = Date.now() + 45_000;
+  const ids = new Set(lista.map((c) => c.id));
+  const end = new Map<string, { cep: string; bairro: string; cidade: string; uf: string }>();
+  const limparTxt = (s: unknown) => String(s ?? '').trim().replace(/\s+/g, ' ');
+  try {
+    await fetchAllPages(`${apiBase}/terceiros?classes=CLIENTE`, chave, (pg) => {
+      for (const t of pg) {
+        const id = String(t?.id); if (!ids.has(id)) continue;
+        const e = (t.enderecos ?? []).find((x: any) => soDigitos(x?.cep).length === 8 || x?.cidade) ?? null;
+        if (e) end.set(id, { cep: soDigitos(e.cep), bairro: limparTxt(e.bairro), cidade: limparTxt(e.cidade), uf: limparTxt(e.siglaEstado).toUpperCase() });
+      }
+    });
+  } catch (_) { /* segue com o que leu */ }
+  const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
+  const fatDe = new Map(lista.map((c) => [c.id, c.fat]));
+  const porCidade = new Map<string, { cidade: string; clientes: number; fat: number }>();
+  const porBairro = new Map<string, { bairro: string; cidade: string; clientes: number; fat: number }>();
+  for (const [id, e] of end) {
+    if (e.cidade) { const k = norm(e.cidade) + '|' + e.uf; const x = porCidade.get(k) ?? { cidade: `${e.cidade}${e.uf ? ' - ' + e.uf : ''}`, clientes: 0, fat: 0 }; x.clientes++; x.fat += fatDe.get(id) ?? 0; porCidade.set(k, x); }
+    if (e.bairro) { const k = norm(e.bairro) + '|' + norm(e.cidade); const x = porBairro.get(k) ?? { bairro: e.bairro, cidade: e.cidade, clientes: 0, fat: 0 }; x.clientes++; x.fat += fatDe.get(id) ?? 0; porBairro.set(k, x); }
+  }
+  // distância: coordenada do CEP de cada cliente até a loja
+  const lojaGeo = await localDaLoja(loja);
+  const ceps = [...new Set([...end.values()].map((e) => e.cep).filter((c) => c.length === 8))];
+  const { mapa, faltando, tabelaOk } = await coordenadasCeps(ceps, prazo);
+  const pontos: { lat: number; lng: number; id: string }[] = [];
+  for (const [id, e] of end) { const g = mapa.get(e.cep); if (g?.lat != null) pontos.push({ lat: g.lat, lng: g.lng, id }); }
+  let centro = lojaGeo, centroEstimado = false;
+  if (!centro && pontos.length) { // sem endereço da loja: centro = mediana dos clientes
+    const med = (v: number[]) => v.sort((a, b) => a - b)[Math.floor(v.length / 2)];
+    centro = { lat: med(pontos.map((p) => p.lat)), lng: med(pontos.map((p) => p.lng)) }; centroEstimado = true;
+  }
+  let distancias: any = null, mapaPontos: any[] = [];
+  if (centro && pontos.length) {
+    const ds = pontos.map((p) => ({ d: distKm(centro, p), id: p.id })).sort((a, b) => a.d - b.d);
+    const q = (f: number) => r2(ds[Math.min(ds.length - 1, Math.floor(ds.length * f))].d);
+    const faixas = [[2, 'até 2 km'], [5, '2 a 5 km'], [10, '5 a 10 km'], [20, '10 a 20 km'], [50, '20 a 50 km'], [1e9, 'mais de 50 km']] as const;
+    distancias = {
+      clientesComLocal: ds.length, mediana: q(0.5), raio80: q(0.8), raio90: q(0.9),
+      faixas: faixas.map(([lim, nome], i) => { const de = i ? faixas[i - 1][0] : -1; const g = ds.filter((x) => x.d > de && x.d <= lim); return { faixa: nome, clientes: g.length, faturamento: r2(g.reduce((s, x) => s + (fatDe.get(x.id) ?? 0), 0)) }; }),
+    };
+    const agg = new Map<string, { lat: number; lng: number; n: number }>();
+    for (const p of pontos) { const k = `${p.lat.toFixed(3)},${p.lng.toFixed(3)}`; const x = agg.get(k) ?? { lat: +p.lat.toFixed(3), lng: +p.lng.toFixed(3), n: 0 }; x.n++; agg.set(k, x); }
+    mapaPontos = [...agg.values()].sort((a, b) => b.n - a.n).slice(0, 1500);
+  }
+  return {
+    clientes: lista.length, comEndereco: end.size, semEndereco: lista.length - end.size,
+    cidades: [...porCidade.values()].sort((a, b) => b.clientes - a.clientes).slice(0, 15).map((x) => ({ ...x, fat: r2(x.fat) })),
+    bairros: [...porBairro.values()].sort((a, b) => b.clientes - a.clientes).slice(0, 20).map((x) => ({ ...x, fat: r2(x.fat) })),
+    loja: centro ? { lat: centro.lat, lng: centro.lng, bairro: (centro as any).bairro ?? null, cidade: (centro as any).cidade ?? null, estimado: centroEstimado } : null,
+    distancias, pontos: mapaPontos, cepsSemCoordenada: faltando, tabelaCepOk: tabelaOk,
+  };
+}
+
 async function moduloClientes(body: any, a: Acesso) {
   const apiBase = Deno.env.get('VAREJONLINE_API_BASE');
   if (!apiBase) throw new Error('VAREJONLINE_API_BASE não configurado.');
@@ -2110,6 +2225,7 @@ async function moduloClientes(body: any, a: Acesso) {
   }, 15, 3);
 
   const lista = [...clientes.values()];
+  if (body.acao === 'localizacao') return { parametros: { loja, meses }, ...(await clientesLocalizacao(apiBase, chave, loja, lista)) };
   // o que está vendendo agora (últimos 60 dias), por categoria — base da sugestão de peça para cada cliente
   const emAlta = [...produtos.values()].filter((p) => p.qtd60 > 0).sort((x, y) => y.qtd60 - x.qtd60);
   const emAltaPorCat = new Map<string, string[]>();

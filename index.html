@@ -319,6 +319,10 @@
   .cli-busca{ display:flex; gap:10px; flex-wrap:wrap; } .cli-busca input{ flex:1; min-width:220px; font-size:15px; }
   .cli-chips{ display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-top:10px; font-size:12.5px; color:var(--muted); }
   .cli-chips button{ padding:5px 10px; font-size:12px; }
+  .cli-local-grade{ display:grid; grid-template-columns:1fr 1.3fr; gap:24px; }
+  @media (max-width: 900px){ .cli-local-grade{ grid-template-columns:1fr; } }
+  .cli-mapa{ height:340px; border-radius:10px; border:1px solid var(--line); background:var(--panel-2); z-index:0; }
+  .cli-resumo-local p{ margin:4px 0 8px; font-size:14.5px; line-height:1.5; }
   .cli-detalhes > summary{ cursor:pointer; font-weight:600; font-size:13.5px; }
   .cli-tabela td{ white-space:normal; vertical-align:top; } .cli-tabela td.cli-motivo{ min-width:220px; max-width:300px; } .cli-tabela td.cli-ult{ min-width:170px; }
   /* Início: produtos */
@@ -1493,6 +1497,78 @@ function _cliLista(lista, tipo, loja, extra, vazio) {
     ${ord.length > n ? `<div style="text-align:center; margin-top:12px"><button type="button" class="secondary" data-cli-mais="${tipo}">Mostrar mais ${Math.min(10, ord.length - n)}${ord.length - n > 10 ? ` (faltam ${ord.length - n})` : ''}</button></div>` : ''}`;
 }
 
+// ---- Clientes › Onde moram (cidade, bairro, distância até a loja e mapa) ----
+const _cliLocal = {};
+let _leafletP = null;
+function carregarLeaflet() {
+  if (window.L) return Promise.resolve(window.L);
+  if (_leafletP) return _leafletP;
+  _leafletP = new Promise((ok, falha) => {
+    const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css'; document.head.appendChild(css);
+    const js = document.createElement('script'); js.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
+    js.onload = () => ok(window.L); js.onerror = () => { _leafletP = null; falha(new Error('mapa indisponível')); }; document.head.appendChild(js);
+  });
+  return _leafletP;
+}
+function conteudoOndeMoram(loja, meses) {
+  const k = `${loja}|${meses}`, d = _cliLocal[k];
+  if (!d) {
+    setTimeout(async () => {
+      if (_cliLocal[k]) return; _cliLocal[k] = 'carregando';
+      try { _cliLocal[k] = await chamarEdge({ modulo: 'clientes', acao: 'localizacao', loja, meses }, EDGE_COMPRAS_URL); }
+      catch (e) { _cliLocal[k] = { erro: e.message }; }
+      if (_cliAba === 'local') desenharClientes();
+    }, 0);
+    return '<div class="cli-intro"><span class="loader"></span> Lendo os endereços dos clientes e calculando a distância até a loja… (a primeira vez pode levar até 1 minuto)</div>';
+  }
+  if (d === 'carregando') return '<div class="cli-intro"><span class="loader"></span> Lendo os endereços dos clientes e calculando a distância até a loja…</div>';
+  if (d.erro) return `<div class="empty">Não deu para analisar os endereços: ${esc(d.erro)}</div>`;
+  const D = d.distancias, pct = (a, b) => b ? Math.round(a / b * 100) : 0;
+  const km = v => v < 10 ? fmtNum(Math.round(v * 10) / 10) : fmtNum(Math.round(v));
+  const cid1 = d.cidades[0];
+  const frases = [
+    D ? `Metade dos seus clientes mora a até <strong>${km(D.mediana)} km</strong> da loja; 8 de cada 10, a até <strong>${km(D.raio80)} km</strong>.` : '',
+    cid1 ? `<strong>${pct(cid1.clientes, d.comEndereco)}%</strong> dos clientes com endereço moram em ${esc(cid1.cidade)}${d.cidades[1] ? `; depois vem ${esc(d.cidades[1].cidade)} (${pct(d.cidades[1].clientes, d.comEndereco)}%)` : ''}.` : '',
+    d.bairros[0] ? `Bairro com mais clientes: <strong>${esc(d.bairros[0].bairro)}</strong> (${fmtNum(d.bairros[0].clientes)}).` : '',
+  ].filter(Boolean);
+  const avisos = [
+    d.semEndereco ? `${fmtNum(d.semEndereco)} de ${fmtNum(d.clientes)} clientes estão sem endereço no cadastro — completar o cadastro no caixa melhora este mapa.` : '',
+    D && D.clientesComLocal < d.comEndereco ? `Distância calculada para ${fmtNum(D.clientesComLocal)} clientes (CEP localizado).${d.cepsSemCoordenada ? ' Os demais CEPs vão sendo localizados nas próximas consultas.' : ''}` : '',
+    d.loja?.estimado ? 'O endereço da loja não foi encontrado pelo CNPJ: o centro do mapa é o ponto do meio dos clientes. Confira o CNPJ em Lojas.' : '',
+    d.tabelaCepOk === false ? 'Falta criar a tabela de CEPs no Supabase (migração cep_geo): sem ela, os CEPs são localizados de novo a cada consulta.' : '',
+  ].filter(Boolean);
+  const barras = D ? _cliBarras(D.faixas, 'clientes', l => `${fmtNum(l.clientes)} <small>${fmtMoedaCurta(l.faturamento) ?? fmtMoeda(l.faturamento)}</small>`) : '<div class="empty">Sem CEPs localizados ainda.</div>';
+  setTimeout(() => desenharMapaClientes(d), 0);
+  return `<div class="cli-resumo-local">${frases.map(f => `<p>${f}</p>`).join('')}</div>
+    <div class="cli-local-grade">
+      <div><div class="cli-tit">Distância da casa até a loja</div>${barras}${D ? `<div class="ini-prod-sub" style="margin-top:6px">9 de cada 10 moram a até ${km(D.raio90)} km.</div>` : ''}</div>
+      <div><div id="cli_mapa" class="cli-mapa" role="img" aria-label="Mapa com a loja e onde moram os clientes"></div><div class="ini-prod-sub" style="margin-top:4px">Cada círculo é uma região de CEP (não o endereço exato); maior = mais clientes. Anéis: metade e 80% dos clientes.</div></div>
+    </div>
+    <div class="cli-local-grade" style="margin-top:16px">
+      <div><div class="cli-tit">Cidades</div><table class="no-tools ini-prod-tab"><thead><tr><th>Cidade</th><th class="num">Clientes</th><th class="num">%</th><th class="num">Gasto</th></tr></thead><tbody>${d.cidades.map(c => `<tr><td>${esc(c.cidade)}</td><td class="num">${fmtNum(c.clientes)}</td><td class="num">${pct(c.clientes, d.comEndereco)}%</td><td class="num">${fmtMoeda(c.fat)}</td></tr>`).join('')}</tbody></table></div>
+      <div><div class="cli-tit">Bairros com mais clientes</div><table class="no-tools ini-prod-tab"><thead><tr><th>Bairro</th><th class="num">Clientes</th><th class="num">Gasto</th></tr></thead><tbody>${d.bairros.map(b => `<tr><td>${esc(b.bairro)}<br><span class="ini-prod-sub">${esc(b.cidade)}</span></td><td class="num">${fmtNum(b.clientes)}</td><td class="num">${fmtMoeda(b.fat)}</td></tr>`).join('')}</tbody></table></div>
+    </div>
+    ${avisos.length ? `<div class="ini-prod-dica" style="margin-top:12px">${avisos.join('<br>')}</div>` : ''}`;
+}
+let _cliMapaObj = null;
+async function desenharMapaClientes(d) {
+  const el = $('cli_mapa'); if (!el || !d.loja) { if (el) el.innerHTML = '<div class="empty">Sem localização para o mapa.</div>'; return; }
+  let L; try { L = await carregarLeaflet(); } catch (e) { el.innerHTML = '<div class="empty">Não foi possível carregar o mapa agora.</div>'; return; }
+  if (!document.body.contains(el)) return;
+  if (_cliMapaObj) { try { _cliMapaObj.remove(); } catch { } }
+  const m = _cliMapaObj = L.map(el, { scrollWheelZoom: false, attributionControl: true });
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 18, subdomains: 'abcd', referrerPolicy: 'strict-origin-when-cross-origin', attribution: '© OpenStreetMap · © CARTO' }).addTo(m);
+  const c = [d.loja.lat, d.loja.lng], max = Math.max(1, ...d.pontos.map(p => p.n));
+  for (const p of d.pontos) L.circleMarker([p.lat, p.lng], { radius: 3 + 9 * Math.sqrt(p.n / max), color: '#961A1D', weight: 1, fillColor: '#961A1D', fillOpacity: .35 }).bindTooltip(`${p.n} cliente(s)`).addTo(m);
+  const D = d.distancias;
+  if (D) {
+    L.circle(c, { radius: D.mediana * 1000, color: '#6E1416', weight: 1.5, dashArray: '4 4', fill: false }).bindTooltip(`metade dos clientes: até ${D.mediana} km`).addTo(m);
+    const r80 = L.circle(c, { radius: D.raio80 * 1000, color: '#B07800', weight: 1.5, fill: false }).bindTooltip(`80% dos clientes: até ${D.raio80} km`).addTo(m);
+    m.fitBounds(r80.getBounds(), { padding: [10, 10] });
+  } else m.setView(c, 12);
+  L.circleMarker(c, { radius: 8, color: '#fff', weight: 2, fillColor: '#FAA918', fillOpacity: 1 }).bindTooltip(d.loja.estimado ? 'centro dos clientes (loja não localizada)' : 'Loja').addTo(m);
+}
+
 function desenharClientes() {
   const d = _cliDados, box = $('resultado-clientes'); if (!d) return;
   const R = d.resumo, P = d.parametros, loja = P.loja;
@@ -1506,12 +1582,13 @@ function desenharClientes() {
     R.sumidos ? `<strong>${fmtNum(R.sumidos)} clientes sumiram</strong> (mais de ${P.sumidoDias} dias sem comprar). Juntos eles gastaram ${fmtMoeda(R.fatSumidos)} — vale chamar de volta.` : '',
   ].filter(Boolean);
   const nAniv = (d.aniversariantes || []).filter(c => !c.jaPassou).length;
-  const abas = [['volta', `Chamar de volta`, R.sumidos], ['aniversario', 'Aniversariantes do mês', nAniv], ['vip', 'Melhores clientes', null], ['oferecer', 'Oferecer uma peça', null]];
+  const abas = [['volta', `Chamar de volta`, R.sumidos], ['aniversario', 'Aniversariantes do mês', nAniv], ['vip', 'Melhores clientes', null], ['oferecer', 'Oferecer uma peça', null], ['local', 'Onde moram', null]];
   const nomeMes = new Date().toLocaleDateString('pt-BR', { month: 'long' });
   let conteudo = '';
   if (_cliAba === 'volta') conteudo = `<div class="cli-intro">Clientes que não compram há mais de ${P.sumidoDias} dias, começando por quem mais gastava. Mande uma mensagem pelo WhatsApp com o texto já pronto.</div>${_cliLista(d.sumidos, 'volta', loja, null, 'Ninguém sumiu nesse prazo. 🎉')}`;
   if (_cliAba === 'aniversario') conteudo = `<div class="cli-intro">Clientes que fazem aniversário em ${nomeMes} (entre os que mais compram e os que sumiram — aniversário é um ótimo motivo para chamar).</div>${_cliLista([...(d.aniversariantes || [])].sort((x, y) => (x.jaPassou - y.jaPassou) || String(x.contato?.aniversario).localeCompare(String(y.contato?.aniversario))), 'aniversario', loja, null, 'Nenhum aniversariante encontrado neste mês (a data precisa estar no cadastro do cliente).')}`;
   if (_cliAba === 'vip') conteudo = `<div class="cli-intro">Quem mais comprou com você no período. Trate como VIP: avise primeiro das novidades.</div>${_cliLista(d.vip, 'vip', loja, null, 'Sem clientes identificados no período.')}`;
+  if (_cliAba === 'local') conteudo = conteudoOndeMoram(loja, P.meses);
   if (_cliAba === 'oferecer') {
     const o = d.oferecer;
     conteudo = `<div class="cli-intro">Escolha uma peça e veja quem tem o perfil para comprar — pessoas que gostam da mesma categoria, gastam na mesma faixa de preço ou levaram peças que combinam com ela.</div>
