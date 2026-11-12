@@ -2184,8 +2184,16 @@ async function clientesLocalizacao(apiBase: string, chave: string, loja: string,
   const cepGenerico = (c: string) => /000$/.test(c);
   // cliente cadastrado com o endereço da própria loja (atalho no caixa): não diz onde ele mora
   const cepLoja = lojaGeo?.cep ?? null;
-  let genericos = 0, comCepDaLoja = 0;
-  for (const [id, e] of end) { if (cepGenerico(e.cep)) { genericos++; continue; } if (cepLoja && e.cep === cepLoja) { comCepDaLoja++; continue; } const g = mapa.get(e.cep); if (g?.lat != null) pontos.push({ lat: g.lat, lng: g.lng, id }); }
+  // Quando o serviço de CEP não tem a rua, devolve o centro da cidade: a mesma posição para muitos CEPs
+  // diferentes. Essas posições não servem para medir distância dentro da cidade.
+  const kp = (g: any) => `${Number(g.lat).toFixed(4)},${Number(g.lng).toFixed(4)}`;
+  const freq = new Map<string, number>();
+  for (const c of ceps) { const g = mapa.get(c); if (g?.lat != null) freq.set(kp(g), (freq.get(kp(g)) ?? 0) + 1); }
+  const imprecisa = (g: any) => (freq.get(kp(g)) ?? 0) >= 3;
+  const lojaAproximada = !!lojaGeo && imprecisa(lojaGeo);
+  let genericos = 0, comCepDaLoja = 0, aproximados = 0;
+  for (const [id, e] of end) { if (cepGenerico(e.cep)) { genericos++; continue; } if (cepLoja && e.cep === cepLoja) { comCepDaLoja++; continue; }
+    { const g0 = mapa.get(e.cep); if (g0?.lat != null && imprecisa(g0)) { aproximados++; continue; } } const g = mapa.get(e.cep); if (g?.lat != null) pontos.push({ lat: g.lat, lng: g.lng, id }); }
   let centro = lojaGeo, centroEstimado = false;
   if (!centro && pontos.length) { // sem endereço da loja: centro = mediana dos clientes
     const med = (v: number[]) => v.sort((a, b) => a - b)[Math.floor(v.length / 2)];
@@ -2209,7 +2217,7 @@ async function clientesLocalizacao(apiBase: string, chave: string, loja: string,
     cidades: [...porCidade.values()].sort((a, b) => b.clientes - a.clientes).slice(0, 15).map((x) => ({ ...x, fat: r2(x.fat) })),
     bairros: [...porBairro.values()].sort((a, b) => b.clientes - a.clientes).slice(0, 20).map((x) => ({ ...x, fat: r2(x.fat) })),
     loja: centro ? { lat: centro.lat, lng: centro.lng, bairro: (centro as any).bairro ?? null, cidade: (centro as any).cidade ?? null, estimado: centroEstimado } : null,
-    distancias, pontos: mapaPontos, cepsSemCoordenada: faltando, cepsGenericos: genericos, comCepDaLoja, tabelaCepOk: tabelaOk, tabelaCadastroOk: ultimoDiagCadastro?.tabelaOk !== false,
+    distancias, pontos: mapaPontos, cepsSemCoordenada: faltando, cepsGenericos: genericos, comCepDaLoja, cepsAproximados: aproximados, lojaAproximada, tabelaCepOk: tabelaOk, tabelaCadastroOk: ultimoDiagCadastro?.tabelaOk !== false,
   };
 }
 
