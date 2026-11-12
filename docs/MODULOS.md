@@ -34,6 +34,9 @@ Status: Confirmado · Por código · Conferir · Sem vínculo · Fora da Central
 - Franqueadora: Visão da rede — faturado no mês, % da meta, projeção, compras na Central, alertas (abaixo do ritmo, sem comprar há 21+ dias, pedidos a enviar, franqueado sem entrar há 7+ dias) e tabela por loja com último acesso.
 - Franqueado: Minha loja — barra da meta, falta por dia, ontem, ticket, PA, última compra, produtos zerados (R$/dia), o que comprar e atalhos.
 
+## Assistente de IA
+Botão "Assistente" (canto inferior direito, em todas as telas) abre uma conversa. Cada pessoa usa a **própria chave da Anthropic** (console.anthropic.com → API Keys; uso cobrado na conta dela), guardada só no navegador e enviada no cabeçalho `x-ia-chave` a cada pergunta — o servidor não grava nem registra. O módulo `assistente` (sss-compras) roda o Claude com ferramentas que consultam os módulos do Insight com o mesmo acesso do usuário (franqueado só vê as próprias lojas): resumo do mês, comparativo, produtos (top 10 e parados), clientes (sumidos, aniversariantes, para quem oferecer), equipe e estoque/compra. Modelos: Sonnet (padrão), Haiku, Opus.
+
 ## Início — Produtos
 Quadro no Início (franqueado: a própria loja; franqueadora: rede inteira ou uma loja em "Ver"). **Top 10 mais vendidos** nos últimos 30 dias por modelo (variações somadas), com tendência contra os 30 dias anteriores e, na loja, o estoque atual (aviso "repor" quando o estoque é menor que metade do vendido em 30 dias). **Oportunidades**: produtos com estoque na loja e nenhuma venda há 90 dias ou mais, ordenados pelo custo parado (custo médio das vendas de 12 meses; se nunca vendeu, custo referencial do cadastro), com última venda, valor de venda e atalho "Para quem oferecer" (abre Clientes). Módulo `produtos` da sss-compras.
 
