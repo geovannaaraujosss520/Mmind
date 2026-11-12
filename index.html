@@ -1581,8 +1581,10 @@ async function desenharMapaClientes(d) {
   if (!document.body.contains(el)) return;
   if (_cliMapaObj) { try { _cliMapaObj.remove(); } catch { } }
   const m = _cliMapaObj = L.map(el, { scrollWheelZoom: false, attributionControl: true });
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 18, subdomains: 'abcd', referrerPolicy: 'strict-origin-when-cross-origin', attribution: '© OpenStreetMap · © CARTO' }).addTo(m);
+  // mapa base do OpenStreetMap (sem chave; exige o endereço de origem na requisição, daí o referrerPolicy)
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, referrerPolicy: 'strict-origin-when-cross-origin', attribution: '© OpenStreetMap' }).addTo(m);
   const c = [d.loja.lat, d.loja.lng], max = Math.max(1, ...d.pontos.map(p => p.n));
+  m.fitBounds(L.latLng(c).toBounds(100000), { padding: [10, 10] }); // centro e zoom antes das camadas (o calor precisa disso)
   // duas camadas: pontos (círculos por região) e calor (concentração de clientes); o botão troca
   const camadaPontos = L.layerGroup(d.pontos.map(p => L.circleMarker([p.lat, p.lng], { radius: 3 + 9 * Math.sqrt(p.n / max), color: '#961A1D', weight: 1, fillColor: '#961A1D', fillOpacity: .35 }).bindTooltip(`${p.n} cliente(s)`)));
   let camadaCalor = null;
@@ -1607,8 +1609,7 @@ async function desenharMapaClientes(d) {
     });
   }
   L.circle(c, { radius: 20000, color: '#6E1416', weight: 1.5, dashArray: '4 4', fill: false }).bindTooltip('20 km da loja').addTo(m);
-  const r50 = L.circle(c, { radius: 50000, color: '#B07800', weight: 1.5, fill: false }).bindTooltip('50 km da loja').addTo(m);
-  m.fitBounds(r50.getBounds(), { padding: [10, 10] });
+  L.circle(c, { radius: 50000, color: '#B07800', weight: 1.5, fill: false }).bindTooltip('50 km da loja').addTo(m);
   if (d.mesmaCidadeSemPosicao) L.circleMarker(c, { radius: 6 + 14 * Math.sqrt(d.mesmaCidadeSemPosicao / Math.max(max, d.mesmaCidadeSemPosicao)), color: '#961A1D', weight: 1, fillColor: '#961A1D', fillOpacity: .25 }).bindTooltip(`${d.mesmaCidadeSemPosicao} cliente(s) na cidade da loja`).addTo(m);
   L.circleMarker(c, { radius: 8, color: '#fff', weight: 2, fillColor: '#FAA918', fillOpacity: 1 }).bindTooltip(d.loja.estimado ? 'centro dos clientes (loja não localizada)' : 'Loja').addTo(m);
 }
