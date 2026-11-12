@@ -1921,8 +1921,11 @@ async function moduloComparativo(body: any, a: Acesso) {
   const nomes = Object.keys(tokens).filter((n) => !permitidas || permitidas.includes(n)).sort();
   if (!nomes.length) throw new Error('Nenhuma loja liberada para este usuário.');
 
-  type Acum = { fat: number; atend: number; pecas: number };
-  const novo = (): Acum => ({ fat: 0, atend: 0, pecas: 0 });
+  // fat = valor cobrado (soma do valor total dos itens); desc = descontos dos itens; dev = devoluções de clientes (entradas DEVOLUCAO_VENDA)
+  // bruto = cobrado + descontos (preço cheio); líquido = cobrado - devoluções
+  type Acum = { fat: number; desc: number; dev: number; atend: number; pecas: number };
+  const novo = (): Acum => ({ fat: 0, desc: 0, dev: 0, atend: 0, pecas: 0 });
+  let devolucoesIncompletas = false;
   const porDia: Record<string, Map<string, Acum>> = { atual: new Map(), mesAnterior: new Map(), anoAnterior: new Map() };
   const porLoja = new Map<string, Record<string, Acum>>();
   const erros: { loja: string; erro: string }[] = [], pendentes: string[] = [];
@@ -1941,21 +1944,41 @@ async function moduloComparativo(body: any, a: Acesso) {
           await buscarSaidasParalelo(apiBase, tokens[nome], ini, fim, (sd) => {
             if (!ehVenda(sd)) return;
             const d = diaDaVenda(sd); if (!d || d < deIso || d > ateIso) return;
-            let f = 0, q = 0;
-            for (const it of sd.mercadorias ?? []) { f += Number(it.valorTotal ?? 0); q += Math.max(0, Number(it.quantidade ?? 0)); }
+            let f = 0, q = 0, ds = 0;
+            for (const it of sd.mercadorias ?? []) { f += Number(it.valorTotal ?? 0); q += Math.max(0, Number(it.quantidade ?? 0)); ds += Math.max(0, Number(it.valorTotalDesconto ?? it.valorDescontoItem ?? 0)); }
             if (q <= 0) return;
-            const m = porDia[k]; const x = m.get(d) ?? novo(); x.fat += f; x.atend++; x.pecas += q; m.set(d, x);
-            tot[k].fat += f; tot[k].atend++; tot[k].pecas += q;
+            const m = porDia[k]; const x = m.get(d) ?? novo(); x.fat += f; x.desc += ds; x.atend++; x.pecas += q; m.set(d, x);
+            tot[k].fat += f; tot[k].desc += ds; tot[k].atend++; tot[k].pecas += q;
           }, 15, 3);
+          // devoluções/trocas de clientes no período (entram como entrada na VarejOnline)
+          if (Date.now() < prazo) {
+            try {
+              await fetchAllPages(`${apiBase}/entradas?desde=${fmtBR(ini)}&ate=${fmtBR(fim)}`, tokens[nome], (pg) => {
+                for (const en of pg) {
+                  if (en?.cancelado || !/DEVOLUCAO_VENDA/.test(String(en?.tipoEntrada ?? ''))) continue;
+                  const d = diaDaVenda(en); if (!d || d < deIso || d > ateIso) continue;
+                  const v = Math.max(0, Number(en.valorTotal ?? 0));
+                  const m = porDia[k]; const x = m.get(d) ?? novo(); x.dev += v; m.set(d, x); tot[k].dev += v;
+                }
+              });
+            } catch (_) { devolucoesIncompletas = true; }
+          } else devolucoesIncompletas = true;
         }
         porLoja.set(nome, tot);
       } catch (e) { erros.push({ loja: nome, erro: e instanceof Error ? e.message : String(e) }); }
     }
   }));
 
-  const ticket = (x?: Acum) => x && x.atend ? r2(x.fat / x.atend) : null;
-  const resumo = (x: Acum) => ({ faturado: r2(x.fat), atendimentos: x.atend, pecas: r2(x.pecas), ticketMedio: ticket(x), pecasPorAtendimento: x.atend ? r2(x.pecas / x.atend) : null });
-  const somar = (k: string) => { const t = novo(); for (const v of porDia[k].values()) { t.fat += v.fat; t.atend += v.atend; t.pecas += v.pecas; } return t; };
+  const resumo = (x: Acum) => {
+    const bruto = x.fat + x.desc, liquido = x.fat - x.dev;
+    return {
+      faturadoBruto: r2(bruto), faturadoLiquido: r2(liquido), cobrado: r2(x.fat), descontos: r2(x.desc), devolucoes: r2(x.dev),
+      faturado: r2(liquido), atendimentos: x.atend, pecas: r2(x.pecas),
+      ticketBruto: x.atend ? r2(bruto / x.atend) : null, ticketLiquido: x.atend ? r2(liquido / x.atend) : null,
+      ticketMedio: x.atend ? r2(liquido / x.atend) : null, pecasPorAtendimento: x.atend ? r2(x.pecas / x.atend) : null,
+    };
+  };
+  const somar = (k: string) => { const t = novo(); for (const v of porDia[k].values()) { t.fat += v.fat; t.desc += v.desc; t.dev += v.dev; t.atend += v.atend; t.pecas += v.pecas; } return t; };
   const dias: any[] = [];
   for (let n = 0; n < nDias; n++) {
     const d = new Date(de.getTime() + n * 86400_000), dm = refMes(d), da = refAno(d);
@@ -1973,7 +1996,7 @@ async function moduloComparativo(body: any, a: Acesso) {
     totais: { atual: resumo(somar('atual')), mesAnterior: resumo(somar('mesAnterior')), anoAnterior: resumo(somar('anoAnterior')) },
     dias,
     lojas: [...porLoja.entries()].sort((x, y) => x[0].localeCompare(y[0])).map(([loja, t]) => ({ loja, atual: resumo(t.atual), mesAnterior: resumo(t.mesAnterior), anoAnterior: resumo(t.anoAnterior) })),
-    erros, pendentes,
+    erros, pendentes, devolucoesIncompletas,
   };
 }
 
