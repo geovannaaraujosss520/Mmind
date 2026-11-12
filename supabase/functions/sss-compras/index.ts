@@ -2019,24 +2019,53 @@ async function moduloComparativo(body: any, a: Acesso) {
 // Uma loja por vez. Só entram vendas com cliente identificado (CPF/CNPJ válido, fora consumidor final,
 // fornecedores e prestadores).
 // =====================================================================
-const cacheContatos = new Map<string, { t: number; v: any }>();
 const CATEGORIA_SINONIMO: Record<string, string> = { COLARES: 'COLAR', BRINCOS: 'BRINCO', ANEIS: 'ANEL', PULSEIRAS: 'PULSEIRA', CORRENTES: 'CORRENTE', TORNOZELEIRAS: 'TORNOZELEIRA', PINGENTES: 'PINGENTE', BRACELETES: 'BRACELETE', CONJUNTOS: 'CONJUNTO', KITS: 'KIT', PIERCINGS: 'PIERCING', CHOKERS: 'CHOKER', ARGOLAS: 'ARGOLA', ALIANCAS: 'ALIANCA', RELOGIOS: 'RELOGIO' };
 const categoriaDe = (desc: unknown) => { const w = limpa(desc).split(' ')[0] || 'OUTROS'; return CATEGORIA_SINONIMO[w] ?? w; };
 const modeloDe = (desc: unknown) => String(desc ?? '').split(/\s+-\s+/)[0].trim().toUpperCase() || '(sem descrição)';
 const faixaPrecoDe = (v: number) => v < 50 ? 'até R$ 49,99' : v < 100 ? 'R$ 50 a 99' : v < 200 ? 'R$ 100 a 199' : 'R$ 200 ou mais';
 
-async function contatoCliente(apiBase: string, chave: string, id: string) {
-  const k = `${abrirChave(chave).token}|${id}`, c = cacheContatos.get(k);
-  if (c && Date.now() - c.t < 6 * 3600_000) return c.v;
-  let v: any = null;
-  try {
-    const { token } = abrirChave(chave);
-    const r = await fetch(`${apiBase}/terceiros/${encodeURIComponent(id)}?token=${token}`, { signal: AbortSignal.timeout(15000) });
-    if (r.ok) v = contatoDe(await r.json());
-  } catch (_) { /* sem contato */ }
-  cacheContatos.set(k, { t: Date.now(), v });
-  return v;
+// Cadastro dos clientes (contato + endereço) por id: lê da tabela clientes_cadastro e busca na VarejOnline
+// só quem falta (ou foi lido há mais de 60 dias), um a um, até o prazo. Sem a tabela, usa a memória da função.
+const cacheCadastros = new Map<string, any>();
+async function contaDoToken(chave: string) {
+  const d = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(abrirChave(chave).token)));
+  return [...d.slice(0, 12)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
+const enderecoDe = (t: any) => {
+  const e = (t?.enderecos ?? []).find((x: any) => soDigitos(x?.cep).length === 8 || x?.cidade) ?? null;
+  const tx = (v: unknown) => String(v ?? '').trim().replace(/\s+/g, ' ') || null;
+  return e ? { cep: soDigitos(e.cep) || null, bairro: tx(e.bairro), cidade: tx(e.cidade), uf: tx(e.siglaEstado)?.toUpperCase() ?? null } : { cep: null, bairro: null, cidade: null, uf: null };
+};
+async function cadastrosClientes(apiBase: string, chave: string, ids: string[], prazo: number): Promise<{ mapa: Map<string, any>; faltando: number }> {
+  const conta = await contaDoToken(chave), mapa = new Map<string, any>();
+  const velho = new Date(Date.now() - 60 * 86400_000).toISOString();
+  let tabelaOk = true;
+  for (const id of ids) { const c = cacheCadastros.get(`${conta}|${id}`); if (c) mapa.set(id, c); }
+  const buscar = ids.filter((id) => !mapa.has(id));
+  for (let i = 0; i < buscar.length && tabelaOk; i += 300) {
+    const { data, error } = await sb().from('clientes_cadastro').select('*').eq('conta', conta).in('cliente_id', buscar.slice(i, i + 300));
+    if (error) { tabelaOk = false; break; }
+    for (const r of data ?? []) if (r.atualizado_em > velho) { mapa.set(r.cliente_id, r); cacheCadastros.set(`${conta}|${r.cliente_id}`, r); }
+  }
+  const falta = ids.filter((id) => !mapa.has(id));
+  const { token } = abrirChave(chave);
+  const novos: any[] = []; let k = 0;
+  await Promise.all(Array.from({ length: 8 }, async () => {
+    while (k < falta.length && Date.now() < prazo) {
+      const id = falta[k++];
+      try {
+        const r = await fetch(`${apiBase}/terceiros/${encodeURIComponent(id)}?token=${token}`, { signal: AbortSignal.timeout(12000) });
+        const t: any = r.ok ? await r.json() : null;
+        const reg = { conta, cliente_id: id, ...(contatoDe(t) ?? { telefone: null, whatsapp: null, email: null, aniversario: null }), ...enderecoDe(t), encontrado: !!t, atualizado_em: new Date().toISOString() };
+        mapa.set(id, reg); cacheCadastros.set(`${conta}|${id}`, reg); novos.push(reg);
+      } catch (_) { /* tenta na próxima consulta */ }
+    }
+  }));
+  if (tabelaOk && novos.length) for (let i = 0; i < novos.length; i += 500) await sb().from('clientes_cadastro').upsert(novos.slice(i, i + 500), { onConflict: 'conta,cliente_id' });
+  return { mapa, faltando: ids.filter((id) => !mapa.has(id)).length };
+}
+const contatoDoCadastro = (r: any) => r && r.encontrado !== false ? { telefone: r.telefone ?? null, whatsapp: r.whatsapp ?? null, email: r.email ?? null, aniversario: r.aniversario ?? null } : null;
+
 function contatoDe(t: any) {
   if (!t) return null;
   const tels = (t.telefones ?? []).map((f: any) => ({ tipo: f.tipoTelefone, num: soDigitos(f.ddd) + soDigitos(f.numero) })).filter((f: any) => f.num.length >= 10)
@@ -2111,20 +2140,14 @@ async function localDaLoja(loja: string): Promise<any> {
   } catch (_) { return null; }
 }
 
-async function clientesLocalizacao(apiBase: string, chave: string, loja: string, lista: { id: string; fat: number; dias: Set<string> }[]) {
-  const prazo = Date.now() + 45_000;
-  const ids = new Set(lista.map((c) => c.id));
+async function clientesLocalizacao(apiBase: string, chave: string, loja: string, lista: { id: string; fat: number; dias: Set<string> }[], prazoFinal: number) {
+  // primeiro os clientes que mais gastaram: se o tempo acabar, o que falta é completado na próxima consulta
+  const ordem = [...lista].sort((x, y) => y.fat - x.fat).map((c) => c.id);
+  const cad = await cadastrosClientes(apiBase, chave, ordem, Math.min(prazoFinal - 35_000, Date.now() + 70_000));
+  const prazo = Math.min(prazoFinal, Date.now() + 30_000);
   const end = new Map<string, { cep: string; bairro: string; cidade: string; uf: string }>();
-  const limparTxt = (s: unknown) => String(s ?? '').trim().replace(/\s+/g, ' ');
-  try {
-    await fetchAllPages(`${apiBase}/terceiros?classes=CLIENTE`, chave, (pg) => {
-      for (const t of pg) {
-        const id = String(t?.id); if (!ids.has(id)) continue;
-        const e = (t.enderecos ?? []).find((x: any) => soDigitos(x?.cep).length === 8 || x?.cidade) ?? null;
-        if (e) end.set(id, { cep: soDigitos(e.cep), bairro: limparTxt(e.bairro), cidade: limparTxt(e.cidade), uf: limparTxt(e.siglaEstado).toUpperCase() });
-      }
-    });
-  } catch (_) { /* segue com o que leu */ }
+  for (const [id, r] of cad.mapa) if (r && (r.cep || r.cidade)) end.set(id, { cep: r.cep ?? '', bairro: r.bairro ?? '', cidade: r.cidade ?? '', uf: r.uf ?? '' });
+  const lidos = cad.mapa.size;
   const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
   const fatDe = new Map(lista.map((c) => [c.id, c.fat]));
   const porCidade = new Map<string, { cidade: string; clientes: number; fat: number }>();
@@ -2158,7 +2181,7 @@ async function clientesLocalizacao(apiBase: string, chave: string, loja: string,
     mapaPontos = [...agg.values()].sort((a, b) => b.n - a.n).slice(0, 1500);
   }
   return {
-    clientes: lista.length, comEndereco: end.size, semEndereco: lista.length - end.size,
+    clientes: lista.length, cadastrosLidos: lidos, cadastrosFaltando: cad.faltando, comEndereco: end.size, semEndereco: lidos - end.size,
     cidades: [...porCidade.values()].sort((a, b) => b.clientes - a.clientes).slice(0, 15).map((x) => ({ ...x, fat: r2(x.fat) })),
     bairros: [...porBairro.values()].sort((a, b) => b.clientes - a.clientes).slice(0, 20).map((x) => ({ ...x, fat: r2(x.fat) })),
     loja: centro ? { lat: centro.lat, lng: centro.lng, bairro: (centro as any).bairro ?? null, cidade: (centro as any).cidade ?? null, estimado: centroEstimado } : null,
@@ -2167,6 +2190,7 @@ async function clientesLocalizacao(apiBase: string, chave: string, loja: string,
 }
 
 async function moduloClientes(body: any, a: Acesso) {
+  const t0Clientes = Date.now();
   const apiBase = Deno.env.get('VAREJONLINE_API_BASE');
   if (!apiBase) throw new Error('VAREJONLINE_API_BASE não configurado.');
   const tokens = await getLojasTokens();
@@ -2225,7 +2249,7 @@ async function moduloClientes(body: any, a: Acesso) {
   }, 15, 3);
 
   const lista = [...clientes.values()];
-  if (body.acao === 'localizacao') return { parametros: { loja, meses }, ...(await clientesLocalizacao(apiBase, chave, loja, lista)) };
+  if (body.acao === 'localizacao') return { parametros: { loja, meses }, ...(await clientesLocalizacao(apiBase, chave, loja, lista, t0Clientes + 115_000)) };
   // o que está vendendo agora (últimos 60 dias), por categoria — base da sugestão de peça para cada cliente
   const emAlta = [...produtos.values()].filter((p) => p.qtd60 > 0).sort((x, y) => y.qtd60 - x.qtd60);
   const emAltaPorCat = new Map<string, string[]>();
@@ -2337,25 +2361,12 @@ async function moduloClientes(body: any, a: Acesso) {
   // ---- contatos (telefone/WhatsApp/aniversário) só de quem aparece nas listas + os 200 que mais gastam (aniversariantes) ----
   const top200 = [...lista].sort((x, y) => y.fat - x.fat).slice(0, 200);
   const ids = [...new Set([...(oferecer?.clientes ?? []).slice(0, 60), ...vip, ...sumidos.slice(0, 120), ...top200].map((c: any) => c.id))];
-  const contatos = new Map<string, any>();
-  let k = 0;
-  const prazo = Date.now() + 40_000;
-  await Promise.all(Array.from({ length: 8 }, async () => {
-    while (k < ids.length && Date.now() < prazo) { const id = ids[k++]; contatos.set(id, await contatoCliente(apiBase, chave, id)); }
-  }));
-  // Planilha: contato de TODOS os clientes do período, lendo o cadastro de clientes em páginas (bem mais rápido que um a um)
+  // Planilha: todos os clientes do período (o que faltar fica para a próxima vez — o que já foi lido fica guardado)
+  const idsCad = body.exportar ? [...new Set([...ids, ...[...lista].sort((x, y) => y.fat - x.fat).map((c) => c.id)])] : ids;
+  const cad = await cadastrosClientes(apiBase, chave, idsCad, Math.min(t0Clientes + 110_000, Date.now() + (body.exportar ? 95_000 : 40_000)));
+  const contatos = new Map<string, any>([...cad.mapa].map(([id, r]) => [id, contatoDoCadastro(r)]));
   let todos: any[] | undefined;
-  if (body.exportar) {
-    const falta = new Set(lista.map((c) => c.id).filter((id) => !contatos.get(id)));
-    if (falta.size) {
-      try {
-        await fetchAllPages(`${apiBase}/terceiros?classes=CLIENTE`, chave, (pg) => {
-          for (const t of pg) { const id = String(t?.id); if (falta.has(id)) { const v = contatoDe(t); contatos.set(id, v); cacheContatos.set(`${abrirChave(chave).token}|${id}`, { t: Date.now(), v }); } }
-        });
-      } catch (_) { /* segue com os contatos que já tem */ }
-    }
-    todos = [...lista].sort((x, y) => y.fat - x.fat).map((c) => ({ ...perfil(c), contato: contatos.get(c.id) ?? null }));
-  }
+  if (body.exportar) todos = [...lista].sort((x, y) => y.fat - x.fat).map((c) => ({ ...perfil(c), contato: contatos.get(c.id) ?? null }));
   const comContato = (c: any) => ({ ...c, contato: contatos.get(c.id) ?? null });
   const mesAtual = hojeIso.slice(5, 7), diaAtual = hojeIso.slice(8, 10);
   const aniversariantes = top200.concat(lista.filter((c) => dias(c.ultima) > sumidoDias))
@@ -2387,7 +2398,7 @@ async function moduloClientes(body: any, a: Acesso) {
     todos,
     maisVendidos: emAlta.slice(0, 12).map((p) => ({ modelo: p.modelo, categoria: p.cat, vendidos60: r2(p.qtd60) })),
     aniversariantes,
-    contatosIncompletos: ids.length > contatos.size,
+    contatosIncompletos: cad.faltando > 0, contatosFaltando: cad.faltando,
   };
 }
 const fmtBRL = (v: number) => `R$ ${v.toFixed(2).replace('.', ',')}`;

@@ -1532,7 +1532,8 @@ function conteudoOndeMoram(loja, meses) {
     d.bairros[0] ? `Bairro com mais clientes: <strong>${esc(d.bairros[0].bairro)}</strong> (${fmtNum(d.bairros[0].clientes)}).` : '',
   ].filter(Boolean);
   const avisos = [
-    d.semEndereco ? `${fmtNum(d.semEndereco)} de ${fmtNum(d.clientes)} clientes estão sem endereço no cadastro — completar o cadastro no caixa melhora este mapa.` : '',
+    d.cadastrosFaltando ? `Endereços lidos de ${fmtNum(d.cadastrosLidos)} de ${fmtNum(d.clientes)} clientes (os que mais gastam primeiro). O restante é lido nas próximas vezes que abrir esta aba — ela vai ficando completa e mais rápida.` : '',
+    d.semEndereco ? `${fmtNum(d.semEndereco)} clientes estão sem endereço no cadastro — completar o cadastro no caixa melhora este mapa.` : '',
     D && D.clientesComLocal < d.comEndereco ? `Distância calculada para ${fmtNum(D.clientesComLocal)} clientes (CEP localizado).${d.cepsSemCoordenada ? ' Os demais CEPs vão sendo localizados nas próximas consultas.' : ''}` : '',
     d.loja?.estimado ? 'O endereço da loja não foi encontrado pelo CNPJ: o centro do mapa é o ponto do meio dos clientes. Confira o CNPJ em Lojas.' : '',
     d.tabelaCepOk === false ? 'Falta criar a tabela de CEPs no Supabase (migração cep_geo): sem ela, os CEPs são localizados de novo a cada consulta.' : '',
@@ -1675,7 +1676,7 @@ function baixarXlsx(arquivo, abas) {
 async function exportarClientes() {
   const d = _cliDados; if (!d) return;
   const st = $('status-clientes'), bt = $('cli_planilha');
-  bt.disabled = true; st.innerHTML = '<span class="loader"></span> Preparando a planilha com os contatos de todos os clientes… (pode levar até 1 minuto)';
+  bt.disabled = true; st.innerHTML = '<span class="loader"></span> Preparando a planilha com os contatos de todos os clientes… (pode levar até 2 minutos na primeira vez)';
   try {
     const P = d.parametros;
     const payload = { modulo: 'clientes', loja: P.loja, meses: P.meses, sumidoDias: P.sumidoDias, exportar: true };
@@ -1705,7 +1706,7 @@ async function exportarClientes() {
     const nomeArq = `clientes-${String(loja).toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${new Date().toISOString().slice(0, 10)}.xlsx`;
     baixarXlsx(nomeArq, abas);
     const semTel = (e.todos || []).filter(c => !c.contato?.telefone).length;
-    st.textContent = `Planilha baixada: ${fmtNum((e.todos || []).length)} clientes${semTel ? ` (${fmtNum(semTel)} sem telefone no cadastro)` : ''}.`;
+    st.textContent = `Planilha baixada: ${fmtNum((e.todos || []).length)} clientes${semTel ? ` (${fmtNum(semTel)} sem telefone)` : ''}.${e.contatosFaltando ? ` Ainda faltou ler o cadastro de ${fmtNum(e.contatosFaltando)} — baixe de novo daqui a pouco que eles entram (o que já foi lido fica guardado).` : ''}`;
   } catch (er) { st.textContent = ''; $('erro-clientes').innerHTML = `<div class="panel err">Não deu para gerar a planilha: ${esc(er.message)}</div>`; }
   finally { bt.disabled = false; }
 }
