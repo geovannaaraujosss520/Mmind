@@ -711,7 +711,7 @@
     <header class="view-header">
       <h1>Comparativo de vendas</h1>
       <div class="sub">Dia a dia: o período escolhido contra o mês anterior e o ano anterior.</div>
-      <details class="como-funciona"><summary>Como funciona</summary><div>Cada dia do período é comparado com a mesma data do mês anterior e do ano anterior (dia 31 vira o último dia do mês; 29/02 vira 28/02). Em "Ano anterior por dia da semana", a comparação é com 364 dias antes — segunda com segunda, sábado com sábado. Faturamento = soma das vendas não canceladas; ticket médio = faturamento ÷ atendimentos (vendas); PA = peças ÷ atendimentos. O dia de hoje ainda está em andamento. Vendas antigas ficam guardadas, então a primeira consulta de um ano anterior pode demorar mais.</div></details>
+      <details class="como-funciona"><summary>Como funciona</summary><div>Cada dia do período é comparado com a mesma data do mês anterior e do ano anterior (dia 31 vira o último dia do mês; 29/02 vira 28/02). Em "Ano anterior por dia da semana", a comparação é com 364 dias antes — segunda com segunda, sábado com sábado. Faturamento bruto = valor das vendas não canceladas mais os descontos dados (preço cheio). Faturamento líquido = valor cobrado menos as devoluções e trocas de clientes. Atendimentos = número de vendas. Ticket médio = faturamento ÷ atendimentos (na base escolhida: líquido ou bruto); PA = peças ÷ atendimentos. O dia de hoje ainda está em andamento. Vendas antigas ficam guardadas, então a primeira consulta de um ano anterior pode demorar mais.</div></details>
     </header>
     <div class="panel">
       <div class="grid">
@@ -1179,7 +1179,11 @@ const CMP_CURTO = { atual: 'Atual', mesAnterior: 'Mês anterior', anoAnterior: '
 const CMP_TRACO = { atual: '', mesAnterior: '', anoAnterior: '6 4' };
 const CMP_METRICAS = { faturado: 'Faturamento', ticketMedio: 'Ticket médio', atendimentos: 'Atendimentos' };
 const DIA_SEM = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
-let _cmpDados = null, _cmpMetrica = 'faturado', _cmpModo = 'acumulado';
+let _cmpDados = null, _cmpMetrica = 'faturado', _cmpModo = 'acumulado', _cmpBase = 'liquido';
+// faturamento e ticket na base escolhida (líquido = cobrado − devoluções; bruto = cobrado + descontos)
+const _cmpFat = x => _cmpBase === 'bruto' ? (x.faturadoBruto ?? x.faturado) : (x.faturadoLiquido ?? x.faturado);
+const _cmpTicket = x => _cmpBase === 'bruto' ? (x.ticketBruto ?? x.ticketMedio) : (x.ticketLiquido ?? x.ticketMedio);
+const _cmpBaseNome = () => _cmpBase === 'bruto' ? 'bruto' : 'líquido';
 const _isoLocal = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const _dataBR = iso => iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : '—';
 
@@ -1247,9 +1251,11 @@ function desenharComparativo() {
   const T = d.totais, P = d.periodos;
   const faixa = p => p.de === p.ate ? _dataBR(p.de) : `${_dataBR(p.de).slice(0, 5)} a ${_dataBR(p.ate)}`;
   const fmtM = v => v == null ? '—' : fmtMoeda(v), fmtN = v => v == null ? '—' : fmtNum(v);
-  const card = (rot, k, fmt) => `<div class="kpi"><div class="label">${rot}</div><div class="value">${fmt(T.atual[k])}</div>
-    <div class="cmp-ref">${_cmpChave('mesAnterior')}Mês anterior <strong>${fmt(T.mesAnterior[k])}</strong> ${_cmpSeta(_cmpVar(T.atual[k], T.mesAnterior[k]))}</div>
-    <div class="cmp-ref">${_cmpChave('anoAnterior')}Ano anterior <strong>${fmt(T.anoAnterior[k])}</strong> ${_cmpSeta(_cmpVar(T.atual[k], T.anoAnterior[k]))}</div></div>`;
+  const val = (x, k) => typeof k === 'function' ? k(x) : x[k];
+  const card = (rot, k, fmt, extra = '') => `<div class="kpi"><div class="label">${rot}</div><div class="value">${fmt(val(T.atual, k))}</div>${extra}
+    <div class="cmp-ref">${_cmpChave('mesAnterior')}Mês anterior <strong>${fmt(val(T.mesAnterior, k))}</strong> ${_cmpSeta(_cmpVar(val(T.atual, k), val(T.mesAnterior, k)))}</div>
+    <div class="cmp-ref">${_cmpChave('anoAnterior')}Ano anterior <strong>${fmt(val(T.anoAnterior, k))}</strong> ${_cmpSeta(_cmpVar(val(T.atual, k), val(T.anoAnterior, k)))}</div></div>`;
+  const temNovo = T.atual.faturadoBruto != null;
   const lojasTxt = d.parametros.lojas.length === 1 ? d.parametros.lojas[0] : `${d.parametros.lojas.length} lojas`;
   const avisos = [
     d.pendentes?.length ? `Não deu tempo de ler ${d.pendentes.length} loja(s): ${d.pendentes.map(esc).join(', ')}. Clique em Comparar de novo — o que já foi lido fica guardado.` : '',
@@ -1264,14 +1270,17 @@ function desenharComparativo() {
       <span>${_cmpChave('mesAnterior')}Mês anterior ${faixa(P.mesAnterior)}</span>
       <span>${_cmpChave('anoAnterior')}Ano anterior ${faixa(P.anoAnterior)}${d.parametros.alinhamento === 'semana' ? ' (mesmo dia da semana)' : ''}</span>
     </div>
-    <div class="kpis k4 cmp-kpis">
-      ${card('Faturamento', 'faturado', fmtM)}
-      ${card('Ticket médio', 'ticketMedio', fmtM)}
+    <div class="kpis ${temNovo ? 'k5' : 'k4'} cmp-kpis">
+      ${temNovo ? card('Faturamento líquido', 'faturadoLiquido', fmtM, `<div class="hint">cobrado ${fmtM(T.atual.cobrado)} − devoluções ${fmtM(T.atual.devolucoes)}</div>`) : card('Faturamento', 'faturado', fmtM)}
+      ${temNovo ? card('Faturamento bruto', 'faturadoBruto', fmtM, `<div class="hint">cobrado + descontos ${fmtM(T.atual.descontos)}</div>`) : ''}
       ${card('Atendimentos', 'atendimentos', fmtN)}
+      ${card(`Ticket médio${temNovo ? ' (' + _cmpBaseNome() + ')' : ''}`, _cmpTicket, fmtM)}
       ${card('Peças por atendimento', 'pecasPorAtendimento', fmtN)}
     </div>
+    ${d.devolucoesIncompletas ? '<div class="sub" style="font-size:11.5px; color:var(--warn); max-width:none; margin:-4px 0 10px">Não deu tempo de ler todas as devoluções; o líquido pode estar um pouco acima do real. Clique em Comparar de novo.</div>' : ''}
     <div class="panel">
       <div class="cmp-controles">
+        ${temNovo ? `<div class="cmp-seg" id="cpv_base" title="Líquido = valor cobrado menos devoluções de clientes. Bruto = valor cobrado mais os descontos (preço cheio)."><button type="button" data-base="liquido" class="${_cmpBase === 'liquido' ? 'on' : ''}">Líquido</button><button type="button" data-base="bruto" class="${_cmpBase === 'bruto' ? 'on' : ''}">Bruto</button></div>` : ''}
         <div class="cmp-seg" id="cpv_metrica">${Object.entries(CMP_METRICAS).map(([k, v]) => `<button type="button" data-m="${k}" class="${k === _cmpMetrica ? 'on' : ''}">${v}</button>`).join('')}</div>
         <div class="cmp-seg" id="cpv_modo"><button type="button" data-modo="acumulado" class="${_cmpModo === 'acumulado' ? 'on' : ''}">Acumulado</button><button type="button" data-modo="dia" class="${_cmpModo === 'dia' ? 'on' : ''}">Por dia</button></div>
       </div>
@@ -1282,34 +1291,39 @@ function desenharComparativo() {
     <div class="panel" style="overflow-x:auto">${tabelaDiasComparativo(d)}</div>
     ${d.lojas.length > 1 ? `<div class="subsecao-titulo">Por loja</div><div class="panel" style="overflow-x:auto">${tabelaLojasComparativo(d)}</div>` : ''}`;
   box.querySelectorAll('#cpv_metrica button').forEach(b => b.addEventListener('click', () => { _cmpMetrica = b.dataset.m; box.querySelectorAll('#cpv_metrica button').forEach(x => x.classList.toggle('on', x === b)); graficoComparativo(); }));
+  box.querySelectorAll('#cpv_base button').forEach(b => b.addEventListener('click', () => { _cmpBase = b.dataset.base; desenharComparativo(); }));
   box.querySelectorAll('#cpv_modo button').forEach(b => b.addEventListener('click', () => { _cmpModo = b.dataset.modo; box.querySelectorAll('#cpv_modo button').forEach(x => x.classList.toggle('on', x === b)); graficoComparativo(); }));
   graficoComparativo();
 }
 
 function tabelaDiasComparativo(d) {
+  const tk = x => _cmpTicket(x) != null ? fmtMoeda(_cmpTicket(x)) : '—';
   const linha = (rot, A, M, Y, cls = '') => `<tr class="${cls}"><td class="prod-name" style="white-space:nowrap">${rot}</td>
-    <td class="num"><strong>${fmtMoeda(A.faturado)}</strong></td><td class="num">${A.ticketMedio != null ? fmtMoeda(A.ticketMedio) : '—'}</td><td class="num">${fmtNum(A.atendimentos)}</td>
-    <td class="num cmp-sep">${fmtMoeda(M.faturado)}</td><td class="num">${_cmpSeta(_cmpVar(A.faturado, M.faturado))}</td><td class="num">${M.ticketMedio != null ? fmtMoeda(M.ticketMedio) : '—'}</td>
-    <td class="num cmp-sep">${fmtMoeda(Y.faturado)}</td><td class="num">${_cmpSeta(_cmpVar(A.faturado, Y.faturado))}</td><td class="num">${Y.ticketMedio != null ? fmtMoeda(Y.ticketMedio) : '—'}</td></tr>`;
+    <td class="num"><strong>${fmtMoeda(_cmpFat(A))}</strong></td><td class="num">${fmtNum(A.atendimentos)}</td><td class="num">${tk(A)}</td>
+    <td class="num cmp-sep">${fmtMoeda(_cmpFat(M))}</td><td class="num">${_cmpSeta(_cmpVar(_cmpFat(A), _cmpFat(M)))}</td><td class="num">${fmtNum(M.atendimentos)}</td><td class="num">${tk(M)}</td>
+    <td class="num cmp-sep">${fmtMoeda(_cmpFat(Y))}</td><td class="num">${_cmpSeta(_cmpVar(_cmpFat(A), _cmpFat(Y)))}</td><td class="num">${fmtNum(Y.atendimentos)}</td><td class="num">${tk(Y)}</td></tr>`;
   const ref = (x, comSemana) => `<span style="color:var(--muted); font-size:11px">${dataCurta(x.dia)}${comSemana ? ' ' + DIA_SEM[x.diaSemana] : ''}</span>`;
   const T = d.totais;
   return `<table class="cmp-tabela"><thead>
-    <tr><th rowspan="2">Dia</th><th colspan="3" class="cmp-grupo">${_cmpChave('atual')}Atual</th><th colspan="3" class="cmp-grupo cmp-sep">${_cmpChave('mesAnterior')}Mês anterior</th><th colspan="3" class="cmp-grupo cmp-sep">${_cmpChave('anoAnterior')}Ano anterior</th></tr>
-    <tr><th class="num">Faturado</th><th class="num">Ticket</th><th class="num">Atend.</th><th class="num cmp-sep">Faturado</th><th class="num">Variação</th><th class="num">Ticket</th><th class="num cmp-sep">Faturado</th><th class="num">Variação</th><th class="num">Ticket</th></tr></thead><tbody>
+    <tr><th rowspan="2">Dia</th><th colspan="3" class="cmp-grupo">${_cmpChave('atual')}Atual</th><th colspan="4" class="cmp-grupo cmp-sep">${_cmpChave('mesAnterior')}Mês anterior</th><th colspan="4" class="cmp-grupo cmp-sep">${_cmpChave('anoAnterior')}Ano anterior</th></tr>
+    <tr><th class="num">Fat. ${_cmpBaseNome()}</th><th class="num">Atend.</th><th class="num">Ticket</th><th class="num cmp-sep">Fat. ${_cmpBaseNome()}</th><th class="num">Variação</th><th class="num">Atend.</th><th class="num">Ticket</th><th class="num cmp-sep">Fat. ${_cmpBaseNome()}</th><th class="num">Variação</th><th class="num">Atend.</th><th class="num">Ticket</th></tr></thead><tbody>
     ${d.dias.map(x => linha(`${dataCurta(x.dia)} <span style="color:var(--muted); font-size:11px">${DIA_SEM[x.diaSemana]}</span><br>${ref(x.mesAnterior)} · ${ref(x.anoAnterior, true)}`, x.atual, x.mesAnterior, x.anoAnterior, x.dia === d.parametros.hoje ? 'cmp-hoje' : '')).join('')}
     ${linha('<strong>Total do período</strong>', T.atual, T.mesAnterior, T.anoAnterior, 'cmp-total')}
   </tbody></table>
-  <div class="sub" style="font-size:11px; margin-top:8px; max-width:none">Abaixo de cada dia: a data usada no mês anterior · no ano anterior. Variação = faturado do dia atual contra o dia de referência.</div>`;
+  <div class="sub" style="font-size:11px; margin-top:8px; max-width:none">Abaixo de cada dia: a data usada no mês anterior · no ano anterior. Variação = faturamento ${_cmpBaseNome()} do dia atual contra o dia de referência. Use Líquido/Bruto acima do gráfico para trocar.</div>`;
 }
 
 function tabelaLojasComparativo(d) {
-  return `<table><thead><tr><th>Loja</th><th class="num">Faturado</th><th class="num">vs mês ant.</th><th class="num">vs ano ant.</th><th class="num">Ticket</th><th class="num">Ticket mês ant.</th><th class="num">Ticket ano ant.</th><th class="num">Atend.</th></tr></thead><tbody>
-    ${d.lojas.map(l => `<tr><td class="prod-name">${esc(l.loja)}</td><td class="num"><strong>${fmtMoeda(l.atual.faturado)}</strong></td>
-      <td class="num">${_cmpSeta(_cmpVar(l.atual.faturado, l.mesAnterior.faturado))}</td><td class="num">${_cmpSeta(_cmpVar(l.atual.faturado, l.anoAnterior.faturado))}</td>
-      <td class="num">${l.atual.ticketMedio != null ? fmtMoeda(l.atual.ticketMedio) : '—'}</td>
-      <td class="num">${l.mesAnterior.ticketMedio != null ? fmtMoeda(l.mesAnterior.ticketMedio) : '—'} ${_cmpSeta(_cmpVar(l.atual.ticketMedio, l.mesAnterior.ticketMedio))}</td>
-      <td class="num">${l.anoAnterior.ticketMedio != null ? fmtMoeda(l.anoAnterior.ticketMedio) : '—'} ${_cmpSeta(_cmpVar(l.atual.ticketMedio, l.anoAnterior.ticketMedio))}</td>
-      <td class="num">${fmtNum(l.atual.atendimentos)}</td></tr>`).join('')}
+  const tk = x => _cmpTicket(x) != null ? fmtMoeda(_cmpTicket(x)) : '—';
+  return `<table><thead><tr><th>Loja</th><th class="num">Fat. ${_cmpBaseNome()}</th><th class="num">vs mês ant.</th><th class="num">vs ano ant.</th><th class="num">Atend.</th><th class="num">Atend. mês ant.</th><th class="num">Atend. ano ant.</th><th class="num">Ticket</th><th class="num">Ticket mês ant.</th><th class="num">Ticket ano ant.</th></tr></thead><tbody>
+    ${d.lojas.map(l => `<tr><td class="prod-name">${esc(l.loja)}</td><td class="num"><strong>${fmtMoeda(_cmpFat(l.atual))}</strong></td>
+      <td class="num">${_cmpSeta(_cmpVar(_cmpFat(l.atual), _cmpFat(l.mesAnterior)))}</td><td class="num">${_cmpSeta(_cmpVar(_cmpFat(l.atual), _cmpFat(l.anoAnterior)))}</td>
+      <td class="num"><strong>${fmtNum(l.atual.atendimentos)}</strong></td>
+      <td class="num">${fmtNum(l.mesAnterior.atendimentos)} ${_cmpSeta(_cmpVar(l.atual.atendimentos, l.mesAnterior.atendimentos))}</td>
+      <td class="num">${fmtNum(l.anoAnterior.atendimentos)} ${_cmpSeta(_cmpVar(l.atual.atendimentos, l.anoAnterior.atendimentos))}</td>
+      <td class="num">${tk(l.atual)}</td>
+      <td class="num">${tk(l.mesAnterior)} ${_cmpSeta(_cmpVar(_cmpTicket(l.atual), _cmpTicket(l.mesAnterior)))}</td>
+      <td class="num">${tk(l.anoAnterior)} ${_cmpSeta(_cmpVar(_cmpTicket(l.atual), _cmpTicket(l.anoAnterior)))}</td></tr>`).join('')}
   </tbody></table>`;
 }
 
@@ -1317,8 +1331,8 @@ function cmpSerie(d, k) {
   let f = 0, a = 0;
   return d.dias.map(x => {
     const v = x[k];
-    if (_cmpModo === 'dia') return _cmpMetrica === 'ticketMedio' ? v.ticketMedio : v[_cmpMetrica];
-    f += v.faturado; a += v.atendimentos;
+    if (_cmpModo === 'dia') return _cmpMetrica === 'ticketMedio' ? _cmpTicket(v) : _cmpMetrica === 'faturado' ? _cmpFat(v) : v[_cmpMetrica];
+    f += _cmpFat(v); a += v.atendimentos;
     return _cmpMetrica === 'faturado' ? f : _cmpMetrica === 'atendimentos' ? a : (a ? f / a : null);
   });
 }

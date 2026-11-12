@@ -202,7 +202,7 @@ const SEP = '#loja=';
 const soDig = (s: unknown) => String(s ?? '').replace(/\D/g, '');
 const cnpjPorLoja = new Map<string, string>();
 const lojaPorChave = new Map<string, string>();
-const comFiltroEntidade = /\/(saidas|saldos-mercadorias|contas-pagar|contas-receber)(\?|$)/;
+const comFiltroEntidade = /\/(saidas|entradas|saldos-mercadorias|contas-pagar|contas-receber)(\?|$)/;
 
 // Recebe as linhas de lojas_config (nome, token, cnpj) e devolve { nome: chave }.
 export function registrarLojas(linhas: { nome: string; token: string | null; cnpj?: string | null }[]): Record<string, string> {
