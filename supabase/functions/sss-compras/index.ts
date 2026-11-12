@@ -2049,21 +2049,28 @@ async function cadastrosClientes(apiBase: string, chave: string, ids: string[], 
   }
   const falta = ids.filter((id) => !mapa.has(id));
   const { token } = abrirChave(chave);
-  const novos: any[] = []; let k = 0;
+  const novos: any[] = []; let k = 0; const diag: Record<string, number> = {}; const amostra: any[] = [];
   await Promise.all(Array.from({ length: 8 }, async () => {
     while (k < falta.length && Date.now() < prazo) {
       const id = falta[k++];
       try {
         const r = await fetch(`${apiBase}/terceiros/${encodeURIComponent(id)}?token=${token}`, { signal: AbortSignal.timeout(12000) });
-        const t: any = r.ok ? await r.json() : null;
+        diag[r.status] = (diag[r.status] ?? 0) + 1;
+        if (r.status === 429) { await new Promise((ok) => setTimeout(ok, 1500)); falta.push(id); continue; } // devagar e tenta de novo
+        if (!r.ok && r.status !== 404) continue; // erro passageiro: não guarda, tenta na próxima consulta
+        let t: any = r.ok ? await r.json() : null;
+        if (Array.isArray(t)) t = t[0] ?? null;
         const reg = { conta, cliente_id: id, ...(contatoDe(t) ?? { telefone: null, whatsapp: null, email: null, aniversario: null }), ...enderecoDe(t), encontrado: !!t, atualizado_em: new Date().toISOString() };
         mapa.set(id, reg); cacheCadastros.set(`${conta}|${id}`, reg); novos.push(reg);
-      } catch (_) { /* tenta na próxima consulta */ }
+        if (amostra.length < 2 && t) amostra.push({ chaves: Object.keys(t).slice(0, 40), enderecos: (t.enderecos ?? []).length });
+      } catch (e) { diag['erro'] = (diag['erro'] ?? 0) + 1; }
     }
   }));
   if (tabelaOk && novos.length) for (let i = 0; i < novos.length; i += 500) await sb().from('clientes_cadastro').upsert(novos.slice(i, i + 500), { onConflict: 'conta,cliente_id' });
+  ultimoDiagCadastro = { status: diag, amostra, tabelaOk };
   return { mapa, faltando: ids.filter((id) => !mapa.has(id)).length };
 }
+let ultimoDiagCadastro: any = null;
 const contatoDoCadastro = (r: any) => r && r.encontrado !== false ? { telefone: r.telefone ?? null, whatsapp: r.whatsapp ?? null, email: r.email ?? null, aniversario: r.aniversario ?? null } : null;
 
 function contatoDe(t: any) {
@@ -2185,7 +2192,7 @@ async function clientesLocalizacao(apiBase: string, chave: string, loja: string,
     cidades: [...porCidade.values()].sort((a, b) => b.clientes - a.clientes).slice(0, 15).map((x) => ({ ...x, fat: r2(x.fat) })),
     bairros: [...porBairro.values()].sort((a, b) => b.clientes - a.clientes).slice(0, 20).map((x) => ({ ...x, fat: r2(x.fat) })),
     loja: centro ? { lat: centro.lat, lng: centro.lng, bairro: (centro as any).bairro ?? null, cidade: (centro as any).cidade ?? null, estimado: centroEstimado } : null,
-    distancias, pontos: mapaPontos, cepsSemCoordenada: faltando, tabelaCepOk: tabelaOk,
+    distancias, pontos: mapaPontos, cepsSemCoordenada: faltando, tabelaCepOk: tabelaOk, diagCadastro: ultimoDiagCadastro,
   };
 }
 
