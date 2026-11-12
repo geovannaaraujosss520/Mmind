@@ -321,6 +321,8 @@
   .cli-chips button{ padding:5px 10px; font-size:12px; }
   .cli-local-grade{ display:grid; grid-template-columns:1fr 1.3fr; gap:24px; }
   @media (max-width: 900px){ .cli-local-grade{ grid-template-columns:1fr; } }
+  .cli-mapa-modo{ margin-bottom:8px; }
+  .cli-calor-escala{ display:inline-block; width:70px; height:8px; border-radius:4px; vertical-align:middle; margin-right:6px; background:linear-gradient(90deg, #FFE9A8, #FAA918, #E0601B, #961A1D); }
   .cli-mapa{ height:340px; border-radius:10px; border:1px solid var(--line); background:var(--panel-2); z-index:0; }
   .cli-resumo-local p{ margin:4px 0 8px; font-size:14.5px; line-height:1.5; }
   .cli-detalhes > summary{ cursor:pointer; font-weight:600; font-size:13.5px; }
@@ -1510,6 +1512,11 @@ function carregarLeaflet() {
   });
   return _leafletP;
 }
+function legendaMapaClientes() {
+  return _cliMapaModo === 'calor'
+    ? '<span class="cli-calor-escala" aria-hidden="true"></span> Quanto mais vermelho, mais clientes moram na região (pelo CEP, não o endereço exato). Anéis: 20 e 50 km da loja.'
+    : 'Cada círculo é uma região de CEP ou cidade (não o endereço exato); maior = mais clientes. Anéis: 20 e 50 km da loja.';
+}
 function conteudoOndeMoram(loja, meses) {
   const k = `${loja}|${meses}`, d = _cliLocal[k];
   if (!d) {
@@ -1548,7 +1555,8 @@ function conteudoOndeMoram(loja, meses) {
     <div class="cli-local-grade">
       <div><div class="cli-tit">De onde vêm os clientes</div>${barras}${barrasDentro}
         ${cf.length ? `<div class="cli-tit" style="margin-top:14px">Cidades de fora</div><table class="no-tools ini-prod-tab"><thead><tr><th>Cidade</th><th class="num">Clientes</th><th class="num">Distância</th></tr></thead><tbody>${cf.map(c => `<tr><td>${esc(c.cidade)}</td><td class="num">${fmtNum(c.clientes)}</td><td class="num">${km(c.km)} km</td></tr>`).join('')}</tbody></table>` : ''}</div>
-      <div><div id="cli_mapa" class="cli-mapa" role="img" aria-label="Mapa com a loja e de onde vêm os clientes"></div><div class="ini-prod-sub" style="margin-top:4px">Cada círculo é uma região de CEP ou cidade (não o endereço exato); maior = mais clientes. Anéis: 20 e 50 km da loja.</div></div>
+      <div><div class="cmp-seg cli-mapa-modo" id="cli_mapa_modo" hidden><button type="button" data-modo="calor">Mapa de calor</button><button type="button" data-modo="pontos">Pontos</button></div>
+        <div id="cli_mapa" class="cli-mapa" role="img" aria-label="Mapa com a loja e de onde vêm os clientes"></div><div class="ini-prod-sub" id="cli_mapa_legenda" style="margin-top:4px">${legendaMapaClientes()}</div></div>
     </div>
     <div class="cli-local-grade" style="margin-top:16px">
       <div><div class="cli-tit">Cidades</div><table class="no-tools ini-prod-tab"><thead><tr><th>Cidade</th><th class="num">Clientes</th><th class="num">%</th><th class="num">Gasto</th></tr></thead><tbody>${d.cidades.map(c => `<tr><td>${esc(c.cidade)}</td><td class="num">${fmtNum(c.clientes)}</td><td class="num">${pct(c.clientes, d.comEndereco - (d.comCepDaLoja || 0))}%</td><td class="num">${fmtMoeda(c.fat)}</td></tr>`).join('')}</tbody></table></div>
@@ -1556,7 +1564,17 @@ function conteudoOndeMoram(loja, meses) {
     </div>
     ${avisos.length ? `<div class="ini-prod-dica" style="margin-top:12px">${avisos.join('<br>')}</div>` : ''}`;
 }
-let _cliMapaObj = null;
+let _cliMapaObj = null, _cliMapaModo = 'calor', _heatP = null;
+// plugin de mapa de calor (Leaflet.heat); tenta jsDelivr e depois unpkg
+function carregarCalor() {
+  if (window.L && window.L.heatLayer) return Promise.resolve();
+  if (_heatP) return _heatP;
+  const tentar = src => new Promise((ok, falha) => { const js = document.createElement('script'); js.src = src; js.onload = ok; js.onerror = falha; document.head.appendChild(js); });
+  _heatP = tentar('https://cdn.jsdelivr.net/npm/leaflet.heat@0.2.0/dist/leaflet-heat.js')
+    .catch(() => tentar('https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js'))
+    .catch(e => { _heatP = null; throw e; });
+  return _heatP;
+}
 async function desenharMapaClientes(d) {
   const el = $('cli_mapa'); if (!el || !d.loja) { if (el) el.innerHTML = '<div class="empty">Sem localização para o mapa.</div>'; return; }
   let L; try { L = await carregarLeaflet(); } catch (e) { el.innerHTML = '<div class="empty">Não foi possível carregar o mapa agora.</div>'; return; }
@@ -1565,7 +1583,29 @@ async function desenharMapaClientes(d) {
   const m = _cliMapaObj = L.map(el, { scrollWheelZoom: false, attributionControl: true });
   L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 18, subdomains: 'abcd', referrerPolicy: 'strict-origin-when-cross-origin', attribution: '© OpenStreetMap · © CARTO' }).addTo(m);
   const c = [d.loja.lat, d.loja.lng], max = Math.max(1, ...d.pontos.map(p => p.n));
-  for (const p of d.pontos) L.circleMarker([p.lat, p.lng], { radius: 3 + 9 * Math.sqrt(p.n / max), color: '#961A1D', weight: 1, fillColor: '#961A1D', fillOpacity: .35 }).bindTooltip(`${p.n} cliente(s)`).addTo(m);
+  // duas camadas: pontos (círculos por região) e calor (concentração de clientes); o botão troca
+  const camadaPontos = L.layerGroup(d.pontos.map(p => L.circleMarker([p.lat, p.lng], { radius: 3 + 9 * Math.sqrt(p.n / max), color: '#961A1D', weight: 1, fillColor: '#961A1D', fillOpacity: .35 }).bindTooltip(`${p.n} cliente(s)`)));
+  let camadaCalor = null;
+  try {
+    await carregarCalor();
+    camadaCalor = L.heatLayer(d.pontos.map(p => [p.lat, p.lng, Math.sqrt(p.n)]), { radius: 26, blur: 22, maxZoom: 13, max: Math.sqrt(max) * 0.6, minOpacity: 0.25,
+      gradient: { 0.2: '#FFE9A8', 0.45: '#FAA918', 0.7: '#E0601B', 1: '#961A1D' } });
+  } catch (_) { /* sem o plugin: fica só com os pontos */ }
+  const usarCalor = _cliMapaModo === 'calor' && camadaCalor;
+  (usarCalor ? camadaCalor : camadaPontos).addTo(m);
+  const seg = $('cli_mapa_modo');
+  if (seg) {
+    seg.hidden = !camadaCalor;
+    seg.querySelectorAll('button').forEach(b => {
+      b.classList.toggle('on', b.dataset.modo === (usarCalor ? 'calor' : 'pontos'));
+      b.onclick = () => {
+        _cliMapaModo = b.dataset.modo;
+        seg.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+        if (_cliMapaModo === 'calor') { m.removeLayer(camadaPontos); camadaCalor.addTo(m); } else { m.removeLayer(camadaCalor); camadaPontos.addTo(m); }
+        const leg = $('cli_mapa_legenda'); if (leg) leg.innerHTML = legendaMapaClientes();
+      };
+    });
+  }
   L.circle(c, { radius: 20000, color: '#6E1416', weight: 1.5, dashArray: '4 4', fill: false }).bindTooltip('20 km da loja').addTo(m);
   const r50 = L.circle(c, { radius: 50000, color: '#B07800', weight: 1.5, fill: false }).bindTooltip('50 km da loja').addTo(m);
   m.fitBounds(r50.getBounds(), { padding: [10, 10] });
