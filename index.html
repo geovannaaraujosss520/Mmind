@@ -1536,6 +1536,7 @@ function conteudoOndeMoram(loja, meses) {
     d.semEndereco ? `${fmtNum(d.semEndereco)} clientes estão sem endereço no cadastro — completar o cadastro no caixa melhora este mapa.` : '',
     D && D.clientesComLocal < d.comEndereco ? `Distância calculada para ${fmtNum(D.clientesComLocal)} clientes (CEP localizado).${d.cepsSemCoordenada ? ' Os demais CEPs vão sendo localizados nas próximas consultas.' : ''}` : '',
     d.loja?.estimado ? 'O endereço da loja não foi encontrado pelo CNPJ: o centro do mapa é o ponto do meio dos clientes. Confira o CNPJ em Lojas.' : '',
+    d.comCepDaLoja ? `<strong>${fmtNum(d.comCepDaLoja)} clientes estão cadastrados com o endereço da própria loja</strong> (atalho no caixa) e ficaram fora do mapa — vale orientar a equipe a pedir o CEP do cliente.` : '',
     d.cepsGenericos ? `${fmtNum(d.cepsGenericos)} clientes têm só o CEP geral da cidade (terminado em 000) e ficaram fora da distância.` : '',
     d.tabelaCadastroOk === false ? 'Falta criar a tabela clientes_cadastro no Supabase: sem ela, os endereços são lidos de novo a cada consulta.' : '',
     d.tabelaCepOk === false ? 'Falta criar a tabela de CEPs no Supabase (migração cep_geo): sem ela, os CEPs são localizados de novo a cada consulta.' : '',

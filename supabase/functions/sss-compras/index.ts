@@ -2142,8 +2142,8 @@ async function localDaLoja(loja: string, apiBase?: string, chaveLoja?: string): 
   }
   if (cnpj.length !== 14) return null;
   const chave = 'CNPJ' + cnpj;
-  const { data: c } = await sb().from('cep_geo').select('lat, lng, bairro, cidade').eq('cep', chave).maybeSingle();
-  if (c?.lat != null) return { ...c, fonte: 'cadastro do CNPJ' };
+  const { data: c } = await sb().from('cep_geo').select('lat, lng, bairro, cidade, fonte').eq('cep', chave).maybeSingle();
+  if (c?.lat != null && String(c.fonte ?? '').includes('|')) return { ...c, cep: String(c.fonte).split('|')[1] || null }; // registro antigo sem o CEP: busca de novo
   try {
     const r = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`, { signal: AbortSignal.timeout(10000) });
     if (!r.ok) return null;
@@ -2151,9 +2151,9 @@ async function localDaLoja(loja: string, apiBase?: string, chaveLoja?: string): 
     if (cep.length !== 8) return null;
     const g = await geoDeCep(cep);
     if (g.lat == null) return null;
-    const reg = { cep: chave, lat: g.lat, lng: g.lng, bairro: j.bairro ?? g.bairro, cidade: j.municipio ?? g.cidade, uf: j.uf ?? g.uf, fonte: g.fonte, atualizado_em: new Date().toISOString() };
+    const reg = { cep: chave, lat: g.lat, lng: g.lng, bairro: j.bairro ?? g.bairro, cidade: j.municipio ?? g.cidade, uf: j.uf ?? g.uf, fonte: `${g.fonte}|${cep}`, atualizado_em: new Date().toISOString() };
     await sb().from('cep_geo').upsert(reg, { onConflict: 'cep' });
-    return { lat: reg.lat, lng: reg.lng, bairro: reg.bairro, cidade: reg.cidade, fonte: 'cadastro do CNPJ' };
+    return { lat: reg.lat, lng: reg.lng, bairro: reg.bairro, cidade: reg.cidade, cep };
   } catch (_) { return null; }
 }
 
@@ -2169,19 +2169,23 @@ async function clientesLocalizacao(apiBase: string, chave: string, loja: string,
   const fatDe = new Map(lista.map((c) => [c.id, c.fat]));
   const porCidade = new Map<string, { cidade: string; clientes: number; fat: number }>();
   const porBairro = new Map<string, { bairro: string; cidade: string; clientes: number; fat: number }>();
+  const lojaGeo = await localDaLoja(loja, apiBase, chave);
+  const lojaCepPre = lojaGeo?.cep ?? null;
   for (const [id, e] of end) {
+    if (lojaCepPre && e.cep === lojaCepPre) continue; // endereço da própria loja não conta como bairro do cliente
     if (e.cidade) { const k = norm(e.cidade) + '|' + e.uf; const x = porCidade.get(k) ?? { cidade: `${e.cidade}${e.uf ? ' - ' + e.uf : ''}`, clientes: 0, fat: 0 }; x.clientes++; x.fat += fatDe.get(id) ?? 0; porCidade.set(k, x); }
     if (e.bairro) { const k = norm(e.bairro) + '|' + norm(e.cidade); const x = porBairro.get(k) ?? { bairro: e.bairro, cidade: e.cidade, clientes: 0, fat: 0 }; x.clientes++; x.fat += fatDe.get(id) ?? 0; porBairro.set(k, x); }
   }
   // distância: coordenada do CEP de cada cliente até a loja
-  const lojaGeo = await localDaLoja(loja, apiBase, chave);
   const ceps = [...new Set([...end.values()].map((e) => e.cep).filter((c) => c.length === 8 && !/000$/.test(c)))];
   const { mapa, faltando, tabelaOk } = await coordenadasCeps(ceps, prazo);
   const pontos: { lat: number; lng: number; id: string }[] = [];
   // CEP genérico de cidade (termina em 000) cai no centro da cidade: não serve para distância
   const cepGenerico = (c: string) => /000$/.test(c);
-  let genericos = 0;
-  for (const [id, e] of end) { if (cepGenerico(e.cep)) { genericos++; continue; } const g = mapa.get(e.cep); if (g?.lat != null) pontos.push({ lat: g.lat, lng: g.lng, id }); }
+  // cliente cadastrado com o endereço da própria loja (atalho no caixa): não diz onde ele mora
+  const cepLoja = lojaGeo?.cep ?? null;
+  let genericos = 0, comCepDaLoja = 0;
+  for (const [id, e] of end) { if (cepGenerico(e.cep)) { genericos++; continue; } if (cepLoja && e.cep === cepLoja) { comCepDaLoja++; continue; } const g = mapa.get(e.cep); if (g?.lat != null) pontos.push({ lat: g.lat, lng: g.lng, id }); }
   let centro = lojaGeo, centroEstimado = false;
   if (!centro && pontos.length) { // sem endereço da loja: centro = mediana dos clientes
     const med = (v: number[]) => v.sort((a, b) => a - b)[Math.floor(v.length / 2)];
@@ -2205,7 +2209,7 @@ async function clientesLocalizacao(apiBase: string, chave: string, loja: string,
     cidades: [...porCidade.values()].sort((a, b) => b.clientes - a.clientes).slice(0, 15).map((x) => ({ ...x, fat: r2(x.fat) })),
     bairros: [...porBairro.values()].sort((a, b) => b.clientes - a.clientes).slice(0, 20).map((x) => ({ ...x, fat: r2(x.fat) })),
     loja: centro ? { lat: centro.lat, lng: centro.lng, bairro: (centro as any).bairro ?? null, cidade: (centro as any).cidade ?? null, estimado: centroEstimado } : null,
-    distancias, pontos: mapaPontos, cepsSemCoordenada: faltando, cepsGenericos: genericos, tabelaCepOk: tabelaOk, tabelaCadastroOk: ultimoDiagCadastro?.tabelaOk !== false,
+    distancias, pontos: mapaPontos, cepsSemCoordenada: faltando, cepsGenericos: genericos, comCepDaLoja, tabelaCepOk: tabelaOk, tabelaCadastroOk: ultimoDiagCadastro?.tabelaOk !== false,
   };
 }
 
