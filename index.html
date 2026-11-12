@@ -321,6 +321,17 @@
   .cli-chips button{ padding:5px 10px; font-size:12px; }
   .cli-detalhes > summary{ cursor:pointer; font-weight:600; font-size:13.5px; }
   .cli-tabela td{ white-space:normal; vertical-align:top; } .cli-tabela td.cli-motivo{ min-width:220px; max-width:300px; } .cli-tabela td.cli-ult{ min-width:170px; }
+  /* Início: produtos */
+  .ini-prod-topo{ display:flex; gap:8px; align-items:center; margin-bottom:12px; } .ini-prod-topo label{ margin:0; } .ini-prod-topo select{ max-width:280px; }
+  .ini-prod-grade{ display:grid; grid-template-columns:1fr 1fr; gap:24px; }
+  @media (max-width: 900px){ .ini-prod-grade{ grid-template-columns:1fr; } }
+  .ini-prod-tit{ font-size:14px; font-weight:650; margin-bottom:8px; } .ini-prod-tit span{ font-weight:400; color:var(--muted); font-size:12px; margin-left:6px; }
+  .ini-prod-tab{ width:100%; font-size:12.5px; } .ini-prod-tab td{ vertical-align:top; }
+  .ini-pos{ color:var(--muted); width:22px; font-variant-numeric:tabular-nums; }
+  .ini-prod-sub{ font-size:11px; color:var(--muted); }
+  .ini-prod-resumo{ font-size:12.5px; color:var(--muted); margin-bottom:8px; } .ini-prod-resumo strong{ color:var(--text); }
+  .ini-prod-dica{ font-size:11.5px; color:var(--muted); margin-top:8px; }
+  .ini-oferecer{ padding:4px 8px; font-size:11.5px; white-space:nowrap; }
   .ticket-ref{ font-size:11.5px; color:var(--muted); margin-top:3px; }
 
   @media (max-width: 900px){
@@ -990,6 +1001,70 @@ function desenharInicio() {
   desenharVisaoRede(d);
 }
 
+// ---- Início: top 10 produtos e oportunidades (parados há 90+ dias) ----
+let _prodIniSeq = 0; const _prodIniVoo = {}; // mesma consulta em andamento (o Início desenha 2x: guardado e atualizado)
+async function carregarProdutosInicio(loja, lojasRede) {
+  const ini = $('ini_conteudo'); if (!ini) return;
+  let box = $('ini_produtos');
+  if (!box) { ini.insertAdjacentHTML('beforeend', '<div class="subsecao-titulo">Produtos</div><div class="panel" id="ini_produtos"></div>'); box = $('ini_produtos'); }
+  const seq = ++_prodIniSeq;
+  const seletor = lojasRede ? `<div class="ini-prod-topo"><label for="ini_prod_loja">Ver</label><select id="ini_prod_loja"><option value="">Rede inteira</option>${lojasRede.map(n => `<option ${n === loja ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>` : '';
+  box.innerHTML = `${seletor}<div id="ini_prod_corpo"><span class="loader"></span> Carregando produtos…</div>`;
+  $('ini_prod_loja')?.addEventListener('change', e => carregarProdutosInicio(e.target.value, lojasRede));
+  const payload = { modulo: 'produtos', loja: loja || '' };
+  const ult = lerUltimo('produtos', payload);
+  if (ult) desenharProdutosInicio(ult.data, true);
+  try {
+    const k = payload.loja, v = _prodIniVoo[k];
+    if (!v || Date.now() - v.t > 60000) _prodIniVoo[k] = { t: Date.now(), p: chamarEdge(payload, EDGE_COMPRAS_URL) };
+    const d = await _prodIniVoo[k].p;
+    if (seq !== _prodIniSeq) return;
+    guardarUltimo('produtos', payload, d); desenharProdutosInicio(d);
+  } catch (e) { delete _prodIniVoo[payload.loja]; if (seq === _prodIniSeq && !ult) $('ini_prod_corpo').innerHTML = `<div class="empty">Não foi possível carregar os produtos agora: ${esc(e.message)}</div>`; }
+}
+
+function desenharProdutosInicio(d, antigo) {
+  const corpo = $('ini_prod_corpo'); if (!corpo) return;
+  const temLoja = !!d.parametros.loja;
+  const nome = t => _cliTitulo(t);
+  const top = d.top10.length ? `<table class="no-tools ini-prod-tab"><thead><tr><th>#</th><th>Produto</th><th class="num">Peças</th><th class="num" title="Peças vendidas nos últimos 30 dias contra os 30 dias anteriores">Tendência</th>${temLoja ? '<th class="num">Estoque</th>' : '<th class="num">Lojas</th>'}</tr></thead><tbody>
+      ${d.top10.map(p => {
+        const repor = temLoja && p.estoque != null && p.estoque < p.pecas / 2;
+        return `<tr><td class="ini-pos">${p.posicao}</td><td class="prod-name">${esc(nome(p.modelo))}${p.variacoes > 1 ? `<br><span class="ini-prod-sub">${p.variacoes} variações · ${fmtMoeda(p.precoMedio)}</span>` : `<br><span class="ini-prod-sub">${fmtMoeda(p.precoMedio)}</span>`}</td>
+        <td class="num"><strong>${fmtNum(p.pecas)}</strong></td><td class="num">${_cmpSeta(p.variacao)}</td>
+        ${temLoja ? `<td class="num">${fmtNum(p.estoque)}${repor ? '<br><span class="chip fail" title="Estoque menor que metade do que vendeu em 30 dias">repor</span>' : ''}</td>` : `<td class="num">${fmtNum(p.lojas)}</td>`}</tr>`;
+      }).join('')}</tbody></table>` : '<div class="empty">Sem vendas nos últimos 30 dias.</div>';
+  let opo;
+  if (!temLoja) opo = '<div class="empty">Escolha uma loja em <strong>Ver</strong> para ver os produtos parados no estoque dela.</div>';
+  else if (d.oportunidades == null) opo = `<div class="empty">Não foi possível ler o estoque agora${d.erroEstoque ? ': ' + esc(d.erroEstoque) : ''}.</div>`;
+  else if (!d.oportunidades.length) opo = '<div class="empty">Nenhum produto parado: tudo que tem estoque vendeu nos últimos 90 dias. 👏</div>';
+  else opo = `<div class="ini-prod-resumo"><strong>${fmtNum(d.totalParados)} produtos</strong> com estoque e sem venda há 90 dias ou mais · ${fmtNum(d.pecasParadas)} peças${d.valorParado ? ` · <strong>${fmtMoeda(d.valorParado)}</strong> de custo parado` : ''}</div>
+    <table class="no-tools ini-prod-tab"><thead><tr><th>Produto</th><th class="num">Estoque</th><th>Última venda</th><th class="num">Parado</th><th></th></tr></thead><tbody>
+    ${d.oportunidades.map(p => `<tr><td class="prod-name">${esc(nome(p.produto))}${p.codigo ? `<br><span class="ini-prod-sub">${esc(p.codigo)}</span>` : ''}</td>
+      <td class="num"><strong>${fmtNum(p.estoque)}</strong></td>
+      <td style="font-size:12px">${p.ultimaVenda ? `há ${_cliMeses(p.diasSemVender)}<br><span class="ini-prod-sub">${_cliData(p.ultimaVenda)}</span>` : '<span class="ini-prod-sub">sem venda em 12 meses</span>'}</td>
+      <td class="num">${p.valorParado != null ? fmtMoeda(p.valorParado) : '—'}${p.valorVendaParado != null ? `<br><span class="ini-prod-sub">vale ${fmtMoeda(p.valorVendaParado)}</span>` : ''}</td>
+      <td>${p.vendidos12m > 0 ? `<button type="button" class="secondary ini-oferecer" data-oferecer="${esc(p.produto)}" title="Ver clientes com perfil para essa peça">Para quem oferecer</button>` : ''}</td></tr>`).join('')}
+    </tbody></table>
+    <div class="ini-prod-dica">Ideias para girar: vitrine e exposição na frente da loja, kit com um campeão do top 10, ou oferecer para clientes com o perfil.</div>`;
+  corpo.innerHTML = `${antigo ? '<div class="ini-prod-sub" style="margin-bottom:6px"><span class="loader"></span> atualizando…</div>' : ''}
+    ${(d.erros || []).length ? `<div class="ini-prod-sub" style="color:var(--warn); margin-bottom:6px">${d.erros.map(e => esc(e.loja + ': ' + e.erro)).join('<br>')}</div>` : ''}
+    <div class="ini-prod-grade">
+      <div style="min-width:0"><div class="ini-prod-tit">Top 10 mais vendidos <span>últimos 30 dias${temLoja ? '' : ` · ${d.parametros.lojas} lojas`}</span></div><div style="overflow-x:auto">${top}</div></div>
+      <div style="min-width:0"><div class="ini-prod-tit">Oportunidades <span>parados há 90+ dias</span></div><div style="overflow-x:auto">${opo}</div></div>
+    </div>`;
+  corpo.querySelectorAll('[data-oferecer]').forEach(b => b.addEventListener('click', () => irParaOferecer(d.parametros.loja, b.dataset.oferecer)));
+}
+
+// abre Clientes > Oferecer uma peça já com a loja e o produto (modelo, sem a cor)
+async function irParaOferecer(loja, produto) {
+  document.querySelector('.nav-item[data-view="clientes"]')?.click();
+  await carregarLojasClientes();
+  const sel = $('cli_loja');
+  if ([...sel.options].some(o => o.value === loja)) sel.value = loja;
+  rodarClientes(String(produto).split(/\s+-\s+/)[0]);
+}
+
 function desenharVisaoRede(d) {
   $('ini_titulo').textContent = 'Visão da rede';
   $('ini_sub').textContent = `${['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'][d.mes - 1]} · dia ${d.dia} de ${d.diasNoMes}`;
@@ -1030,6 +1105,7 @@ function desenharVisaoRede(d) {
       <div class="sub" style="font-size:11px; margin-top:8px; max-width:none">Ticket "ant." = ticket médio do mesmo período do mês anterior (dia 1 até o dia de hoje). Projeção = média dos dias fechados × dias do mês (hoje ainda em andamento fica fora). Falta por dia = quanto falta para a meta ÷ dias restantes, contando hoje. Compras na Central = pedidos não cancelados criados no mês.</div>
     </div>`;
   ligarIrPara($('ini_conteudo'), '');
+  carregarProdutosInicio('', (d.lojas || []).map(l => l.loja));
 }
 
 async function desenharMinhaLoja(d) {
@@ -1074,6 +1150,7 @@ async function desenharMinhaLoja(d) {
       <button class="secondary" data-ir="financeiro">Ver financeiro</button>
     </div>`;
   ligarIrPara($('ini_conteudo'), l.loja);
+  carregarProdutosInicio(l.loja);
   // o que comprar: itens zerados e em risco (Compra Recorrente da loja)
   try {
     const r = await chamarEdge({ modulo: 'recorrente', lojas: [l.loja], diasHistorico: 60, diasPeriodoAlvo: 30 }, EDGE_COMPRAS_URL);
