@@ -3,7 +3,7 @@
 // HTML: rede primeiro (pega sempre a versão nova do painel), cache só se estiver offline.
 // Ícones/manifest: cache primeiro.
 
-const CACHE_NAME = "insight-sss-v5";
+const CACHE_NAME = "insight-sss-v6";
 const ARQUIVOS_CASCO = [
   "./index.html",
   "./manifest.json",
@@ -33,7 +33,7 @@ self.addEventListener("fetch", (event) => {
   const ehPagina = event.request.mode === "navigate" || url.pathname.endsWith(".html");
   if (ehPagina) {
     event.respondWith(
-      fetch(event.request)
+      fetch(event.request, { cache: "no-store" }) // ignora o cache do navegador: sempre a versão publicada
         .then((resp) => {
           const copia = resp.clone();
           caches.open(CACHE_NAME).then((c) => c.put(event.request, copia));
@@ -43,5 +43,7 @@ self.addEventListener("fetch", (event) => {
     );
     return;
   }
+  // Só arquivos do próprio painel (ícones, manifest) vêm do cache; mapas e bibliotecas de fora vão direto à rede.
+  if (url.origin !== self.location.origin) return;
   event.respondWith(caches.match(event.request).then((cached) => cached || fetch(event.request)));
 });
