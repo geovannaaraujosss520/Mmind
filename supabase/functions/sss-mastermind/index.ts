@@ -79,11 +79,23 @@ async function freioTentativa(req: Request) {
   errosPorIp.set(ip, { n, ate: agora }); if (errosPorIp.size > 5000) errosPorIp.clear();
   await new Promise((ok) => setTimeout(ok, Math.min(8000, 400 * n)));
 }
+// O login vale 24 h: o token do Supabase traz em "amr" a hora em que a pessoa digitou a senha
+// (a renovação automática do token não muda essa hora).
+const LOGIN_VALIDADE_MS = 24 * 3600_000;
+function loginVencido(jwt: string): boolean {
+  try {
+    const b64 = jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const p = JSON.parse(atob(b64 + '='.repeat((4 - b64.length % 4) % 4)));
+    const ts = Math.max(0, ...(Array.isArray(p.amr) ? p.amr : []).map((x: any) => Number(x?.timestamp) || 0));
+    return ts > 0 && Date.now() - ts * 1000 > LOGIN_VALIDADE_MS;
+  } catch (_) { return false; }
+}
 async function obterAcesso(req: Request): Promise<Acesso> {
   const auth = req.headers.get('authorization') ?? '';
   const jwt = /^bearer /i.test(auth) ? auth.slice(7).trim() : '';
   const chavesPublicas = [Deno.env.get('SUPABASE_ANON_KEY'), Deno.env.get('SUPABASE_PUBLISHABLE_KEY')].filter(Boolean);
   if (jwt && !chavesPublicas.includes(jwt)) {
+    if (loginVencido(jwt)) throw new ErroAcesso('Sua sessão terminou: o acesso vale por 24 horas. Entre de novo.', 401);
     const c = cacheAcesso.get(jwt);
     if (c && Date.now() - c.quando < 60000) return c.acesso;
     const adm = clienteAcesso();
