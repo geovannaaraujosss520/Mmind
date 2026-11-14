@@ -1760,7 +1760,7 @@ function comparaRedePrazo(R) {
     <div class="cli-rede-nums">
       <div><span>Sua loja</span><b>${R.prazoIdealDias} dias</b></div>
       <div><span>Média da rede</span><b>${r.prazoMedioDias} dias</b></div>
-      <div><span>Posição</span><b>${r.posicao ? `${r.posicao}ª de ${r.lojas}` : '—'}</b></div>
+      ${r.posicao && _papelAtual !== 'franqueado' ? `<div><span>Posição</span><b>${r.posicao}ª de ${r.lojas}</b></div>` : ''}
       <span class="cli-st" style="border-color:${cor}; color:${cor}; align-self:center">${rot}</span>
     </div>
     <p>${dif === 0 ? 'Mesmo prazo da rede' : `${Math.abs(dif)} ${Math.abs(dif) === 1 ? 'dia' : 'dias'} ${dif < 0 ? 'a menos' : 'a mais'} que a rede`}: ${txt}</p>

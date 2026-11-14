@@ -2426,6 +2426,8 @@ async function moduloClientes(body: any, a: Acesso) {
   }
   if (body.soIndicadores) return { loja, prazoDias: mediana != null ? prazoLoja : null, noPrazoPct, clientes: lista.length };
   const rede = await referenciaRedeClientes(loja, mediana != null ? prazoLoja : null);
+  // posição entre as lojas: só para a franqueadora (admin/equipe); o franqueado vê a média e a situação
+  if (rede && a.papel === 'franqueado') { rede.posicao = null; (rede as any).lojas = null; }
   // voltou em até 90 dias: entre quem fez a 1ª compra do período há mais de 90 dias (e depois do 1º mês, para não pegar quem já era cliente antes)
   const corteIni = new Date(ini); corteIni.setMonth(corteIni.getMonth() + 1);
   const corteIniIso = `${corteIni.getFullYear()}-${String(corteIni.getMonth() + 1).padStart(2, '0')}-${String(corteIni.getDate()).padStart(2, '0')}`;
