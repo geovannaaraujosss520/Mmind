@@ -98,3 +98,9 @@ Brasília, Goiânia e Ribeirão têm 2 unidades usando o mesmo token da VarejOnl
 - **Situação**: em dia (< 80% do prazo), hora de chamar (80% a 130%), passou do prazo (> 130%), sumiu (> dias de "sumido"). Dentro do prazo = em dia + hora de chamar; ≥ 50% perto do ideal, 30–49% dá para melhorar, < 30% longe.
 - Nova aba **Hora de chamar** (hora + passou do prazo, até 300) e colunas "Volta ideal" e "Prazo de volta" na planilha.
 - **Ação comercial**: meses de alta (≥ 115 do mês médio) e de baixa (≤ 85), com ações para cada um, o que mais vendeu no próximo mês de alta e quem comprou nesse mês. Precisa de 12 meses de vendas da loja (Ajustes em 12 ou 24 meses).
+
+### Média da rede do prazo de volta
+
+- Tabela `clientes_indicadores` (migração 20261114000002): prazo de volta, % dentro do prazo e recompra de cada loja, sempre na régua padrão (12 meses, sumido = 90 dias, loja com 30+ clientes identificados).
+- Preenchida quando alguém abre Clientes com a régua padrão e pelo aquecimento diário (`{"clientesRede":true}`, passo novo em aquecer-cache.yml), que recalcula as lojas com mais de 20 h.
+- Média da rede = média dos prazos das lojas atualizadas nos últimos 10 dias (precisa de 3+ outras lojas). Situação: até 90% da média = melhor que a rede; até 115% = na média; acima = longe da rede. Posição 1 = loja onde o cliente volta mais rápido.
