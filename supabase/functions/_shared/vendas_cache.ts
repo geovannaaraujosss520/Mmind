@@ -1,8 +1,9 @@
 // Insight SSS · cache das vendas (saídas) da VarejOnline por loja e dia — usado pelas duas Edge Functions.
 //
-// Dia fechado (anteontem para trás) não muda: fica guardado em vendas_cache_dias e não é baixado de novo.
-// Ontem e hoje são sempre lidos ao vivo. Dias dos últimos 7 dias guardados há mais de 6 h são relidos
-// (cancelamentos e ajustes tardios). Sem a tabela (SQL não rodado), tudo continua ao vivo como antes.
+// Todo dia lido da VarejOnline fica guardado em vendas_cache_dias e vale por um tempo que depende da idade do dia:
+//   hoje: 5 min · ontem: 1 h · últimos 7 dias: 6 h (cancelamentos e ajustes tardios) · mais antigos: para sempre.
+// Assim várias telas/pessoas abertas no mesmo intervalo não repetem as mesmas consultas à VarejOnline.
+// Sem a tabela (SQL não rodado), tudo continua ao vivo como antes.
 
 export type BuscarPaginas = (url: string, token: string, onPage: (pg: any[]) => void) => Promise<unknown>;
 
@@ -109,8 +110,8 @@ export async function saidasComCache(o: Opcoes): Promise<boolean> {
     return out;
   };
 
-  const limiteFechado = maisDias(hojeBrasil(), -1); // ontem: daqui para frente é sempre ao vivo
-  const fimFechado = fim < limiteFechado ? fim : maisDias(limiteFechado, -1);
+  const hojeD = hojeBrasil(), ontemD = maisDias(hojeD, -1);
+  const fimFechado = fim < hojeD ? fim : hojeD; // o cache agora cobre até hoje (com validade curta)
   const usarCache = !!o.loja && tabelaOk !== false && ini <= fimFechado;
   // Loja que divide o token: os dias só valem se foram guardados já separados por unidade (mesmo escopo).
   const escopo = usarCache ? await escopoDaChave(o.apiBase, o.token) : '';
@@ -119,7 +120,8 @@ export async function saidasComCache(o: Opcoes): Promise<boolean> {
   if (usarCache) {
     const t0 = Date.now();
     const doCache = new Map<string, any[]>();
-    const recente = maisDias(hojeBrasil(), -7), velho = new Date(Date.now() - 6 * 3600_000).toISOString();
+    const recente = maisDias(hojeD, -7), agoraMs = Date.now();
+    const validadeMs = (dia: string) => dia >= hojeD ? 5 * 60_000 : dia === ontemD ? 60 * 60_000 : dia >= recente ? 6 * 3600_000 : Infinity;
     try {
       for (let a = ini; a <= fimFechado; a = maisDias(a, 31)) {
         const b = maisDias(a, 30) < fimFechado ? maisDias(a, 30) : fimFechado;
@@ -128,7 +130,7 @@ export async function saidasComCache(o: Opcoes): Promise<boolean> {
         tabelaOk = true;
         for (const row of r.data ?? []) {
           const dia = String(row.dia).slice(0, 10);
-          if (dia >= recente && String(row.atualizado_em) < velho) continue; // recente e antigo: relê
+          if (agoraMs - Date.parse(String(row.atualizado_em)) > validadeMs(dia)) continue; // passou da validade: relê
           if (String((o.soAquecer ? row.e : row.saidas?.e) ?? '') !== escopo) continue; // guardado com outro escopo (ex.: unidades juntas): relê
           doCache.set(dia, o.soAquecer ? [] : desempacotar(row.saidas));
         }
@@ -166,8 +168,8 @@ export async function saidasComCache(o: Opcoes): Promise<boolean> {
     }
   }
 
-  // 2) Ontem e hoje (ou tudo, sem cache): ao vivo
-  const inicioVivo = usarCache && tabelaOk ? (fimFechado < ini ? ini : maisDias(fimFechado, 1)) : ini;
+  // 2) Sem cache (sem a tabela ou sem loja): tudo ao vivo
+  const inicioVivo = usarCache && tabelaOk ? maisDias(fim, 1) : ini;
   if (inicioVivo <= fim && !o.prazo) {
     let dias = 0; for (let d = inicioVivo; d <= fim; d = maisDias(d, 1)) dias++;
     medicao.cache.diasAoVivo += dias;

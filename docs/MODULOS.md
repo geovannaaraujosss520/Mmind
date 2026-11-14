@@ -34,6 +34,12 @@ Status: Confirmado · Por código · Conferir · Sem vínculo · Fora da Central
 - Franqueadora: Visão da rede — faturado no mês, % da meta, projeção, compras na Central, alertas (abaixo do ritmo, sem comprar há 21+ dias, pedidos a enviar, franqueado sem entrar há 7+ dias) e tabela por loja com último acesso.
 - Franqueado: Minha loja — barra da meta, falta por dia, ontem, ticket, PA, última compra, produtos zerados (R$/dia), o que comprar e atalhos.
 
+## Início — Vendido hoje e meta do dia
+No topo do Início (loja e rede): **vendido hoje** com atendimentos; **ano passado** no mesmo dia da semana (364 dias antes), até o mesmo horário e no dia inteiro, com a variação; e a **faixa da meta de hoje** = o que falta da meta do mês até ontem ÷ dias de venda que sobram no mês, contando hoje. Dias de venda = segunda a sábado; marcando **Considerar domingo** ao salvar a meta (Financeiro), o domingo entra para aquela loja/mês (coluna `considerar_domingo` em `metas_faturamento`). Domingo sem a opção mostra "não entra na meta". Projeção e "falta por dia" seguem a mesma regra. Na rede, a meta do dia soma as lojas com meta e compara com o vendido nelas.
+
+## Velocidade
+Todo dia de vendas lido da VarejOnline fica em `vendas_cache_dias` com validade pela idade: hoje 5 min, ontem 1 h, últimos 7 dias 6 h, mais antigos para sempre. O workflow **Aquecer vendas de hoje** roda a cada 15 min das 8h às 22h45 (Brasília) e deixa ontem/hoje de todas as lojas prontos; o **Aquecer cache do Insight** (5h17) guarda 400 dias.
+
 ## Início — Produtos
 Quadro no Início (franqueado: a própria loja; franqueadora: rede inteira ou uma loja em "Ver"). **Top 10 mais vendidos** nos últimos 30 dias por modelo (variações somadas), com tendência contra os 30 dias anteriores e, na loja, o estoque atual (aviso "repor" quando o estoque é menor que metade do vendido em 30 dias). **Oportunidades**: produtos com estoque na loja e nenhuma venda há 90 dias ou mais, ordenados pelo custo parado (custo médio das vendas de 12 meses; se nunca vendeu, custo referencial do cadastro), com última venda, valor de venda e atalho "Para quem oferecer" (abre Clientes). Módulo `produtos` da sss-compras.
 

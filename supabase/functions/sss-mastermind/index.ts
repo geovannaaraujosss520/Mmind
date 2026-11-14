@@ -763,9 +763,15 @@ async function moduloMetas(body: any) {
     if (!loja || !ano || !mes || Number.isNaN(meta)) {
       throw new Error("Para salvar uma meta, informe loja, ano, mes e meta.");
     }
-    const { error } = await supabase
-      .from("metas_faturamento")
-      .upsert({ loja, ano, mes, meta, atualizado_em: new Date().toISOString() }, { onConflict: "loja,ano,mes" });
+    const linha: any = { loja, ano, mes, meta, atualizado_em: new Date().toISOString() };
+    // "considerar domingo" na meta do dia (padrão: segunda a sábado)
+    if (body.considerarDomingo !== undefined) linha.considerar_domingo = !!body.considerarDomingo;
+    let { error } = await supabase.from("metas_faturamento").upsert(linha, { onConflict: "loja,ano,mes" });
+    if (error && linha.considerar_domingo !== undefined && /considerar_domingo/.test(error.message)) {
+      delete linha.considerar_domingo; // coluna ainda não criada no banco: salva só a meta
+      ({ error } = await supabase.from("metas_faturamento").upsert(linha, { onConflict: "loja,ano,mes" }));
+      if (!error) return { ok: true, avisoDomingo: "Meta salva. Para guardar a opção de domingo, rode o SQL da coluna considerar_domingo no Supabase." };
+    }
     if (error) throw new Error(`Erro ao salvar meta: ${error.message}`);
     return { ok: true };
   }
@@ -773,10 +779,9 @@ async function moduloMetas(body: any) {
   // acao === "listar"
   const ano = body.ano ? Number(body.ano) : null;
   const mes = body.mes ? Number(body.mes) : null;
-  let query = supabase.from("metas_faturamento").select("loja, ano, mes, meta");
-  if (ano) query = query.eq("ano", ano);
-  if (mes) query = query.eq("mes", mes);
-  const { data, error } = await query;
+  const consultar = (campos: string) => { let q = supabase.from("metas_faturamento").select(campos); if (ano) q = q.eq("ano", ano); if (mes) q = q.eq("mes", mes); return q; };
+  let { data, error } = await consultar("loja, ano, mes, meta, considerar_domingo");
+  if (error) ({ data, error } = await consultar("loja, ano, mes, meta")); // sem a coluna nova
   if (error) throw new Error(`Erro ao listar metas: ${error.message}`);
   return { metas: data ?? [] };
 }

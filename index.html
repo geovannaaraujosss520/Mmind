@@ -338,6 +338,18 @@
   .ini-prod-resumo{ font-size:12.5px; color:var(--muted); margin-bottom:8px; } .ini-prod-resumo strong{ color:var(--text); }
   .ini-prod-dica{ font-size:11.5px; color:var(--muted); margin-top:8px; }
   .ini-oferecer{ padding:4px 8px; font-size:11.5px; white-space:nowrap; }
+  /* Início: vendido hoje + meta do dia */
+  .ini-hoje{ padding:18px 20px; }
+  .ini-hoje-rot{ font-size:13px; color:var(--muted); }
+  .ini-hoje-valor{ font-size:34px; font-weight:700; color:var(--accent-deep); line-height:1.15; margin-top:2px; font-variant-numeric:tabular-nums; }
+  .ini-hoje-sub{ font-size:12.5px; color:var(--muted); }
+  .ini-hoje-aa{ font-size:13px; margin-top:8px; color:var(--muted); } .ini-hoje-aa strong{ color:var(--text); }
+  .ini-meta-dia{ margin-top:14px; padding:12px 14px; border-radius:10px; background:var(--panel-2); border:1px solid var(--line); }
+  .ini-meta-dia.vazio{ font-size:13px; color:var(--muted); }
+  .ini-meta-dia-topo{ display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; font-size:14px; }
+  .ini-meta-dia-barra{ height:12px; background:var(--panel); border:1px solid var(--line); border-radius:8px; overflow:hidden; margin-top:8px; }
+  .ini-meta-dia-barra > div{ height:100%; border-radius:8px; }
+  .ini-meta-dia-nota{ font-size:11.5px; color:var(--muted); margin-top:6px; }
   .ticket-ref{ font-size:11.5px; color:var(--muted); margin-top:3px; }
 
   @media (max-width: 900px){
@@ -1070,6 +1082,36 @@ async function irParaOferecer(loja, produto) {
   rodarClientes(String(produto).split(/\s+-\s+/)[0]);
 }
 
+// ---- Início: vendido hoje, referência do ano anterior (mesmo dia da semana) e faixa da meta do dia ----
+function painelHoje(x, d, rede) {
+  const DS = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
+  const dAA = d.diaAnoAnterior ? new Date(d.diaAnoAnterior + 'T12:00:00') : null;
+  const rotAA = dAA ? `${DS[dAA.getDay()].slice(0, 3)}, ${dataCurta(d.diaAnoAnterior)}/${d.diaAnoAnterior.slice(0, 4)}` : '';
+  const temAA = x.anoAnteriorDia != null && d.diaAnoAnterior;
+  const aa = temAA ? `<div class="ini-hoje-aa">No ano passado (${rotAA}): <strong>${fmtMoeda(x.anoAnteriorAteAgora)}</strong> até ${d.horaAgora || 'esta hora'} ${_cmpSeta(_cmpVar(x.faturadoHoje, x.anoAnteriorAteAgora))} · ${fmtMoeda(x.anoAnteriorDia)} no dia inteiro</div>` : '';
+  let faixa;
+  if (!x.meta) faixa = `<div class="ini-meta-dia vazio">${rede ? 'Cadastre as metas das lojas' : 'Cadastre a meta do mês'} em Financeiro para ver a meta de hoje.</div>`;
+  else if (!rede && x.hojeContaNaMeta === false) faixa = `<div class="ini-meta-dia vazio">Hoje é domingo e não entra na meta. Se a loja vende aos domingos, marque <strong>Considerar domingo</strong> ao salvar a meta em Financeiro.</div>`;
+  else {
+    // na rede, a meta do dia compara só com o vendido hoje pelas lojas que têm meta
+    const vend = rede && x.faturadoHojeComMeta != null ? x.faturadoHojeComMeta : x.faturadoHoje;
+    const mh = x.metaHoje || 0, pct = mh ? vend / mh * 100 : 0, batida = mh > 0 && vend >= mh;
+    const cor = batida ? 'var(--good)' : pct >= 60 ? 'var(--warn)' : 'var(--accent)';
+    faixa = `<div class="ini-meta-dia">
+      <div class="ini-meta-dia-topo"><span>Meta de hoje <strong>${fmtMoeda(mh)}</strong></span><span style="color:${cor}; font-weight:650">${batida ? 'Meta do dia batida ✓' : `faltam ${fmtMoeda(Math.max(0, mh - vend))}`}</span></div>
+      <div class="ini-meta-dia-barra" role="progressbar" aria-valuenow="${Math.round(pct)}" aria-valuemin="0" aria-valuemax="100" aria-label="Meta de hoje"><div style="width:${Math.min(100, pct).toFixed(1)}%; background:${cor}"></div></div>
+      <div class="ini-meta-dia-nota">${fmtPct(Math.min(999, pct), 0)} da meta de hoje · o que falta da meta do mês ÷ ${rede ? `dias de venda que faltam, somando as ${x.lojasComMeta ?? ''} loja(s) com meta (vendido nelas hoje: ${fmtMoeda(vend)})` : `${x.diasDeVendaRestantes} dia(s) de venda que faltam, contando hoje (${x.considerarDomingo ? 'segunda a domingo' : 'segunda a sábado'})`}</div>
+    </div>`;
+  }
+  return `<div class="panel ini-hoje">
+    <div class="ini-hoje-rot">Vendido hoje${rede ? ' — rede' : ''}</div>
+    <div class="valor-destaque ini-hoje-valor">${fmtMoeda(x.faturadoHoje)}</div>
+    <div class="ini-hoje-sub">${fmtNum(x.atendimentosHoje || 0)} atendimento(s) até ${d.horaAgora || 'agora'}</div>
+    ${aa}
+    ${faixa}
+  </div>`;
+}
+
 function desenharVisaoRede(d) {
   $('ini_titulo').textContent = 'Visão da rede';
   $('ini_sub').textContent = `${['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'][d.mes - 1]} · dia ${d.dia} de ${d.diasNoMes}`;
@@ -1083,6 +1125,7 @@ function desenharVisaoRede(d) {
   const kpi = (lab, val, hint, cor) => `<div class="kpi"><div class="label">${lab}</div><div class="value" style="${cor ? 'color:' + cor : ''}">${val}</div><div class="hint">${hint}</div></div>`;
   const alerta = (sev, tit, det, lista) => lista.length ? `<div class="acao ${sev}"><div class="sev ${sev}">${sev === 'critico' ? 'Crítico' : 'Atenção'}</div><div><div class="tit">${tit}</div><div class="det">${det}</div></div><div class="imp">${lista.length}<small>loja(s)</small></div></div>` : '';
   $('ini_conteudo').innerHTML = `
+    ${R.faturadoHoje != null && R.metaHoje !== undefined ? painelHoje(R, d, true) : ''}
     <div class="kpis k5">
       ${kpi('Faturado no mês — rede', fmtMoeda(R.faturadoMes), `ontem ${fmtMoeda(R.faturadoOntem)} · hoje ${fmtMoeda(R.faturadoHoje)}`)}
       ${kpi('Meta da rede', R.percentMeta != null ? fmtPct(R.percentMeta, 0) : '—', R.meta ? `de ${fmtMoeda(R.meta)}${semMeta ? ` · ${semMeta} loja(s) sem meta` : ''}` : 'cadastre as metas no Financeiro', corPct(R.meta ? R.projecao / R.meta * 100 : null))}
@@ -1107,7 +1150,7 @@ function desenharVisaoRede(d) {
         <td class="num">${l.pedidosInsightPendentes ? `<strong style="color:var(--warn)">${l.pedidosInsightPendentes}</strong>` : '—'}</td>
         <td class="prod-name" style="font-size:12px">${(l.franqueados || []).length ? `${esc(l.franqueados.join(', '))}<br><span style="color:${!l.ultimoAcesso || Date.now() - Date.parse(l.ultimoAcesso) > 7 * 864e5 ? 'var(--warn)' : 'var(--muted)'}">${haQuanto(l.ultimoAcesso)}</span>` : '<span style="color:var(--muted)">sem login de franqueado</span>'}</td></tr>`).join('')}
       </tbody></table>
-      <div class="sub" style="font-size:11px; margin-top:8px; max-width:none">Ticket "ant." = ticket médio do mesmo período do mês anterior (dia 1 até o dia de hoje). Projeção = média dos dias fechados × dias do mês (hoje ainda em andamento fica fora). Falta por dia = quanto falta para a meta ÷ dias restantes, contando hoje. Compras na Central = pedidos não cancelados criados no mês.</div>
+      <div class="sub" style="font-size:11px; margin-top:8px; max-width:none">Ticket "ant." = ticket médio do mesmo período do mês anterior (dia 1 até o dia de hoje). Projeção = média por dia de venda já fechado × dias de venda do mês. Falta por dia = quanto falta para a meta (até ontem) ÷ dias de venda que sobram, contando hoje. Dias de venda = segunda a sábado (com domingo nas lojas marcadas em Financeiro). Compras na Central = pedidos não cancelados criados no mês.</div>
     </div>`;
   ligarIrPara($('ini_conteudo'), '');
   carregarProdutosInicio('', (d.lojas || []).map(l => l.loja));
@@ -1127,11 +1170,12 @@ async function desenharMinhaLoja(d) {
   if (l.erro) { $('ini_conteudo').innerHTML = `<div class="panel err">${esc(l.erro)}</div>`; return; }
   const pctBar = Math.min(100, l.percentMeta || 0), pctDia = d.dia / d.diasNoMes * 100;
   $('ini_conteudo').innerHTML = `
+    ${l.metaHoje !== undefined ? painelHoje(l, d, false) : ''}
     <div class="panel" style="padding:18px 20px">
       <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; align-items:flex-end">
         <div><div class="label" style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em">Faturado no mês</div><div class="valor-destaque" style="font-size:30px; font-weight:700; color:var(--accent-deep)">${fmtMoeda(l.faturadoMes)}</div>
           <div style="font-size:12.5px; color:var(--muted)">${l.meta ? `de ${fmtMoeda(l.meta)} de meta · ${fmtPct(l.percentMeta, 0)}` : 'sem meta cadastrada para este mês'}</div></div>
-        ${l.meta ? `<div style="text-align:right"><div class="label" style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em">Para bater a meta</div><div style="font-size:24px; font-weight:700; color:${corPct(l.percentProjecao)}">${fmtMoeda(l.faltaPorDia)}<span style="font-size:13px; font-weight:500"> por dia</span></div><div style="font-size:12.5px; color:var(--muted)">até o fim do mês, contando hoje</div></div>` : ''}
+        ${l.meta ? `<div style="text-align:right"><div class="label" style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em">Para bater a meta</div><div style="font-size:24px; font-weight:700; color:${corPct(l.percentProjecao)}">${fmtMoeda(l.faltaPorDia)}<span style="font-size:13px; font-weight:500"> por dia</span></div><div style="font-size:12.5px; color:var(--muted)">por dia de venda até o fim do mês (${l.considerarDomingo ? 'seg a dom' : 'seg a sáb'}), contando hoje</div></div>` : ''}
       </div>
       ${l.meta ? `<div style="position:relative; height:12px; background:var(--panel-2); border-radius:8px; margin-top:14px; overflow:hidden" title="Faturado ${fmtPct(l.percentMeta, 0)} · mês ${fmtPct(pctDia, 0)}">
         <div style="position:absolute; inset:0 auto 0 0; width:${pctBar}%; background:${corPct(l.percentProjecao)}; border-radius:8px"></div>
@@ -2215,6 +2259,7 @@ async function rodarModulo(modulo) {
       try { metasData = await chamarEdge({ modulo: 'metas', acao: 'listar', ano: yyyy, mes: mm }); } catch (e) { /* segue sem metas se falhar */ }
       data.metaAno = yyyy; data.metaMes = mm;
       data.metasPorLoja = Object.fromEntries((metasData.metas || []).map(m => [m.loja, Number(m.meta)]));
+      data.domingoPorLoja = Object.fromEntries((metasData.metas || []).map(m => [m.loja, !!m.considerar_domingo]));
     }
     status.textContent = `Atualizado às ${new Date().toLocaleTimeString('pt-BR')} ${resumoDesempenho(inicioExec)}`;
     await desenhar(data);
@@ -2473,12 +2518,13 @@ function montarBarraMeta(faturamento, meta) {
   `;
 }
 
-async function salvarMeta(loja, ano, mes, meta, statusElId) {
+async function salvarMeta(loja, ano, mes, meta, statusElId, considerarDomingo) {
   const statusEl = document.getElementById(statusElId);
   statusEl.textContent = 'Salvando...';
   try {
-    await chamarEdge({ modulo: 'metas', acao: 'salvar', loja, ano, mes, meta });
-    statusEl.textContent = 'Meta salva.';
+    const r = await chamarEdge({ modulo: 'metas', acao: 'salvar', loja, ano, mes, meta, considerarDomingo });
+    statusEl.textContent = r.avisoDomingo || 'Meta salva.';
+    try { localStorage.removeItem(Object.keys(localStorage).find(k => k.startsWith('sss_ultimo_inicio')) || '_'); } catch { } // Início recalcula a meta do dia
   } catch (e) {
     statusEl.textContent = `Erro: ${e.message}`;
   }
@@ -2693,6 +2739,7 @@ function renderFinanceiro(data, box) {
         <div id="fin_barra_meta"></div>
         <div style="display:flex; gap:10px; align-items:center; margin-top:10px;">
           <input id="fin_meta_input" type="number" placeholder="Definir meta do mês (R$)" style="max-width:220px">
+          <label style="display:flex; align-items:center; gap:6px; font-size:12.5px; text-transform:none; letter-spacing:0; margin:0; color:var(--text); white-space:nowrap" title="A meta do dia é dividida pelos dias de venda que faltam no mês. Padrão: segunda a sábado. Marque se a loja abre e vende aos domingos."><input type="checkbox" id="fin_meta_domingo" style="width:auto"> Considerar domingo</label>
           <button id="fin_meta_salvar" class="secondary" style="padding:8px 16px;">Salvar meta</button>
           <span class="status" id="fin_meta_status"></span>
         </div>
@@ -2744,13 +2791,16 @@ function renderFinanceiro(data, box) {
     document.getElementById('fin_faturamento_valor').textContent = fmtMoeda(faturamento);
     document.getElementById('fin_barra_meta').innerHTML = montarBarraMeta(faturamento, metaAtual);
     document.getElementById('fin_meta_input').value = metaAtual || '';
+    document.getElementById('fin_meta_domingo').checked = !!(data.domingoPorLoja || {})[loja.nomeLoja];
     document.getElementById('fin_meta_status').textContent = '';
 
     document.getElementById('fin_meta_salvar').onclick = async () => {
       const novaMeta = Number(document.getElementById('fin_meta_input').value || 0);
       if (!novaMeta) { document.getElementById('fin_meta_status').textContent = 'Informe um valor de meta.'; return; }
-      await salvarMeta(loja.nomeLoja, data.metaAno, data.metaMes, novaMeta, 'fin_meta_status');
+      const dom = document.getElementById('fin_meta_domingo').checked;
+      await salvarMeta(loja.nomeLoja, data.metaAno, data.metaMes, novaMeta, 'fin_meta_status', dom);
       data.metasPorLoja[loja.nomeLoja] = novaMeta;
+      (data.domingoPorLoja = data.domingoPorLoja || {})[loja.nomeLoja] = dom;
       document.getElementById('fin_barra_meta').innerHTML = montarBarraMeta(faturamento, novaMeta);
     };
   }
