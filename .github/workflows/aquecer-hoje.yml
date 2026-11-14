@@ -1,0 +1,24 @@
+# Durante o expediente, a cada 15 minutos, lê as vendas de ontem e de hoje de todas as lojas e guarda no
+# cache do Insight. Quem abre o Início encontra o "vendido hoje" já pronto, sem esperar a VarejOnline.
+# Usa o mesmo secret AQUECER_CHAVE do aquecimento diário.
+name: Aquecer vendas de hoje
+
+on:
+  schedule:
+    - cron: '*/15 11-23 * * *'   # 08:00 às 20:45 em Brasília
+    - cron: '*/15 0-1 * * *'     # 21:00 às 22:45 em Brasília
+  workflow_dispatch: {}
+
+jobs:
+  aquecer-hoje:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ler ontem e hoje
+        env:
+          AQUECER_CHAVE: ${{ secrets.AQUECER_CHAVE }}
+          URL: https://cyxerqtlkhubrkcjqcmx.supabase.co/functions/v1/sss-compras
+        run: |
+          if [ -z "$AQUECER_CHAVE" ]; then echo "::warning::Secret AQUECER_CHAVE não configurado — nada a fazer."; exit 0; fi
+          r=$(curl -sS -m 150 -X POST "$URL" -H "Content-Type: application/json" -H "x-aquecer-chave: $AQUECER_CHAVE" -d '{"hoje":true}' || echo '{}')
+          echo "$(echo "$r" | jq -c '{completo, prontas: (.prontas|length?), pendentes, erros, ms, error}' 2>/dev/null || echo "$r" | head -c 300)"

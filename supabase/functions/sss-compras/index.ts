@@ -1764,6 +1764,7 @@ async function moduloDre(body: any, a: Acesso) {
 // e atualiza o cache dos pedidos da Central. Para de comecar lojas novas perto do limite de tempo;
 // a tarefa agendada chama de novo ate vir completo=true.
 async function aquecerCaches(body: any) {
+  if (body.hoje) return aquecerHoje();
   const t0 = Date.now(), limite = 90_000;
   const apiBase = Deno.env.get('VAREJONLINE_API_BASE');
   if (!apiBase) throw new Error('VAREJONLINE_API_BASE não configurado.');
@@ -1789,6 +1790,30 @@ async function aquecerCaches(body: any) {
   return { completo: !pendentes.length && !!central?.completo, dias, prontas, pendentes, erros, central, ms: Date.now() - t0 };
 }
 
+// Aquecimento rápido durante o expediente: lê ontem e hoje de todas as lojas e guarda no cache
+// (hoje vale 5 min, ontem 1 h). Assim quem abre o Início encontra as vendas do dia já prontas.
+async function aquecerHoje() {
+  const t0 = Date.now(), prazo = t0 + 100_000;
+  const apiBase = Deno.env.get('VAREJONLINE_API_BASE');
+  if (!apiBase) throw new Error('VAREJONLINE_API_BASE não configurado.');
+  const tokens = await getLojasTokens(), nomes = Object.keys(tokens);
+  const agora = new Date(Date.now() - 3 * 3600_000);
+  const hoje = new Date(agora.getUTCFullYear(), agora.getUTCMonth(), agora.getUTCDate()), ontem = new Date(hoje.getTime() - 86400_000);
+  const prontas: string[] = [], pendentes: string[] = [], erros: any[] = [];
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(6, nomes.length) }, async () => {
+    while (i < nomes.length) {
+      const nome = nomes[i++];
+      if (Date.now() > prazo) { pendentes.push(nome); continue; }
+      try {
+        await saidasComCache({ sb, buscarPaginas: fetchAllPages, apiBase, token: tokens[nome], loja: nome, dIni: ontem, dFim: hoje, onSaida: () => {}, janelaDias: 2, conc: 1, prazo });
+        prontas.push(nome);
+      } catch (e) { erros.push({ loja: nome, erro: e instanceof Error ? e.message : String(e) }); }
+    }
+  }));
+  return { completo: !pendentes.length, hoje: true, prontas, pendentes, erros, ms: Date.now() - t0 };
+}
+
 // =====================================================================
 // TELA INICIAL (painel): mes corrente por loja -- faturado x meta, ritmo, ontem/hoje, compras na Central,
 // pedidos aprovados no Insight sem envio e ultimo acesso dos franqueados (so admin/equipe).
@@ -1809,13 +1834,25 @@ async function moduloPainel(body: any, a: Acesso) {
   const iniAnt = new Date(ano, mes - 2, 1), diasMesAnt = new Date(ano, mes - 1, 0).getDate(), diaRefAnt = Math.min(dia, diasMesAnt);
   const ehAdmin = a.papel !== 'franqueado';
 
+  // ano anterior: mesmo dia da semana (364 dias antes) — compara sábado com sábado
+  const diaAAiso = new Date(Date.parse(hojeIso) - 364 * 86400_000).toISOString().slice(0, 10);
+  const diaAA = new Date(+diaAAiso.slice(0, 4), +diaAAiso.slice(5, 7) - 1, +diaAAiso.slice(8, 10));
+  const horaAgora = agoraBR.toISOString().slice(11, 16); // HH:MM em Brasília
+  const metasQ = async () => {
+    const r = await sb().from('metas_faturamento').select('loja, meta, considerar_domingo').eq('ano', ano).eq('mes', mes);
+    return r.error ? await sb().from('metas_faturamento').select('loja, meta').eq('ano', ano).eq('mes', mes) : r; // sem a coluna nova: segue sem domingo
+  };
   const [metasR, pendR, central, usuarios] = await Promise.all([
-    sb().from('metas_faturamento').select('loja, meta').eq('ano', ano).eq('mes', mes),
+    metasQ(),
     sb().from('pedidos_sugeridos').select('loja, status, valor_total, criado_em, fornecedor_nome').in('status', ['aprovado', 'erro_envio', 'enviando']),
     buscarPedidosCentral(60, 35000).catch((e) => ({ lista: [], falhas: 1, erro: String(e) } as ResultadoCentral)),
     ehAdmin ? acessosPorLoja().catch(() => null) : Promise.resolve(null),
   ]);
   const metas = new Map<string, number>((metasR.data ?? []).map((m: any) => [m.loja, Number(m.meta)]));
+  const comDomingo = new Map<string, boolean>((metasR.data ?? []).map((m: any) => [m.loja, !!m.considerar_domingo]));
+  // dias de venda do mês (segunda a sábado; domingo só se a loja marcou "considerar domingo")
+  const ehDiaDeVenda = (d: number, domingo: boolean) => domingo || new Date(Date.UTC(ano, mes - 1, d)).getUTCDay() !== 0;
+  const contarDias = (de: number, ate: number, domingo: boolean) => { let n = 0; for (let d = de; d <= ate; d++) if (ehDiaDeVenda(d, domingo)) n++; return n; };
   const pend = new Map<string, any[]>();
   for (const p of pendR.data ?? []) { if (!pend.has(p.loja)) pend.set(p.loja, []); pend.get(p.loja)!.push(p); }
   // compras na Central por loja (ultimos 60 dias)
@@ -1836,10 +1873,19 @@ async function moduloPainel(body: any, a: Acesso) {
   await Promise.all(Array.from({ length: Math.min(6, nomes.length) }, async () => {
     while (i < nomes.length) {
       const nome = nomes[i++];
-      const v = { fat: 0, atend: 0, pecas: 0, hoje: 0, ontem: 0 };
+      const v = { fat: 0, atend: 0, pecas: 0, hoje: 0, ontem: 0, hojeAtend: 0 };
       const ant = { fat: 0, atend: 0, fatMes: 0, atendMes: 0 };
+      const aa = { dia: 0, ateAgora: 0, atend: 0 };
       let erro: string | null = null;
       try {
+        // mesmo dia da semana do ano passado: dia inteiro e até este horário
+        const aaP = buscarSaidasParalelo(apiBase, tokens[nome], diaAA, diaAA, (sd) => {
+          if (!ehVenda(sd) || diaDaVenda(sd) !== diaAAiso) return;
+          let f = 0; for (const it of sd.mercadorias ?? []) f += Number(it.valorTotal ?? 0);
+          aa.dia += f; aa.atend++;
+          const hm = String(sd.data ?? '').match(/(\d{2}):(\d{2})/);
+          if (!hm || `${hm[1]}:${hm[2]}` <= horaAgora) aa.ateAgora += f;
+        }, 15, 1).catch(() => {});
         await buscarSaidasParalelo(apiBase, tokens[nome], iniAnt, fim, (sd) => {
           if (!ehVenda(sd)) return;
           let f = 0, q = 0;
@@ -1852,12 +1898,19 @@ async function moduloPainel(body: any, a: Acesso) {
             return;
           }
           v.fat += f; v.atend++; v.pecas += q;
-          if (d === hojeIso) v.hoje += f; else if (d === ontemIso) v.ontem += f;
+          if (d === hojeIso) { v.hoje += f; v.hojeAtend++; } else if (d === ontemIso) v.ontem += f;
         }, 15, 3);
+        await aaP;
       } catch (e) { erro = e instanceof Error ? e.message : String(e); }
       const meta = metas.get(nome) ?? null;
-      const diasFechados = dia - 1;
-      const projecao = diasFechados > 0 ? (v.fat - v.hoje) / diasFechados * diasNoMes : null;
+      const domingo = comDomingo.get(nome) ?? false;
+      // meta do dia: o que falta da meta (até ontem) ÷ dias de venda que sobram, contando hoje
+      const fatAteOntem = v.fat - v.hoje;
+      const hojeConta = ehDiaDeVenda(dia, domingo);
+      const restantes = contarDias(dia, diasNoMes, domingo), fechados = contarDias(1, dia - 1, domingo), diasVendaMes = contarDias(1, diasNoMes, domingo);
+      const metaHoje = meta ? (hojeConta ? Math.max(0, meta - fatAteOntem) / Math.max(1, restantes) : 0) : null;
+      // projeção: média por dia de venda já fechado × dias de venda que faltam (hoje incluído)
+      const projecao = fechados > 0 ? fatAteOntem + fatAteOntem / fechados * restantes : null;
       const c = comp.get(normLoja(nome));
       const ped = pend.get(nome) ?? [];
       const acc = usuarios?.get(nome);
@@ -1872,8 +1925,11 @@ async function moduloPainel(body: any, a: Acesso) {
         pecasPorAtendimento: v.atend ? r2(v.pecas / v.atend) : 0,
         meta, percentMeta: meta ? r2(v.fat / meta * 100) : null, projecao: projecao != null ? r2(projecao) : null,
         percentProjecao: meta && projecao != null ? r2(projecao / meta * 100) : null,
-        faltaPorDia: meta ? r2(Math.max(0, meta - v.fat) / Math.max(1, diasNoMes - dia + 1)) : null,
-        ritmoNecessario: meta && diasFechados > 0 ? r2(meta / diasNoMes) : null,
+        faltaPorDia: meta ? r2(Math.max(0, meta - fatAteOntem) / Math.max(1, restantes)) : null,
+        ritmoNecessario: meta ? r2(meta / Math.max(1, diasVendaMes)) : null,
+        metaHoje: metaHoje != null ? r2(metaHoje) : null, faltaHoje: metaHoje != null ? r2(Math.max(0, metaHoje - v.hoje)) : null,
+        hojeContaNaMeta: hojeConta, considerarDomingo: domingo, diasDeVendaRestantes: restantes, atendimentosHoje: v.hojeAtend,
+        anoAnteriorDia: r2(aa.dia), anoAnteriorAteAgora: r2(aa.ateAgora), anoAnteriorAtendimentos: aa.atend,
         ultimaCompraCentral: c?.ultima ?? null,
         diasSemComprar: c?.ultima ? Math.round((Date.parse(hojeIso) - Date.parse(c.ultima)) / 86400_000) : null,
         comprasCentralMes: r2(c?.mes ?? 0), pedidosCentralMes: c?.pedidosMes ?? 0, pedidosCentralEmAndamento: c?.emAndamento ?? 0,
@@ -1886,8 +1942,10 @@ async function moduloPainel(body: any, a: Acesso) {
   const soma = (k: string) => r2(lojas.reduce((t, l) => t + (Number(l[k]) || 0), 0));
   const metaRede = lojas.reduce((t, l) => t + (l.meta || 0), 0);
   return {
-    ano, mes, dia, diasNoMes, hoje: hojeIso, diaRefMesAnterior: diaRefAnt, centralIncompleta: !!(central.falhas || central.pendentes || central.erro),
+    ano, mes, dia, diasNoMes, hoje: hojeIso, horaAgora, diaAnoAnterior: diaAAiso, diaRefMesAnterior: diaRefAnt, centralIncompleta: !!(central.falhas || central.pendentes || central.erro),
     rede: { faturadoMes: soma('faturadoMes'), faturadoOntem: soma('faturadoOntem'), faturadoHoje: soma('faturadoHoje'), meta: r2(metaRede),
+      metaHoje: soma('metaHoje'), faturadoHojeComMeta: r2(lojas.filter((l) => l.meta).reduce((t, l) => t + (l.faturadoHoje || 0), 0)), lojasComMeta: lojas.filter((l) => l.meta).length,
+      anoAnteriorDia: soma('anoAnteriorDia'), anoAnteriorAteAgora: soma('anoAnteriorAteAgora'), atendimentosHoje: soma('atendimentosHoje'),
       percentMeta: metaRede ? r2(soma('faturadoMes') / metaRede * 100) : null, projecao: soma('projecao'), comprasCentralMes: soma('comprasCentralMes'),
       atendimentos: soma('atendimentos'), ticketMedio: soma('atendimentos') ? r2(soma('faturadoMes') / soma('atendimentos')) : 0,
       faturadoMesAnteriorMesmoPeriodo: soma('faturadoMesAnteriorMesmoPeriodo'),
