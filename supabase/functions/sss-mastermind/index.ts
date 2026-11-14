@@ -900,6 +900,16 @@ async function moduloBenchmark(apiBase: string, lojasTokens: Record<string, stri
     const trimestrePico = mediaMovel > 0 ? Math.floor(mesPicoIdx / 3) : null; // 0=Jan-Mar, 1=Abr-Jun, 2=Jul-Set, 3=Out-Dez
     const intensidadeSazonalPercent = mediaMovel > 0 ? Number((((picoValor - mediaMovel) / mediaMovel) * 100).toFixed(1)) : null;
 
+    const pv0 = primeiraVendaJanela as Date | null;
+    const anoCompleto = !!pv0 && diasJanela >= 330 && (hoje.getTime() - pv0.getTime()) / 86400000 >= 330;
+    let mesBaixaNome: string | null = null, intensidadeBaixaPercent: number | null = null, indicePorMes: number[] | null = null;
+    if (mediaMovel > 0 && anoCompleto) {
+      const baixaValor = Math.min(...receitaPorMes);
+      mesBaixaNome = NOMES_MES[receitaPorMes.indexOf(baixaValor)];
+      intensidadeBaixaPercent = Number((((mediaMovel - baixaValor) / mediaMovel) * 100).toFixed(1));
+      indicePorMes = receitaPorMes.map((v) => Math.round((v / mediaMovel) * 100)); // 100 = mês médio
+    }
+
     const diasAbertura = dataAberturaIso
       ? Math.max(1, Math.round((hoje.getTime() - new Date(dataAberturaIso).getTime()) / 86400000))
       : null;
@@ -935,6 +945,9 @@ async function moduloBenchmark(apiBase: string, lojasTokens: Record<string, stri
       mesPicoNome,
       trimestrePico,
       intensidadeSazonalPercent,
+      mesBaixaNome,
+      intensidadeBaixaPercent,
+      indicePorMes,
     };
   }
 
@@ -988,6 +1001,9 @@ function agruparBenchmark(resultados: any[], parametros: any) {
     return "alta (bem concentrada em poucos meses)";
   }
   const NOMES_TRIMESTRE = ["Jan-Mar", "Abr-Jun", "Jul-Set", "Out-Dez"];
+  const PORTES: [number, string][] = [[100_000, "até 100 mil habitantes"], [300_000, "100 a 300 mil"], [1_000_000, "300 mil a 1 milhão"], [Infinity, "mais de 1 milhão"]];
+  const porteDe = (pop: number | null) => { const n = Number(pop ?? 0); return n > 0 ? (PORTES.find(([lim]) => n <= lim) ?? PORTES[3])[1] : "sem_dado"; };
+  const medianaRede = valores.length ? (valores.length % 2 ? valores[(valores.length - 1) / 2] : (valores[valores.length / 2 - 1] + valores[valores.length / 2]) / 2) : 0;
 
   for (const r of validos) {
     r.faixaConsumo = faixaConsumoDe(r.receitaPorHabitante);
@@ -997,7 +1013,25 @@ function agruparBenchmark(resultados: any[], parametros: any) {
     r.faixaSazonalidade = faixaSazonalidadeDe(r.intensidadeSazonalPercent);
     r.trimestrePicoNome = r.trimestrePico != null ? NOMES_TRIMESTRE[r.trimestrePico] : null;
     r.grupoSazonal = r.trimestrePicoNome ? `${r.trimestrePicoNome} · ${r.faixaSazonalidade}` : "sem_dado";
+    r.porteCidade = porteDe(r.populacao);
+    r.indicePerformance = medianaRede > 0 ? Math.round((r.receitaPorHabitante / medianaRede) * 100) : null;
   }
+
+  // Geográfico: lojas agrupadas pelo tamanho da cidade (habitantes); cada loja comparada com a média do seu porte.
+  const ordemPorte = PORTES.map((p) => p[1]);
+  const geografico = ordemPorte.map((porte) => {
+    const lojas = validos.filter((r) => r.porteCidade === porte).sort((a, b) => b.receitaPorHabitante - a.receitaPorHabitante);
+    const media = lojas.length ? lojas.reduce((s, r) => s + r.receitaPorHabitante, 0) / lojas.length : 0;
+    for (const r of lojas) r.vsMediaPortePercent = media > 0 && lojas.length > 1 ? Number((((r.receitaPorHabitante - media) / media) * 100).toFixed(1)) : null;
+    return { porte, lojas: lojas.map((r) => r.nomeLoja), mediaReceitaPorHabitante: Number(media.toFixed(4)) };
+  }).filter((g) => g.lojas.length);
+
+  // Performance: faixas pela posição contra a mediana da rede (100 = loja mediana).
+  const performance = [
+    { faixa: "acima da rede (120 ou mais)", min: 120, max: Infinity },
+    { faixa: "na média (80 a 119)", min: 80, max: 119.999 },
+    { faixa: "abaixo da rede (menos de 80)", min: -Infinity, max: 79.999 },
+  ].map((f) => ({ faixa: f.faixa, lojas: validos.filter((r) => r.indicePerformance != null && r.indicePerformance >= f.min && r.indicePerformance <= f.max).sort((a, b) => b.indicePerformance - a.indicePerformance).map((r) => r.nomeLoja) }));
 
   const grupos = new Map<string, string[]>();
   for (const r of validos) {
@@ -1027,6 +1061,9 @@ function agruparBenchmark(resultados: any[], parametros: any) {
     lojas: resultados.sort((a, b) => (b.receitaPorHabitante ?? -1) - (a.receitaPorHabitante ?? -1)),
     clusters,
     clustersSazonais,
+    geografico,
+    performance,
+    medianaReceitaPorHabitante: Number(medianaRede.toFixed(4)),
   };
 }
 

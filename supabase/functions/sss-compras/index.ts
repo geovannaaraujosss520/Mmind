@@ -2315,12 +2315,16 @@ async function moduloClientes(body: any, a: Acesso) {
   const ini = new Date(hoje); ini.setMonth(ini.getMonth() - meses); ini.setDate(ini.getDate() + 1);
   const dias = (iso: string) => Math.round((Date.parse(hojeIso) - Date.parse(iso)) / 86400_000);
 
-  type Cli = { id: string; nome: string; documento: string; dias: Set<string>; vendas: number; fat: number; pecas: number; cats: Map<string, number>; modelos: Set<string>; prods: Set<string>; maxPeca: number; ultimoProduto: string; ultima: string; primeira: string };
+  type Cli = { id: string; nome: string; documento: string; dias: Set<string>; vendas: number; fat: number; pecas: number; cats: Map<string, number>; modelos: Set<string>; prods: Set<string>; maxPeca: number; ultimoProduto: string; ultima: string; primeira: string; meses: Set<number> };
   const clientes = new Map<string, Cli>();
   const vendasModelos: { cid: string | null; modelos: string[] }[] = [];
   const produtos = new Map<string, { modelo: string; codigo: string | null; qtd: number; qtd60: number; fat: number; ids: Set<string>; cat: string }>();
   const recente60 = (() => { const d = new Date(Date.parse(hojeIso) - 60 * 86400_000); return d.toISOString().slice(0, 10); })();
   let vendas = 0, vendasIdent = 0, fat = 0, fatIdent = 0;
+  // sazonalidade da loja (ação comercial): faturamento por mês do ano e o que mais vende em cada mês
+  const fatPorMes = new Array(12).fill(0);
+  const modelosPorMes: Map<string, number>[] = Array.from({ length: 12 }, () => new Map());
+  let primeiraVendaLoja = '9999';
 
   const parceiros = await fetchAllPages(`${apiBase}/terceiros?classes=FORNECEDOR,PRESTADOR_SERVICO`, chave).catch(() => []);
   const idsParceiros = new Set<string>(parceiros.filter((t: any) => (t?.classes ?? []).some((c: string) => /FORNECEDOR|PRESTADOR_SERVICO/.test(String(c)))).map((t: any) => String(t.id)));
@@ -2341,14 +2345,17 @@ async function moduloClientes(body: any, a: Acesso) {
     }
     if (q <= 0) return;
     vendas++; fat += f;
+    const mesIdx = Number(dia.slice(5, 7)) - 1;
+    fatPorMes[mesIdx] += f; if (dia < primeiraVendaLoja) primeiraVendaLoja = dia;
+    for (const it of itens) modelosPorMes[mesIdx].set(it.modelo, (modelosPorMes[mesIdx].get(it.modelo) ?? 0) + it.q);
     const t = sd.terceiro;
     const ok = clienteIdentificado(t) && !idsParceiros.has(String(t?.id));
     const cid = ok ? String(t.id) : null;
     vendasModelos.push({ cid, modelos: [...mods] });
     if (!cid) return;
     vendasIdent++; fatIdent += f;
-    const c = clientes.get(cid) ?? { id: cid, nome: String(t.nome ?? '').trim(), documento: String(t.documento ?? ''), dias: new Set<string>(), vendas: 0, fat: 0, pecas: 0, cats: new Map(), modelos: new Set<string>(), prods: new Set<string>(), maxPeca: 0, ultimoProduto: '', ultima: '', primeira: '9999' };
-    c.dias.add(dia); c.vendas++; c.fat += f; c.pecas += q;
+    const c = clientes.get(cid) ?? { id: cid, nome: String(t.nome ?? '').trim(), documento: String(t.documento ?? ''), dias: new Set<string>(), vendas: 0, fat: 0, pecas: 0, cats: new Map(), modelos: new Set<string>(), prods: new Set<string>(), maxPeca: 0, ultimoProduto: '', ultima: '', primeira: '9999', meses: new Set<number>() };
+    c.dias.add(dia); c.meses.add(mesIdx); c.vendas++; c.fat += f; c.pecas += q;
     for (const it of itens) {
       c.cats.set(it.cat, (c.cats.get(it.cat) ?? 0) + it.q); c.modelos.add(it.modelo); c.prods.add(it.pid);
       c.maxPeca = Math.max(c.maxPeca, it.v / it.q);
@@ -2369,7 +2376,20 @@ async function moduloClientes(body: any, a: Acesso) {
     for (const cat of cats) { const m = (emAltaPorCat.get(cat) ?? []).find((mm) => !c.modelos.has(mm)); if (m) return m; }
     return emAlta.find((p) => !c.modelos.has(p.modelo))?.modelo ?? null;
   };
+  // prazo ideal de volta: o ritmo de cada cliente (mediana dos dias entre as visitas dele); quem voltou poucas vezes
+  // usa o ritmo da loja (mediana de todas as voltas). Calculado mais abaixo, junto com os indicadores.
+  let prazoLoja = 60;
+  const mediaDe = (xs: number[]) => { const o = [...xs].sort((x, y) => x - y); return o.length ? (o.length % 2 ? o[(o.length - 1) / 2] : (o[o.length / 2 - 1] + o[o.length / 2]) / 2) : null; };
+  const prazoDe = (c: Cli) => {
+    const ds = [...c.dias].sort(), ints: number[] = [];
+    for (let i = 1; i < ds.length; i++) ints.push(Math.round((Date.parse(ds[i]) - Date.parse(ds[i - 1])) / 86400_000));
+    const p = ints.length >= 2 ? mediaDe(ints)! : ints.length === 1 ? (ints[0] + prazoLoja) / 2 : prazoLoja;
+    return Math.round(Math.min(365, Math.max(15, p)));
+  };
+  const statusVolta = (d: number, p: number) => d > sumidoDias ? 'sumido' : d < p * 0.8 ? 'em_dia' : d <= p * 1.3 ? 'hora' : 'atrasado';
   const perfil = (c: Cli) => {
+    const prazo = prazoDe(c), d = dias(c.ultima);
+    const volta = new Date(Date.parse(c.ultima) + prazo * 86400_000).toISOString().slice(0, 10);
     const cats = [...c.cats.entries()].sort((x, y) => y[1] - x[1]);
     const totPecas = cats.reduce((s, x) => s + x[1], 0) || 1;
     const precoPeca = c.pecas ? c.fat / c.pecas : 0;
@@ -2379,6 +2399,7 @@ async function moduloClientes(body: any, a: Acesso) {
       categoriaPreferida: cats[0]?.[0] ?? null, categorias: cats.slice(0, 3).map(([k, n]) => `${k} ${Math.round(n / totPecas * 100)}%`),
       primeiraCompra: c.primeira, ultimaCompra: c.ultima, diasSemComprar: dias(c.ultima), ultimoProduto: c.ultimoProduto,
       sugestao: sugestaoPara(c),
+      prazoVoltaDias: prazo, voltaIdeal: volta, diasParaVolta: prazo - d, statusVolta: statusVolta(d, prazo),
     };
   };
 
@@ -2393,6 +2414,10 @@ async function moduloClientes(body: any, a: Acesso) {
   }
   intervalos.sort((x, y) => x - y);
   const mediana = intervalos.length ? intervalos[Math.floor(intervalos.length / 2)] : null;
+  if (mediana != null) prazoLoja = Math.round(Math.min(180, Math.max(15, mediana)));
+  const contVolta = { em_dia: 0, hora: 0, atrasado: 0, sumido: 0 } as Record<string, number>;
+  for (const c of lista) contVolta[statusVolta(dias(c.ultima), prazoDe(c))]++;
+  const noPrazoPct = lista.length ? r2((contVolta.em_dia + contVolta.hora) / lista.length * 100) : null;
   // voltou em até 90 dias: entre quem fez a 1ª compra do período há mais de 90 dias (e depois do 1º mês, para não pegar quem já era cliente antes)
   const corteIni = new Date(ini); corteIni.setMonth(corteIni.getMonth() + 1);
   const corteIniIso = `${corteIni.getFullYear()}-${String(corteIni.getMonth() + 1).padStart(2, '0')}-${String(corteIni.getDate()).padStart(2, '0')}`;
@@ -2417,7 +2442,33 @@ async function moduloClientes(body: any, a: Acesso) {
 
   // ---- listas ----
   const sumidos = lista.filter((c) => dias(c.ultima) > sumidoDias).sort((x, y) => y.fat - x.fat).slice(0, 300).map(perfil);
+  const horaDeChamar = lista.map((c) => ({ c, st: statusVolta(dias(c.ultima), prazoDe(c)) })).filter((x) => x.st === 'hora' || x.st === 'atrasado')
+    .sort((x, y) => (x.st === 'hora' ? 0 : 1) - (y.st === 'hora' ? 0 : 1) || y.c.fat - x.c.fat).slice(0, 300).map((x) => perfil(x.c));
   const vip = [...lista].sort((x, y) => y.fat - x.fat).slice(0, 50).map((c) => ({ ...perfil(c), status: dias(c.ultima) <= 90 ? 'ativo' : dias(c.ultima) <= sumidoDias ? 'esfriando' : 'sumido' }));
+
+  // ---- ação comercial: meses de alta e de baixa da loja ----
+  const acaoComercial = (() => {
+    const anoCheio = meses >= 12 && primeiraVendaLoja <= new Date(ini.getTime() + 31 * 86400_000).toISOString().slice(0, 10);
+    if (!anoCheio) return { disponivel: false, motivo: meses < 12 ? 'Escolha 12 ou 24 meses em Ajustes para ver os meses de alta e de baixa.' : 'A loja ainda não tem 12 meses de vendas.' };
+    const media = fatPorMes.reduce((x, y) => x + y, 0) / 12;
+    if (media <= 0) return { disponivel: false, motivo: 'Sem vendas no período.' };
+    const indice = fatPorMes.map((v) => Math.round(v / media * 100));
+    const mesHoje = Number(hojeIso.slice(5, 7)) - 1;
+    const tipoMes = (i: number) => indice[i] >= 115 ? 'alta' : indice[i] <= 85 ? 'baixa' : 'normal';
+    const proximo = (tipo: string) => { for (let k = 0; k < 12; k++) { const i = (mesHoje + k) % 12; if (tipoMes(i) === tipo) return { mes: i, emMeses: k }; } return null; };
+    const topDoMes = (i: number) => [...modelosPorMes[i].entries()].sort((x, y) => y[1] - x[1]).slice(0, 8).map(([modelo, qtd]) => ({ modelo, qtd: r2(qtd / (meses / 12)) }));
+    const alta = proximo('alta'), baixa = proximo('baixa');
+    // quem comprou no mês de alta: chamar antes de a alta começar
+    const daAlta = alta ? lista.filter((c) => c.meses.has(alta.mes)).sort((x, y) => y.fat - x.fat) : [];
+    const clientesDaAlta = daAlta.slice(0, 100).map(perfil);
+    return {
+      disponivel: true, indicePorMes: indice, mesAtual: mesHoje, tipoMesAtual: tipoMes(mesHoje),
+      mesesAlta: indice.map((_, i) => i).filter((i) => tipoMes(i) === 'alta'), mesesBaixa: indice.map((_, i) => i).filter((i) => tipoMes(i) === 'baixa'),
+      proximaAlta: alta ? { ...alta, indice: indice[alta.mes], maisVendidos: topDoMes(alta.mes), clientes: daAlta.length } : null,
+      proximaBaixa: baixa ? { ...baixa, indice: indice[baixa.mes] } : null,
+      clientesDaAlta,
+    };
+  })();
 
   // ---- para quem oferecer ----
   let oferecer: any = null;
@@ -2470,7 +2521,7 @@ async function moduloClientes(body: any, a: Acesso) {
 
   // ---- contatos (telefone/WhatsApp/aniversário) só de quem aparece nas listas + os 200 que mais gastam (aniversariantes) ----
   const top200 = [...lista].sort((x, y) => y.fat - x.fat).slice(0, 200);
-  const ids = [...new Set([...(oferecer?.clientes ?? []).slice(0, 60), ...vip, ...sumidos.slice(0, 120), ...top200].map((c: any) => c.id))];
+  const ids = [...new Set([...(oferecer?.clientes ?? []).slice(0, 60), ...vip, ...horaDeChamar.slice(0, 80), ...sumidos.slice(0, 120), ...((acaoComercial as any).clientesDaAlta ?? []).slice(0, 40), ...top200].map((c: any) => c.id))];
   // Planilha: todos os clientes do período (o que faltar fica para a próxima vez — o que já foi lido fica guardado)
   const idsCad = body.exportar ? [...new Set([...ids, ...[...lista].sort((x, y) => y.fat - x.fat).map((c) => c.id)])] : ids;
   const cad = await cadastrosClientes(apiBase, chave, idsCad, Math.min(t0Clientes + 110_000, Date.now() + (body.exportar ? 95_000 : 40_000)));
@@ -2494,6 +2545,9 @@ async function moduloClientes(body: any, a: Acesso) {
       recompraPct: lista.length ? r2(recorrentes.length / lista.length * 100) : null,
       voltou90Pct: coorte.length ? r2(voltou90 / coorte.length * 100) : null, voltou90Base: coorte.length,
       intervaloMedianoDias: mediana,
+      prazoIdealDias: prazoLoja, voltaEmDia: contVolta.em_dia, voltaHora: contVolta.hora, voltaAtrasado: contVolta.atrasado, voltaSumido: contVolta.sumido,
+      noPrazoPct, situacaoPrazo: noPrazoPct == null ? null : noPrazoPct >= 50 ? 'perto' : noPrazoPct >= 30 ? 'atencao' : 'longe',
+      horaDeChamar: contVolta.hora + contVolta.atrasado,
       fatRecorrentesPct: fatIdent ? r2(fatRec / fatIdent * 100) : null,
       ticketRecorrente: recorrentes.length ? r2(fatRec / recorrentes.reduce((s, c) => s + c.vendas, 0)) : null,
       ticketUmaVisita: lista.length - recorrentes.length ? r2((fatIdent - fatRec) / lista.filter((c) => c.dias.size < 2).reduce((s, c) => s + c.vendas, 0)) : null,
@@ -2502,7 +2556,8 @@ async function moduloClientes(body: any, a: Acesso) {
     },
     recencia, intervalos: intervalosFaixa, frequencia,
     categorias: [...porCat.entries()].sort((x, y) => y[1].clientes - x[1].clientes).slice(0, 12).map(([categoria, v]) => ({ categoria, clientes: v.clientes, pecas: r2(v.pecas) })),
-    sumidos: sumidos.map(comContato), vip: vip.map(comContato),
+    sumidos: sumidos.map(comContato), vip: vip.map(comContato), horaDeChamar: horaDeChamar.map(comContato),
+    acaoComercial: (acaoComercial as any).disponivel ? { ...acaoComercial, clientesDaAlta: (acaoComercial as any).clientesDaAlta.map(comContato) } : acaoComercial,
     oferecer: oferecer?.clientes ? { ...oferecer, clientes: oferecer.clientes.map(comContato) } : oferecer,
     produtos: [...produtos.values()].sort((x, y) => y.qtd - x.qtd).slice(0, 500).map((p) => p.modelo),
     todos,

@@ -83,3 +83,18 @@ Brasília, Goiânia e Ribeirão têm 2 unidades usando o mesmo token da VarejOnl
 - Importa a planilha de fluxo de caixa / DRE gerencial da loja (aba com uma coluna por mês, ex.: "DFC 2026"); a loja é reconhecida pelo nome do arquivo.
 - Cada mês importado substitui o anterior daquela loja. Meses sem valores são ignorados.
 - No "DRE por Loja", a planilha é comparada linha a linha com o DRE do sistema: linhas iguais, diferentes (lado a lado, com a diferença) e as que só existem na planilha ou só no sistema.
+
+
+## Benchmark — Cluster, Performance e Geográfico
+
+- **Mês de baixa**: mês com menor receita nos últimos 12 meses e quanto fica abaixo do mês médio. Só aparece com ~1 ano de vendas (loja nova teria meses vazios). `indicePorMes` = receita de cada mês ÷ mês médio × 100.
+- **Cluster**: grupos por padrão de consumo e por época de venda, com pico, baixa e a faixa de 12 meses de cada loja.
+- **Performance**: `indicePerformance` = receita por habitante ÷ mediana da rede × 100. Faixas: 120+ acima, 80–119 na média, <80 abaixo.
+- **Geográfico**: lojas por porte da cidade (até 100 mil, 100–300 mil, 300 mil–1 milhão, mais de 1 milhão); `vsMediaPortePercent` compara com a média do porte (só quando há 2+ lojas no porte).
+
+## Clientes — prazo ideal de volta e ação comercial
+
+- **Prazo da loja** = mediana dos intervalos entre visitas (15 a 180 dias). **Prazo do cliente** = mediana dos intervalos dele (2+ intervalos); com 1 intervalo, média entre o dele e o da loja; sem volta, o da loja (15 a 365 dias).
+- **Situação**: em dia (< 80% do prazo), hora de chamar (80% a 130%), passou do prazo (> 130%), sumiu (> dias de "sumido"). Dentro do prazo = em dia + hora de chamar; ≥ 50% perto do ideal, 30–49% dá para melhorar, < 30% longe.
+- Nova aba **Hora de chamar** (hora + passou do prazo, até 300) e colunas "Volta ideal" e "Prazo de volta" na planilha.
+- **Ação comercial**: meses de alta (≥ 115 do mês médio) e de baixa (≤ 85), com ações para cada um, o que mais vendeu no próximo mês de alta e quem comprou nesse mês. Precisa de 12 meses de vendas da loja (Ajustes em 12 ou 24 meses).
