@@ -298,7 +298,33 @@
   .cli-ajustes{ margin-top:10px; font-size:12.5px; } .cli-ajustes summary{ cursor:pointer; color:var(--muted); }
   .cli-resumo p{ margin:6px 0; font-size:15px; line-height:1.5; }
   .cli-resumo-t{ font-size:13px; color:var(--muted); margin-bottom:4px; }
+  .cli-st{ display:inline-block; padding:0 8px; border:1px solid; border-radius:10px; font-size:11.5px; font-weight:600; line-height:18px; margin-right:4px; }
+  .cli-termo{ margin-top:12px; padding-top:12px; border-top:1px solid var(--line); }
+  .cli-termo-topo{ display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; font-size:14.5px; }
+  .cli-termo-barra{ display:flex; height:12px; border-radius:6px; overflow:hidden; background:var(--panel-2); margin:8px 0 6px; gap:2px; }
+  .cli-termo-leg{ display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--muted); }
+  .cli-termo-leg i{ display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:5px; }
+  .cli-termo-dica{ font-size:13px; margin-top:6px; }
+  .acao-cal{ display:grid; grid-template-columns:repeat(12, 1fr); gap:4px; margin:6px 0 14px; }
+  .acao-cal div{ text-align:center; border-radius:8px; padding:6px 0; font-size:11.5px; border:1px solid var(--line); }
+  .acao-cal div b{ display:block; font-size:12.5px; }
+  .acao-cal div.agora{ outline:2px solid var(--text); outline-offset:-1px; }
+  .acao-blocos{ display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  @media (max-width: 760px){ .acao-blocos{ grid-template-columns:1fr; } .acao-cal{ grid-template-columns:repeat(6, 1fr); } }
+  .acao-bloco{ border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
+  .acao-bloco h4{ margin:0 0 2px; font-size:15px; }
+  .acao-bloco .acao-sub{ font-size:12.5px; color:var(--muted); margin-bottom:10px; }
+  .acao-bloco ol{ margin:0; padding-left:20px; }
+  .acao-bloco li{ margin:0 0 10px; font-size:13.5px; line-height:1.45; }
+  .acao-bloco li button{ margin-top:4px; padding:5px 10px; font-size:12.5px; }
   .cli-alerta{ background:var(--gold-tint); border-radius:10px; padding:8px 12px; font-size:13.5px !important; }
+  .saz-faixa{ display:inline-flex; gap:2px; }
+  .saz-mes{ display:inline-block; width:15px; height:18px; line-height:18px; text-align:center; font-size:9.5px; border-radius:3px; color:var(--text); }
+  .saz-mes.saz-pico, .saz-mes.saz-baixa{ outline:2px solid var(--text); outline-offset:-2px; font-weight:700; }
+  .saz-pct{ font-size:11px; color:var(--muted); }
+  .bench-barra{ position:relative; display:block; height:10px; background:var(--panel-2); border-radius:5px; }
+  .bench-barra > span{ position:absolute; inset:0 auto 0 0; border-radius:5px; }
+  .bench-barra > i{ position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--text); }
   .cli-abas{ display:flex; gap:8px; flex-wrap:wrap; margin:4px 0 12px; }
   .cli-abas button, .cli-abas button:hover:not(:disabled){ all:unset; cursor:pointer; padding:9px 14px; border-radius:10px; border:1px solid var(--line-strong); background:var(--panel); font-size:13.5px; color:var(--text); }
   .cli-abas button:hover:not(:disabled){ background:var(--panel-2); }
@@ -759,7 +785,7 @@
     <header class="view-header">
       <h1>Clientes</h1>
       <div class="sub">Quem chamar hoje, para quem oferecer cada peça e quem faz aniversário.</div>
-      <details class="como-funciona"><summary>Como funciona</summary><div>Usa as vendas da loja com cliente identificado (CPF ou CNPJ válido; consumidor final, fornecedores e prestadores ficam de fora). Visita = dia em que o cliente comprou. Recompra = clientes com 2 ou mais visitas no período. "Voltou em até 90 dias" olha quem fez a primeira compra do período há mais de 90 dias. Tempo até voltar = mediana dos dias entre uma visita e a próxima. O perfil de cada cliente vem do que ele já comprou: categoria preferida (colar, brinco, anel…), preço médio por peça e frequência. Em "Para quem oferecer", entram clientes que compram a mesma categoria ou levaram peças que costumam sair junto com o produto, e que ainda não compraram esse modelo; a ordem considera também a faixa de preço e há quanto tempo o cliente comprou. Telefone e WhatsApp vêm do cadastro da VarejOnline.</div></details>
+      <details class="como-funciona"><summary>Como funciona</summary><div>Usa as vendas da loja com cliente identificado (CPF ou CNPJ válido; consumidor final, fornecedores e prestadores ficam de fora). Visita = dia em que o cliente comprou. Recompra = clientes com 2 ou mais visitas no período. "Voltou em até 90 dias" olha quem fez a primeira compra do período há mais de 90 dias. Prazo ideal de volta = mediana dos dias entre uma visita e a próxima (o ritmo da loja); para quem já voltou 2 vezes ou mais, vale o ritmo do próprio cliente. Situação: “em dia” (antes de 80% do prazo), “hora de chamar” (de 80% a 130%), “passou do prazo” (depois disso) e “sumiu” (mais dias sem comprar do que o escolhido em Ajustes). Dentro do prazo = em dia + hora de chamar; 50% ou mais da base é “perto do ideal”, de 30% a 49% “dá para melhorar” e abaixo de 30% “longe do ideal”. Ação comercial: meses de alta são os que vendem 15% ou mais acima do mês médio da loja; de baixa, 15% ou mais abaixo (precisa de 12 meses de vendas). O perfil de cada cliente vem do que ele já comprou: categoria preferida (colar, brinco, anel…), preço médio por peça e frequência. Em "Para quem oferecer", entram clientes que compram a mesma categoria ou levaram peças que costumam sair junto com o produto, e que ainda não compraram esse modelo; a ordem considera também a faixa de preço e há quanto tempo o cliente comprou. Telefone e WhatsApp vêm do cadastro da VarejOnline.</div></details>
     </header>
     <div class="panel">
       <div class="cli-topo">
@@ -810,7 +836,7 @@
     <header class="view-header">
       <h1>Comparativo entre lojas</h1>
       <div class="sub">Lojas de cidades diferentes, comparadas de forma justa.</div>
-      <details class="como-funciona"><summary>Como funciona</summary><div>Compara lojas de cidades diferentes de forma justa (abaixo, também a compatibilidade de mix de produtos entre elas): em vez de faturamento bruto, calcula a receita por habitante em 12 meses (loja nova é projetada para 12 meses; cidade com mais de uma loja divide a população), e agrupa lojas com padrão de consumo parecido — mesmo estando em cidades e portes diferentes.</div></details>
+      <details class="como-funciona"><summary>Como funciona</summary><div>Compara lojas de cidades diferentes de forma justa (abaixo, também a compatibilidade de mix de produtos entre elas): em vez de faturamento bruto, calcula a receita por habitante em 12 meses (loja nova é projetada para 12 meses; cidade com mais de uma loja divide a população), e agrupa lojas com padrão de consumo parecido — mesmo estando em cidades e portes diferentes. Três visões: <strong>Cluster</strong> (lojas parecidas no consumo e na época do ano, com mês de pico e mês de baixa), <strong>Performance</strong> (ranking contra a loja do meio da rede = 100) e <strong>Geográfico</strong> (lojas agrupadas pelo tamanho da cidade, comparadas com a média do mesmo porte).</div></details>
     </header>
     <div class="panel">
       <div class="grid">
@@ -1499,7 +1525,7 @@ const _cliBarras = (linhas, campo, fmt) => {
 };
 
 // ---- Clientes, modo simples: frases, abas de tarefas e cartões ----
-let _cliAba = 'volta', _cliMostrar = {};
+let _cliAba = 'hora', _cliMostrar = {};
 const _cliTitulo = t => _nomeBonito(String(t || '').toLowerCase());
 const _cliMeses = d => d === 1 ? '1 dia' : d < 45 ? `${d} dias` : d < 365 ? `${Math.round(d / 30)} meses` : 'mais de 1 ano';
 const _cliQuando = d => d <= 0 ? 'hoje' : d === 1 ? 'ontem' : `há ${_cliMeses(d)}`;
@@ -1510,8 +1536,19 @@ function _cliMensagem(tipo, c, loja, extra) {
   const sug = c.sugestao ? _cliTitulo(c.sugestao) : null;
   if (tipo === 'volta') return `Oi, ${n}! Aqui é da ${lj}. Faz um tempinho que você não passa por aqui e sentimos sua falta! ${sug ? `Chegou ${sug} e lembrei de você.` : 'Chegaram muitas novidades.'} Quer que eu separe pra você ver?`;
   if (tipo === 'aniversario') return `Feliz aniversário, ${n}! 🎉 Toda a equipe da ${lj} deseja um dia lindo pra você. Passa aqui na loja quando puder, vai ser um prazer te receber!`;
+  if (tipo === 'hora') return `Oi, ${n}! Aqui é da ${lj}. ${sug ? `Chegou ${sug} e lembrei de você na hora!` : 'Chegaram novidades lindas e lembrei de você!'} Quer que eu separe pra você ver?`;
+  if (tipo === 'alta') return `Oi, ${n}! Aqui é da ${lj}. Estamos preparando as novidades da temporada e quis te avisar antes de todo mundo${sug ? ` (já chegou ${sug}, que tem a sua cara)` : ''}. Quer que eu separe algumas peças pra você?`;
   if (tipo === 'vip') return `Oi, ${n}! Aqui é da ${lj}. Você é uma cliente muito especial pra gente${sug ? ` e separei ${sug}, que tem a sua cara` : ''}. Quer que eu mande fotos?`;
   return `Oi, ${n}! Aqui é da ${lj}. Chegou ${_cliTitulo(extra)} e lembrei de você na hora. Quer que eu mande fotos?`;
+}
+
+// prazo ideal de volta do cliente: o ritmo dele (ou o da loja, para quem voltou pouco) e se já está na hora
+const _CLI_ST = { em_dia: ['Em dia', 'var(--good)'], hora: ['Hora de chamar', 'var(--accent)'], atrasado: ['Passou do prazo', 'var(--warn)'], sumido: ['Sumiu', 'var(--muted)'] };
+function _cliPrazoTxt(c) {
+  const [rot, cor] = _CLI_ST[c.statusVolta] || ['', 'var(--muted)'];
+  const d = c.diasParaVolta;
+  const quando = d > 1 ? `faltam ${_cliMeses(d)}` : d === 1 ? 'falta 1 dia' : d === 0 ? 'é hoje' : `passou ${_cliMeses(-d)}`;
+  return `<span class="cli-st" style="border-color:${cor}; color:${cor}">${rot}</span> Volta ideal <strong>${_cliData(c.voltaIdeal)}</strong> (${quando}) · costuma voltar a cada ${_cliMeses(c.prazoVoltaDias)}`;
 }
 
 function _cliCartao(c, tipo, loja, extra) {
@@ -1529,6 +1566,7 @@ function _cliCartao(c, tipo, loja, extra) {
       </div>
     </div>
     <div class="cli-linha">${linha1}</div>
+    ${c.voltaIdeal && tipo !== 'aniversario' ? `<div class="cli-linha">${_cliPrazoTxt(c)}</div>` : ''}
     ${gosta ? `<div class="cli-linha">Gosta de <strong>${esc(gosta)}</strong> · costuma gastar ${esc(c.faixaPreco)} por peça</div>` : ''}
     ${tipo === 'oferecer' ? `<div class="cli-linha cli-motivo-txt">Por que oferecer: ${esc(c.motivo)}</div>` : (c.sugestao ? `<div class="cli-linha">Ofereça: <strong>${esc(_cliTitulo(c.sugestao))}</strong> <span class="cli-dica-sug" title="Peça que está vendendo bem na categoria que esse cliente mais compra e que ele ainda não levou">(está vendendo bem)</span></div>` : '')}
     <div class="cli-linha cli-contato">${k.telefone ? esc(k.telefone) : 'sem telefone no cadastro'}</div>
@@ -1658,6 +1696,50 @@ async function desenharMapaClientes(d) {
   L.circleMarker(c, { radius: 8, color: '#fff', weight: 2, fillColor: '#FAA918', fillOpacity: 1 }).bindTooltip(d.loja.estimado ? 'centro dos clientes (loja não localizada)' : 'Loja').addTo(m);
 }
 
+// ---- Clientes › Ação comercial: o que fazer nos meses de baixa e de alta da loja ----
+const _MESES_NOME = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+function conteudoAcaoComercial(d, loja) {
+  const A = d.acaoComercial, R = d.resumo;
+  if (!A || !A.disponivel) return `<div class="empty">${esc(A?.motivo || 'Sem dados de sazonalidade.')}</div>`;
+  const nomes = idx => idx.map(i => _MESES_NOME[i]).join(', ');
+  const quando = (p) => p.emMeses === 0 ? 'é agora' : p.emMeses === 1 ? 'começa no mês que vem' : `faltam ${p.emMeses} meses`;
+  const cal = `<div class="acao-cal" aria-label="Venda de cada mês comparada com o mês médio da loja">${A.indicePorMes.map((v, i) => {
+    const tipo = v >= 115 ? 'alta' : v <= 85 ? 'baixa' : 'normal';
+    const bg = tipo === 'alta' ? 'var(--accent-tint)' : tipo === 'baixa' ? 'var(--gold-tint)' : 'transparent';
+    return `<div class="${i === A.mesAtual ? 'agora' : ''}" style="background:${bg}" title="${_MESES_NOME[i]}: ${v} (100 = mês médio)"><b>${MESES_CURTOS[i]}</b>${v >= 100 ? '+' : ''}${v - 100}%</div>`;
+  }).join('')}</div>`;
+  const agora = { alta: 'Você está num mês de <strong>alta</strong>: garanta estoque e atendimento.', baixa: 'Você está num mês de <strong>baixa</strong>: é hora de ir atrás do cliente.', normal: 'Este mês está na média da loja.' }[A.tipoMesAtual];
+
+  const B = A.proximaBaixa, H = A.proximaAlta;
+  const blocoBaixa = !B ? '' : `<div class="acao-bloco">
+    <h4>Para a baixa (${esc(nomes(A.mesesBaixa))})</h4>
+    <div class="acao-sub">${_MESES_NOME[B.mes][0].toUpperCase() + _MESES_NOME[B.mes].slice(1)} vende ${100 - B.indice}% menos que um mês médio · ${quando(B)}</div>
+    <ol>
+      <li><strong>Chame quem está na hora de voltar.</strong> ${fmtNum(R.horaDeChamar || 0)} clientes chegaram ou passaram da data em que costumam voltar.<br><button type="button" class="secondary" data-cli-ir-aba="hora">Ver quem chamar</button></li>
+      ${R.sumidos ? `<li><strong>Traga de volta quem sumiu.</strong> ${fmtNum(R.sumidos || 0)} clientes não compram há mais de ${d.parametros.sumidoDias} dias; juntos gastaram ${fmtMoeda(R.fatSumidos || 0)}.<br><button type="button" class="secondary" data-cli-ir-aba="volta">Chamar de volta</button></li>` : ''}
+      <li><strong>Gire o estoque parado.</strong> Use as peças sem venda há 90 dias em vitrine, kit ou condição especial.<br><button type="button" class="secondary" data-ir="inicio">Ver produtos parados no Início</button></li>
+      <li><strong>Ofereça a peça certa.</strong> Escolha um produto e mande para quem tem o perfil de comprar.<br><button type="button" class="secondary" data-cli-ir-aba="oferecer">Oferecer uma peça</button></li>
+      <li><strong>Use os aniversários.</strong> Aniversário é um bom motivo para chamar no mês fraco.<br><button type="button" class="secondary" data-cli-ir-aba="aniversario">Aniversariantes do mês</button></li>
+      <li><strong>Ajuste a meta.</strong> Uma meta realista para o mês de baixa mantém a equipe motivada.<br><button type="button" class="secondary" data-ir="financeiro">Metas em Financeiro</button></li>
+    </ol></div>`;
+  const top = H?.maisVendidos || [];
+  const blocoAlta = !H ? '' : `<div class="acao-bloco">
+    <h4>Para a alta (${esc(nomes(A.mesesAlta))})</h4>
+    <div class="acao-sub">${_MESES_NOME[H.mes][0].toUpperCase() + _MESES_NOME[H.mes].slice(1)} vende ${H.indice - 100}% mais que um mês médio · ${quando(H)}</div>
+    <ol>
+      <li><strong>Peça antes.</strong> Faça o pedido na Central com antecedência, contando o prazo de entrega de cada fornecedor.<br><button type="button" class="secondary" data-ir="pedido">Fazer pedido para a Central</button></li>
+      ${top.length ? `<li><strong>Garanta o que mais vendeu em ${_MESES_NOME[H.mes]}:</strong><br>${top.map(p => `${esc(_cliTitulo(p.modelo))} <span style="color:var(--muted)">(${fmtNum(p.qtd)} peças)</span>`).join(' · ')}</li>` : ''}
+      <li><strong>Avise primeiro quem compra nessa época.</strong> ${fmtNum(H.clientes)} clientes compraram em ${_MESES_NOME[H.mes]}. A lista está logo abaixo, com a mensagem pronta.</li>
+      <li><strong>Trate os melhores clientes como VIP.</strong> Mostre as novidades antes de todo mundo.<br><button type="button" class="secondary" data-cli-ir-aba="vip">Melhores clientes</button></li>
+      <li><strong>Reforce a equipe.</strong> Escala completa nos dias e horários de pico, e foco em peças por atendimento (PA).<br><button type="button" class="secondary" data-ir="vendedores">Ver minha equipe</button></li>
+    </ol></div>`;
+  const blocos = A.tipoMesAtual === 'alta' || (H && B && H.emMeses < B.emMeses) ? blocoAlta + blocoBaixa : blocoBaixa + blocoAlta;
+  return `<div class="cli-intro">${agora} Meses de alta e de baixa calculados com as vendas dos últimos ${d.parametros.meses} meses da loja.</div>
+    ${cal}
+    ${blocos ? `<div class="acao-blocos">${blocos}</div>` : '<div class="empty">A venda da loja é estável no ano: nenhum mês fica 15% acima ou abaixo da média.</div>'}
+    ${H && (A.clientesDaAlta || []).length ? `<div class="subsecao-titulo" style="margin-top:16px">Quem comprou em ${_MESES_NOME[H.mes]}: avise antes da alta</div>${_cliLista(A.clientesDaAlta, 'alta', loja, null, '')}` : ''}`;
+}
+
 function desenharClientes() {
   const d = _cliDados, box = $('resultado-clientes'); if (!d) return;
   const R = d.resumo, P = d.parametros, loja = P.loja;
@@ -1667,17 +1749,30 @@ function desenharClientes() {
   const frases = [
     `Nos últimos ${P.meses} meses, <strong>${fmtNum(R.clientes)} clientes</strong> compraram com você e deixaram o CPF.`,
     de10 != null ? `De cada 10 clientes, <strong>${de10} ${de10 === 1 ? 'volta' : 'voltam'}</strong> a comprar.` : '',
-    R.intervaloMedianoDias != null ? `Quem volta, costuma voltar em <strong>cerca de ${_cliMeses(R.intervaloMedianoDias)}</strong>.` : '',
+    R.prazoIdealDias != null ? `O prazo ideal de volta da sua loja é de <strong>cerca de ${_cliMeses(R.prazoIdealDias)}</strong>: é o tempo que seus clientes costumam levar para voltar.` : '',
     R.sumidos ? `<strong>${fmtNum(R.sumidos)} clientes sumiram</strong> (mais de ${P.sumidoDias} dias sem comprar). Juntos eles gastaram ${fmtMoeda(R.fatSumidos)} — vale chamar de volta.` : '',
   ].filter(Boolean);
   const nAniv = (d.aniversariantes || []).filter(c => !c.jaPassou).length;
-  const abas = [['volta', `Chamar de volta`, R.sumidos], ['aniversario', 'Aniversariantes do mês', nAniv], ['vip', 'Melhores clientes', null], ['oferecer', 'Oferecer uma peça', null], ['local', 'Onde moram', null]];
+  const termometro = R.noPrazoPct == null ? '' : (() => {
+    const [rot, cor, dica] = { perto: ['Perto do ideal', 'var(--good)', 'A maior parte da base está voltando no tempo certo. Continue chamando quem chega na data.'], atencao: ['Dá para melhorar', 'var(--gold, #B07800)', `Chame quem está na hora de voltar (aba “Hora de chamar”) para subir esse número.`], longe: ['Longe do ideal', 'var(--warn)', 'Muitos clientes passaram do prazo. Comece pela aba “Hora de chamar” e depois “Chamar de volta”.'] }[R.situacaoPrazo];
+    const tot = (R.voltaEmDia + R.voltaHora + R.voltaAtrasado + R.voltaSumido) || 1;
+    const seg = [['em_dia', R.voltaEmDia, 'var(--good)'], ['hora', R.voltaHora, 'var(--accent)'], ['atrasado', R.voltaAtrasado, 'var(--warn)'], ['sumido', R.voltaSumido, 'var(--line-strong)']];
+    return `<div class="cli-termo">
+      <div class="cli-termo-topo"><span>Clientes dentro do prazo de volta: <strong>${fmtNum(Math.round(R.noPrazoPct))}%</strong></span><span class="cli-st" style="border-color:${cor}; color:${cor}">${rot}</span></div>
+      <div class="cli-termo-barra">${seg.map(([k, n, c]) => n ? `<span style="width:${(n / tot * 100).toFixed(1)}%; background:${c}" title="${_CLI_ST[k][0]}: ${fmtNum(n)}"></span>` : '').join('')}</div>
+      <div class="cli-termo-leg">${seg.map(([k, n, c]) => `<span><i style="background:${c}"></i>${_CLI_ST[k][0]} ${fmtNum(n)}</span>`).join('')}</div>
+      <div class="cli-termo-dica">${dica}</div>
+    </div>`;
+  })();
+  const abas = [['hora', 'Hora de chamar', R.horaDeChamar], ['volta', `Chamar de volta`, R.sumidos], ['aniversario', 'Aniversariantes do mês', nAniv], ['vip', 'Melhores clientes', null], ['oferecer', 'Oferecer uma peça', null], ['local', 'Onde moram', null], ['acao', 'Ação comercial', null]];
   const nomeMes = new Date().toLocaleDateString('pt-BR', { month: 'long' });
   let conteudo = '';
   if (_cliAba === 'volta') conteudo = `<div class="cli-intro">Clientes que não compram há mais de ${P.sumidoDias} dias, começando por quem mais gastava. Mande uma mensagem pelo WhatsApp com o texto já pronto.</div>${_cliLista(d.sumidos, 'volta', loja, null, 'Ninguém sumiu nesse prazo. 🎉')}`;
   if (_cliAba === 'aniversario') conteudo = `<div class="cli-intro">Clientes que fazem aniversário em ${nomeMes} (entre os que mais compram e os que sumiram — aniversário é um ótimo motivo para chamar).</div>${_cliLista([...(d.aniversariantes || [])].sort((x, y) => (x.jaPassou - y.jaPassou) || String(x.contato?.aniversario).localeCompare(String(y.contato?.aniversario))), 'aniversario', loja, null, 'Nenhum aniversariante encontrado neste mês (a data precisa estar no cadastro do cliente).')}`;
   if (_cliAba === 'vip') conteudo = `<div class="cli-intro">Quem mais comprou com você no período. Trate como VIP: avise primeiro das novidades.</div>${_cliLista(d.vip, 'vip', loja, null, 'Sem clientes identificados no período.')}`;
   if (_cliAba === 'local') conteudo = conteudoOndeMoram(loja, P.meses);
+  if (_cliAba === 'hora') conteudo = `<div class="cli-intro">Clientes que chegaram (ou passaram há pouco) da data em que costumam voltar. É o melhor momento para chamar: a vontade de comprar ainda está viva. Primeiro quem está na hora, depois quem passou do prazo.</div>${_cliLista(d.horaDeChamar || [], 'hora', loja, null, 'Ninguém na hora de voltar agora. 🎉')}`;
+  if (_cliAba === 'acao') conteudo = conteudoAcaoComercial(d, loja);
   if (_cliAba === 'oferecer') {
     const o = d.oferecer;
     conteudo = `<div class="cli-intro">Escolha uma peça e veja quem tem o perfil para comprar — pessoas que gostam da mesma categoria, gastam na mesma faixa de preço ou levaram peças que combinam com ela.</div>
@@ -1691,6 +1786,7 @@ function desenharClientes() {
     <div class="panel cli-resumo">
       <div class="cli-resumo-t">Como estão seus clientes — ${esc(loja)}</div>
       ${frases.map(f => `<p>${f}</p>`).join('')}
+      ${termometro}
       ${ident10 != null && ident10 < 7 ? `<p class="cli-alerta">Só ${ident10} de cada 10 vendas têm o CPF do cliente. <strong>Peça o CPF no caixa</strong>: sem ele, o cliente não aparece aqui e você não consegue chamá-lo de volta.</p>` : ''}
     </div>
     <div class="cli-abas" role="tablist">${abas.map(([k, t, n]) => `<button type="button" role="tab" class="${k === _cliAba ? 'on' : ''}" data-cli-aba="${k}">${t}${n ? ` <span class="cli-n">${fmtNum(n)}</span>` : ''}</button>`).join('')}</div>
@@ -1700,6 +1796,8 @@ function desenharClientes() {
   box.querySelectorAll('[data-cli-aba]').forEach(b => b.addEventListener('click', () => { _cliAba = b.dataset.cliAba; desenharClientes(); }));
   box.querySelectorAll('[data-cli-mais]').forEach(b => b.addEventListener('click', () => { _cliMostrar[b.dataset.cliMais] = (_cliMostrar[b.dataset.cliMais] || 10) + 10; desenharClientes(); }));
   box.querySelectorAll('[data-cli-prod]').forEach(b => b.addEventListener('click', () => rodarClientes(b.dataset.cliProd)));
+  box.querySelectorAll('[data-cli-ir-aba]').forEach(b => b.addEventListener('click', () => { _cliAba = b.dataset.cliIrAba; desenharClientes(); $('cli_oferecer')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }));
+  ligarIrPara(box, loja);
   const buscar = () => { const v = $('cli_of_prod')?.value.trim(); if (v) rodarClientes(v); };
   $('cli_of_buscar')?.addEventListener('click', buscar);
   $('cli_of_prod')?.addEventListener('keydown', e => { if (e.key === 'Enter') buscar(); });
@@ -1774,6 +1872,7 @@ async function exportarClientes() {
     const colunas = (extra = []) => [
       { titulo: 'Cliente', largura: 30 }, { titulo: 'Telefone', largura: 17 }, { titulo: 'Link WhatsApp', largura: 30 }, { titulo: 'E-mail', largura: 28 }, { titulo: 'Aniversário', largura: 11 },
       ...extra,
+      { titulo: 'Volta ideal', largura: 12, tipo: 'data' }, { titulo: 'Prazo de volta', largura: 14 },
       { titulo: 'Última compra', largura: 13, tipo: 'data' }, { titulo: 'Dias sem comprar', largura: 10, tipo: 'numero' }, { titulo: 'Visitas', largura: 9, tipo: 'numero' },
       { titulo: 'Gasto no período', largura: 15, tipo: 'moeda' }, { titulo: 'Ticket médio', largura: 13, tipo: 'moeda' }, { titulo: 'Gosta de', largura: 30 }, { titulo: 'Faixa de preço por peça', largura: 18 },
       { titulo: 'Peça sugerida', largura: 26 }, { titulo: 'Último produto', largura: 34 },
@@ -1781,11 +1880,13 @@ async function exportarClientes() {
     const linha = (c, extra = []) => [
       _nomeBonito(c.nome), c.contato?.telefone || '', c.contato?.whatsapp ? `https://wa.me/${c.contato.whatsapp}` : '', c.contato?.email || '', c.contato?.aniversario || '',
       ...extra,
+      c.voltaIdeal || '', c.statusVolta ? (_CLI_ST[c.statusVolta] || [''])[0] : '',
       c.ultimaCompra, c.diasSemComprar, c.visitas, c.total, c.ticket, (c.categorias || []).join(', ').toLowerCase(), c.faixaPreco,
       c.sugestao ? _cliTitulo(c.sugestao) : '', c.ultimoProduto || '',
     ];
     const abas = [
       { nome: 'Todos os clientes', colunas: colunas([{ titulo: 'Situação', largura: 12 }]), linhas: (e.todos || []).map(c => linha(c, [c.diasSemComprar <= 90 ? 'ativo' : c.diasSemComprar <= P.sumidoDias ? 'esfriando' : 'sumido'])) },
+      { nome: 'Hora de chamar', colunas: colunas(), linhas: (e.horaDeChamar || []).map(c => linha(c)) },
       { nome: 'Chamar de volta', colunas: colunas(), linhas: e.sumidos.map(c => linha(c)) },
       { nome: 'Aniversariantes do mês', colunas: colunas(), linhas: (e.aniversariantes || []).map(c => linha(c)) },
       { nome: 'Melhores clientes', colunas: colunas(), linhas: e.vip.map(c => linha(c)) },
@@ -2809,82 +2910,99 @@ function renderFinanceiro(data, box) {
 }
 
 // ---------- Render: BENCHMARK entre lojas ----------
+let _benchAba = 'cluster';
+const MESES_CURTOS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+// faixa de 12 meses: cada quadradinho é um mês, comparado com o mês médio da loja (100)
+function faixaSazonalLoja(ind) {
+  if (!ind) return '<span style="font-size:11px; color:var(--muted)">precisa de 12 meses de vendas</span>';
+  const mx = Math.max(...ind), mn = Math.min(...ind);
+  return `<span class="saz-faixa" aria-label="Venda por mês comparada com o mês médio">${ind.map((v, i) => {
+    const cor = v >= 115 ? 'var(--accent)' : v <= 85 ? 'var(--warn)' : 'var(--panel-2)';
+    const marca = v === mx ? ' saz-pico' : v === mn ? ' saz-baixa' : '';
+    return `<span class="saz-mes${marca}" style="background:${cor}" title="${MESES_CURTOS[i]}: ${v} (100 = mês médio)">${MESES_CURTOS[i][0]}</span>`;
+  }).join('')}</span>`;
+}
+const _picoTxt = l => l.mesPicoNome ? `${l.mesPicoNome}${l.intensidadeSazonalPercent != null ? ` <span class="saz-pct">+${fmtNum(l.intensidadeSazonalPercent)}%</span>` : ''}` : '—';
+const _baixaTxt = l => l.mesBaixaNome ? `${l.mesBaixaNome}${l.intensidadeBaixaPercent != null ? ` <span class="saz-pct">−${fmtNum(l.intensidadeBaixaPercent)}%</span>` : ''}` : '—';
+const _indiceTxt = v => v == null ? '—' : `<span style="font-weight:600; color:${v >= 120 ? 'var(--good)' : v < 80 ? 'var(--warn)' : 'inherit'}">${v}</span>`;
+const _pctVs = v => v == null ? '—' : `<span style="color:${v >= 0 ? 'var(--good)' : 'var(--warn)'}">${v >= 0 ? '+' : ''}${fmtNum(v)}%</span>`;
+
 function renderBenchmark(data, box) {
   const validas = data.lojas.filter(l => !l.semPerfil && !l.erro);
   const semPerfil = data.lojas.filter(l => l.semPerfil);
   const comErro = data.lojas.filter(l => l.erro);
+  const porNome = new Map(validas.map(l => [l.nomeLoja, l]));
+  const grupoHtml = (titulo, nomes, extra = '') => `
+    <div style="margin-bottom:14px;">
+      <div style="font-size:13px; font-weight:600; margin-bottom:6px;">${esc(titulo)} <span style="font-weight:400; color:var(--muted)">(${nomes.length} ${nomes.length === 1 ? 'loja' : 'lojas'})${extra}</span></div>
+      <div>${nomes.map(n => `<span class="bandeira-pill">${esc(n)}</span>`).join('')}</div>
+    </div>`;
+  const abas = [['cluster', 'Cluster'], ['performance', 'Performance'], ['geografico', 'Geográfico (habitantes)']];
+
+  let conteudo = '';
+  if (_benchAba === 'cluster') {
+    conteudo += `<div class="sub" style="max-width:none; margin-bottom:10px">Lojas parecidas entre si, mesmo em cidades diferentes: pelo padrão de consumo (receita por habitante + idade da loja) e pela época do ano em que vendem mais.</div>`;
+    conteudo += `<div class="subsecao-titulo">Por padrão de consumo</div><div class="panel">${data.clusters.length ? data.clusters.map(c => grupoHtml(c.grupo, c.lojas)).join('') : '<div class="empty">Nenhum grupo de consumo com mais de uma loja ainda.</div>'}</div>`;
+    conteudo += `<div class="subsecao-titulo">Por época de venda (trimestre de pico + intensidade)</div><div class="panel">${(data.clustersSazonais || []).length ? data.clustersSazonais.map(c => grupoHtml(c.grupo, c.lojas)).join('') : '<div class="empty">Nenhum grupo sazonal com mais de uma loja ainda (precisa de 12 meses de vendas).</div>'}</div>`;
+    conteudo += `<div class="subsecao-titulo">Pico e baixa de cada loja</div>
+      <div class="panel" style="overflow-x:auto;"><table><thead><tr><th>Loja</th><th>Mês de pico</th><th>Mês de baixa</th><th>Ano da loja, mês a mês</th><th>Sazonalidade</th></tr></thead><tbody>
+      ${[...validas].sort((a, b) => String(a.grupoSazonal).localeCompare(String(b.grupoSazonal)) || a.nomeLoja.localeCompare(b.nomeLoja)).map(l => `<tr>
+        <td class="prod-name">${esc(l.nomeLoja)}</td><td>${_picoTxt(l)}</td><td>${_baixaTxt(l)}</td><td>${faixaSazonalLoja(l.indicePorMes)}</td>
+        <td style="font-size:11px">${l.faixaSazonalidade && l.faixaSazonalidade !== 'sem_dado' ? l.faixaSazonalidade : '—'}</td></tr>`).join('')}
+      </tbody></table>
+      <div class="sub" style="font-size:11px; margin-top:8px; max-width:none">Pico = mês que mais vende (quanto acima do mês médio). Baixa = mês que menos vende (quanto abaixo). Na faixa, vermelho = mês forte (15% ou mais acima da média) e laranja = mês fraco (15% ou mais abaixo). Loja com menos de 12 meses de vendas não tem mês de baixa.</div></div>`;
+  }
+  if (_benchAba === 'performance') {
+    const med = data.medianaReceitaPorHabitante;
+    conteudo += `<div class="sub" style="max-width:none; margin-bottom:10px">Quem vende mais para o tamanho da sua cidade. O índice compara a receita por habitante de cada loja com a loja do meio da rede (100). ${med ? `Loja do meio: ${fmtMoeda(med)} por habitante em 12 meses.` : ''}</div>`;
+    conteudo += `<div class="panel">${(data.performance || []).filter(f => f.lojas.length).map(f => grupoHtml(f.faixa, f.lojas)).join('') || '<div class="empty">Sem lojas para comparar.</div>'}</div>`;
+    const maxIdx = Math.max(1, ...validas.map(l => l.indicePerformance || 0));
+    conteudo += `<div class="subsecao-titulo">Ranking</div>
+      <div class="panel" style="overflow-x:auto;"><table><thead><tr><th>#</th><th>Loja</th><th class="num">Índice</th><th style="min-width:140px"></th><th class="num">Receita/habitante</th><th class="num">Receita 12 meses</th><th>Giro estoque</th><th>Top 10 produtos</th></tr></thead><tbody>
+      ${[...validas].sort((a, b) => (b.indicePerformance ?? -1) - (a.indicePerformance ?? -1)).map((l, i) => `<tr>
+        <td>${i + 1}</td><td class="prod-name">${esc(l.nomeLoja)}</td><td class="num">${_indiceTxt(l.indicePerformance)}</td>
+        <td><span class="bench-barra"><span style="width:${Math.min(100, (l.indicePerformance || 0) / maxIdx * 100)}%; background:${(l.indicePerformance ?? 0) >= 120 ? 'var(--good)' : (l.indicePerformance ?? 0) < 80 ? 'var(--warn)' : 'var(--accent-2)'}"></span><i style="left:${Math.min(100, 100 / maxIdx * 100)}%" title="100 = loja do meio"></i></span></td>
+        <td class="num">${fmtMoeda(l.receitaPorHabitante)}</td>
+        <td class="num">${fmtMoeda(l.receitaAnual ?? l.receitaBruta)}${l.projetadoAno ? `<br><span style="font-size:10.5px; color:var(--muted)">projetado · ${l.diasComVenda} dias</span>` : ''}</td>
+        <td>${l.giroEstoque != null ? fmtNum(l.giroEstoque) + 'x' : '—'}</td><td>${l.concentracaoTop10Percent != null ? l.concentracaoTop10Percent + '%' : '—'}</td></tr>`).join('')}
+      </tbody></table>
+      <div class="sub" style="font-size:11px; margin-top:8px; max-width:none">Índice 120 ou mais = acima da rede · 80 a 119 = na média · abaixo de 80 = abaixo da rede. A linha fina na barra marca o 100. Giro = peças vendidas ÷ peças em estoque. Top 10 = quanto da receita vem dos 10 produtos que mais vendem.</div></div>`;
+  }
+  if (_benchAba === 'geografico') {
+    conteudo += `<div class="sub" style="max-width:none; margin-bottom:10px">Lojas agrupadas pelo tamanho da cidade. Cada loja é comparada com a média das lojas de cidades do mesmo porte.</div>`;
+    conteudo += (data.geografico || []).map(g => `
+      <div class="subsecao-titulo">${esc(g.porte)} <span style="font-weight:400; color:var(--muted)">· ${g.lojas.length} ${g.lojas.length === 1 ? 'loja' : 'lojas'} · média ${fmtMoeda(g.mediaReceitaPorHabitante)}/habitante</span></div>
+      <div class="panel" style="overflow-x:auto;"><table><thead><tr><th>Loja</th><th>Cidade</th><th class="num">Habitantes</th><th class="num">Receita/habitante</th><th class="num">vs. média do porte</th><th>Pico</th><th>Baixa</th></tr></thead><tbody>
+      ${g.lojas.map(n => porNome.get(n)).filter(Boolean).map(l => `<tr>
+        <td class="prod-name">${esc(l.nomeLoja)}</td><td>${esc(l.cidade || '—')}</td>
+        <td class="num">${fmtNum(l.populacao)}${(l.lojasNaCidade || 1) > 1 ? `<br><span style="font-size:10.5px; color:var(--muted)">÷ ${l.lojasNaCidade} lojas = ${fmtNum(l.populacaoAtendida)}</span>` : ''}</td>
+        <td class="num"><strong>${fmtMoeda(l.receitaPorHabitante)}</strong></td><td class="num">${_pctVs(l.vsMediaPortePercent)}</td>
+        <td>${_picoTxt(l)}</td><td>${_baixaTxt(l)}</td></tr>`).join('')}
+      </tbody></table></div>`).join('') || '<div class="panel"><div class="empty">Sem lojas com população cadastrada.</div></div>';
+  }
 
   let html = `
     <div class="kpis">
       <div class="kpi"><div class="label">Lojas comparadas</div><div class="value">${validas.length}</div></div>
-      <div class="kpi"><div class="label">Grupos de consumo em comum</div><div class="value">${data.clusters.length}</div></div>
-      <div class="kpi"><div class="label">Grupos sazonais em comum</div><div class="value">${(data.clustersSazonais||[]).length}</div></div>
+      <div class="kpi"><div class="label">Grupos de consumo</div><div class="value">${data.clusters.length}</div></div>
+      <div class="kpi"><div class="label">Grupos sazonais</div><div class="value">${(data.clustersSazonais || []).length}</div></div>
+      <div class="kpi"><div class="label">Portes de cidade</div><div class="value">${(data.geografico || []).length}</div></div>
     </div>
-  `;
-
-  if (data.clusters.length) {
-    html += `<div class="subsecao-titulo">Grupos por padrão de consumo (receita per capita + maturidade)</div>`;
-    html += `<div class="panel">` + data.clusters.map(c => `
-      <div style="margin-bottom:14px;">
-        <div style="font-family:var(--mono); font-size:12px; color:var(--accent-2); margin-bottom:6px;">${c.grupo} (${c.lojas.length} lojas)</div>
-        <div>${c.lojas.map(l => `<span class="bandeira-pill">${l}</span>`).join('')}</div>
-      </div>
-    `).join('') + `</div>`;
-  } else {
-    html += `<div class="panel"><div class="empty">Nenhum grupo de consumo com mais de uma loja ainda.</div></div>`;
-  }
-
-  if ((data.clustersSazonais||[]).length) {
-    html += `<div class="subsecao-titulo">Grupos por padrão sazonal regional (mesmo trimestre de pico + intensidade parecida)</div>`;
-    html += `<div class="panel">` + data.clustersSazonais.map(c => `
-      <div style="margin-bottom:14px;">
-        <div style="font-family:var(--mono); font-size:12px; color:var(--accent-2); margin-bottom:6px;">${c.grupo} (${c.lojas.length} lojas)</div>
-        <div>${c.lojas.map(l => `<span class="bandeira-pill">${l}</span>`).join('')}</div>
-      </div>
-    `).join('') + `</div>`;
-  } else {
-    html += `<div class="subsecao-titulo">Grupos por padrão sazonal regional</div><div class="panel"><div class="empty">Nenhum grupo sazonal com mais de uma loja ainda (precisa de histórico de 12 meses pra calcular).</div></div>`;
-  }
-
-  html += `
-    <div class="subsecao-titulo">Comparativo detalhado, por loja (ordenado por receita por habitante)</div>
-    <div class="panel" style="overflow-x:auto;">
-      <table>
-        <thead><tr>
-          <th>Loja</th><th>Cidade</th><th class="num">Receita 12 meses</th><th class="num">População atendida</th><th class="num">Receita/habitante</th><th>Padrão</th>
-          <th>Giro estoque</th><th>Top 10 produtos</th><th>Mês de pico</th><th>Sazonalidade</th>
-        </tr></thead>
-        <tbody>
-          ${validas.map(l => `
-            <tr>
-              <td class="prod-name">${l.nomeLoja}</td>
-              <td>${l.cidade || '—'}</td>
-              <td class="num">${fmtMoeda(l.receitaAnual ?? l.receitaBruta)}${l.projetadoAno ? `<br><span style="font-size:10.5px; color:var(--muted)" title="Vendas de ${l.diasComVenda} dias (${fmtMoeda(l.receitaBruta)}) projetadas para 12 meses">projetado · ${l.diasComVenda} dias</span>` : ''}</td>
-              <td class="num">${fmtNum(l.populacaoAtendida ?? l.populacao)}${(l.lojasNaCidade || 1) > 1 ? `<br><span style="font-size:10.5px; color:var(--muted)">${fmtNum(l.populacao)} ÷ ${l.lojasNaCidade} lojas</span>` : ''}</td>
-              <td class="num"><strong>${fmtMoeda(l.receitaPorHabitante)}</strong></td>
-              <td style="font-size:11px">${l.grupoPadrao || '—'}</td>
-              <td>${l.giroEstoque != null ? fmtNum(l.giroEstoque) + 'x' : '—'}</td>
-              <td>${l.concentracaoTop10Percent != null ? l.concentracaoTop10Percent + '%' : '—'}</td>
-              <td>${l.mesPicoNome || '—'}</td>
-              <td style="font-size:11px">${l.faixaSazonalidade && l.faixaSazonalidade !== 'sem_dado' ? l.faixaSazonalidade : '—'}</td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
-      <div class="sub" style="font-size:11px; margin-top:8px; max-width:none">Receita/habitante = vendas dos últimos 12 meses ÷ população atendida. Loja com menos de 1 ano de vendas tem a receita projetada para 12 meses. Cidade com mais de uma loja: a população é dividida entre elas. População vem do cadastro de perfil das lojas.</div>
-    </div>
-  `;
+    <div class="cli-abas" role="tablist">${abas.map(([k, t]) => `<button type="button" role="tab" class="${k === _benchAba ? 'on' : ''}" data-bench-aba="${k}">${t}</button>`).join('')}</div>
+    ${conteudo}
+    <div class="sub" style="font-size:11px; margin-top:8px; max-width:none">Receita/habitante = vendas dos últimos 12 meses ÷ população atendida. Loja com menos de 1 ano de vendas tem a receita projetada para 12 meses. Cidade com mais de uma loja: a população é dividida entre elas. População vem do cadastro de perfil das lojas.</div>`;
 
   if (semPerfil.length) {
     html += `<div class="subsecao-titulo">Sem população cadastrada (ficaram de fora da comparação)</div>
-    <div class="panel"><div class="empty">${semPerfil.map(l => l.nomeLoja).join(', ')} — adicione cidade/população na tabela perfil_lojas.</div></div>`;
+    <div class="panel"><div class="empty">${semPerfil.map(l => esc(l.nomeLoja)).join(', ')} — adicione cidade/população na tabela perfil_lojas.</div></div>`;
   }
   if (comErro.length) {
     html += `<div class="subsecao-titulo">Erros ao consultar</div>
-    <div class="panel">${comErro.map(l => `<div class="err" style="margin-bottom:8px">${l.nomeLoja}: ${l.erro}</div>`).join('')}</div>`;
+    <div class="panel">${comErro.map(l => `<div class="err" style="margin-bottom:8px">${esc(l.nomeLoja)}: ${esc(l.erro)}</div>`).join('')}</div>`;
   }
 
   box.innerHTML = html;
+  box.querySelectorAll('[data-bench-aba]').forEach(b => b.addEventListener('click', () => { _benchAba = b.dataset.benchAba; renderBenchmark(data, box); }));
 }
 
 // ---------- Cadastro de Lojas ----------
