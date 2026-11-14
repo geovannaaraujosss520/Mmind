@@ -4399,7 +4399,7 @@ function renderVendedores(d, box) {
       </tbody></table>
       ${d.lojas.filter(l => l.erro).map(l => `<div class="err" style="margin-top:8px">${esc(l.nomeLoja)}: ${esc(l.erro)}</div>`).join('')}
     </div>
-    <div class="sub" style="font-size:11px; margin-top:10px">PA = peças ÷ atendimentos. Atendimento = uma venda; se dois vendedores participaram, conta para os dois. O perfil compara o vendedor com a média da <strong>própria loja</strong> e só é calculado com 15 atendimentos ou mais — é um indicativo para conversa e treinamento, não um veredito.</div>
+    <div class="sub" style="font-size:11px; margin-top:10px">PA = peças ÷ atendimentos. Atendimento = uma venda; se dois vendedores participaram, conta para os dois. Só aparecem vendedores ativos no cadastro da VarejOnline (as vendas dos inativos continuam nos totais da loja). O perfil compara o vendedor com a média da <strong>própria loja</strong> e só é calculado com 15 atendimentos ou mais — é um indicativo para conversa e treinamento, não um veredito.</div>
   `;
   box.querySelectorAll('[data-ven-tab]').forEach(t => t.addEventListener('click', () => {
     box.querySelectorAll('[data-ven-tab]').forEach(x => x.classList.remove('active')); t.classList.add('active');
@@ -4414,7 +4414,8 @@ function renderVendedores(d, box) {
       <span class="chip">Faturamento ${fmtMoeda(L.faturamento)}</span><span class="chip">${fmtNum(L.atendimentos)} atendimentos</span>
       <span class="chip">PA da loja ${fmtNum(L.pecasPorAtendimento)}</span><span class="chip">Ticket ${fmtMoeda(L.ticketMedio)}</span>
       <span class="chip ${L.alertaMixBarato ? 'fail' : ''}">Peças &lt; ${limTxt}: ${fmtPct(L.percentPecasAbaixoLimite, 1)}</span>
-      ${L.semVendedorPercent > 0 ? `<span class="chip">Sem vendedor: ${fmtPct(L.semVendedorPercent, 1)} do faturamento</span>` : ''}</div>`;
+      ${L.semVendedorPercent > 0 ? `<span class="chip">Sem vendedor: ${fmtPct(L.semVendedorPercent, 1)} do faturamento</span>` : ''}
+      ${l.inativosOcultos ? `<span class="chip" title="Vendedores marcados como inativos na VarejOnline não aparecem na lista; as vendas deles continuam nos totais da loja.">${l.inativosOcultos} inativo(s) fora da lista · ${fmtMoeda(l.faturamentoInativos)}</span>` : ''}</div>`;
     const vs = l.vendedores.filter(v => v.id !== 'sem' && v.atendimentos > 0).sort((a, b) => b.pecasPorAtendimento - a.pecasPorAtendimento);
     const esc0 = Math.max(L.pecasPorAtendimento * 1.6, ...vs.map(v => v.pecasPorAtendimento), 0.1);
     $('ven_loja_barras').innerHTML = vs.length ? `<div style="font-size:12px; color:var(--muted); margin-bottom:8px">Peças por atendimento — linha = média da loja (${fmtNum(L.pecasPorAtendimento)})</div><div class="barras">${vs.map(v => {
