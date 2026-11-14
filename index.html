@@ -299,6 +299,11 @@
   .cli-resumo p{ margin:6px 0; font-size:15px; line-height:1.5; }
   .cli-resumo-t{ font-size:13px; color:var(--muted); margin-bottom:4px; }
   .cli-st{ display:inline-block; padding:0 8px; border:1px solid; border-radius:10px; font-size:11.5px; font-weight:600; line-height:18px; margin-right:4px; }
+  .cli-rede-box{ margin:10px 0 2px; padding:10px 14px; border:1px solid var(--line); border-radius:12px; background:var(--panel-2); }
+  .cli-rede-nums{ display:flex; gap:22px; flex-wrap:wrap; align-items:flex-end; }
+  .cli-rede-nums > div span{ display:block; font-size:11.5px; color:var(--muted); }
+  .cli-rede-nums > div b{ font-size:18px; }
+  .cli-rede-box p{ margin:6px 0 0 !important; font-size:13.5px !important; }
   .cli-termo{ margin-top:12px; padding-top:12px; border-top:1px solid var(--line); }
   .cli-termo-topo{ display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; font-size:14.5px; }
   .cli-termo-barra{ display:flex; height:12px; border-radius:6px; overflow:hidden; background:var(--panel-2); margin:8px 0 6px; gap:2px; }
@@ -785,7 +790,7 @@
     <header class="view-header">
       <h1>Clientes</h1>
       <div class="sub">Quem chamar hoje, para quem oferecer cada peça e quem faz aniversário.</div>
-      <details class="como-funciona"><summary>Como funciona</summary><div>Usa as vendas da loja com cliente identificado (CPF ou CNPJ válido; consumidor final, fornecedores e prestadores ficam de fora). Visita = dia em que o cliente comprou. Recompra = clientes com 2 ou mais visitas no período. "Voltou em até 90 dias" olha quem fez a primeira compra do período há mais de 90 dias. Prazo ideal de volta = mediana dos dias entre uma visita e a próxima (o ritmo da loja); para quem já voltou 2 vezes ou mais, vale o ritmo do próprio cliente. Situação: “em dia” (antes de 80% do prazo), “hora de chamar” (de 80% a 130%), “passou do prazo” (depois disso) e “sumiu” (mais dias sem comprar do que o escolhido em Ajustes). Dentro do prazo = em dia + hora de chamar; 50% ou mais da base é “perto do ideal”, de 30% a 49% “dá para melhorar” e abaixo de 30% “longe do ideal”. Ação comercial: meses de alta são os que vendem 15% ou mais acima do mês médio da loja; de baixa, 15% ou mais abaixo (precisa de 12 meses de vendas). O perfil de cada cliente vem do que ele já comprou: categoria preferida (colar, brinco, anel…), preço médio por peça e frequência. Em "Para quem oferecer", entram clientes que compram a mesma categoria ou levaram peças que costumam sair junto com o produto, e que ainda não compraram esse modelo; a ordem considera também a faixa de preço e há quanto tempo o cliente comprou. Telefone e WhatsApp vêm do cadastro da VarejOnline.</div></details>
+      <details class="como-funciona"><summary>Como funciona</summary><div>Usa as vendas da loja com cliente identificado (CPF ou CNPJ válido; consumidor final, fornecedores e prestadores ficam de fora). Visita = dia em que o cliente comprou. Recompra = clientes com 2 ou mais visitas no período. "Voltou em até 90 dias" olha quem fez a primeira compra do período há mais de 90 dias. Prazo ideal de volta = mediana dos dias entre uma visita e a próxima (o ritmo da loja); para quem já voltou 2 vezes ou mais, vale o ritmo do próprio cliente. Situação: “em dia” (antes de 80% do prazo), “hora de chamar” (de 80% a 130%), “passou do prazo” (depois disso) e “sumiu” (mais dias sem comprar do que o escolhido em Ajustes). Dentro do prazo = em dia + hora de chamar; 50% ou mais da base é “perto do ideal”, de 30% a 49% “dá para melhorar” e abaixo de 30% “longe do ideal”. Média da rede = média do prazo de volta das lojas (calculado todo dia com 12 meses de vendas); 10% ou mais rápido que a média = melhor que a rede, até 15% mais lento = na média, acima disso = longe da rede. Ação comercial: meses de alta são os que vendem 15% ou mais acima do mês médio da loja; de baixa, 15% ou mais abaixo (precisa de 12 meses de vendas). O perfil de cada cliente vem do que ele já comprou: categoria preferida (colar, brinco, anel…), preço médio por peça e frequência. Em "Para quem oferecer", entram clientes que compram a mesma categoria ou levaram peças que costumam sair junto com o produto, e que ainda não compraram esse modelo; a ordem considera também a faixa de preço e há quanto tempo o cliente comprou. Telefone e WhatsApp vêm do cadastro da VarejOnline.</div></details>
     </header>
     <div class="panel">
       <div class="cli-topo">
@@ -1740,6 +1745,28 @@ function conteudoAcaoComercial(d, loja) {
     ${H && (A.clientesDaAlta || []).length ? `<div class="subsecao-titulo" style="margin-top:16px">Quem comprou em ${_MESES_NOME[H.mes]}: avise antes da alta</div>${_cliLista(A.clientesDaAlta, 'alta', loja, null, '')}` : ''}`;
 }
 
+// prazo de volta da loja comparado com a média da rede (menos dias = cliente volta mais rápido = melhor)
+function comparaRedePrazo(R) {
+  const r = R.rede;
+  if (R.prazoIdealDias == null) return '';
+  if (!r) return `<p class="cli-rede" style="color:var(--muted); font-size:13px">A média da rede aparece aqui assim que as lojas forem calculadas (todo dia, de madrugada).</p>`;
+  const [rot, cor, txt] = {
+    melhor: ['Melhor que a rede', 'var(--good)', 'seus clientes voltam mais rápido que a média.'],
+    em_dia: ['Na média da rede', 'var(--accent-2)', 'seus clientes voltam no mesmo ritmo da média.'],
+    longe: ['Longe da rede', 'var(--warn)', 'seus clientes demoram mais para voltar que a média. Chamar na data certa ajuda a encurtar esse prazo.'],
+  }[r.situacao] || ['', 'var(--muted)', ''];
+  const dif = R.prazoIdealDias - r.prazoMedioDias;
+  return `<div class="cli-rede-box">
+    <div class="cli-rede-nums">
+      <div><span>Sua loja</span><b>${R.prazoIdealDias} dias</b></div>
+      <div><span>Média da rede</span><b>${r.prazoMedioDias} dias</b></div>
+      <div><span>Posição</span><b>${r.posicao ? `${r.posicao}ª de ${r.lojas}` : '—'}</b></div>
+      <span class="cli-st" style="border-color:${cor}; color:${cor}; align-self:center">${rot}</span>
+    </div>
+    <p>${dif === 0 ? 'Mesmo prazo da rede' : `${Math.abs(dif)} ${Math.abs(dif) === 1 ? 'dia' : 'dias'} ${dif < 0 ? 'a menos' : 'a mais'} que a rede`}: ${txt}</p>
+  </div>`;
+}
+
 function desenharClientes() {
   const d = _cliDados, box = $('resultado-clientes'); if (!d) return;
   const R = d.resumo, P = d.parametros, loja = P.loja;
@@ -1749,7 +1776,7 @@ function desenharClientes() {
   const frases = [
     `Nos últimos ${P.meses} meses, <strong>${fmtNum(R.clientes)} clientes</strong> compraram com você e deixaram o CPF.`,
     de10 != null ? `De cada 10 clientes, <strong>${de10} ${de10 === 1 ? 'volta' : 'voltam'}</strong> a comprar.` : '',
-    R.prazoIdealDias != null ? `O prazo ideal de volta da sua loja é de <strong>cerca de ${_cliMeses(R.prazoIdealDias)}</strong>: é o tempo que seus clientes costumam levar para voltar.` : '',
+    R.prazoIdealDias != null ? `Quem volta, costuma voltar em <strong>cerca de ${R.prazoIdealDias} dias</strong>: esse é o prazo ideal de volta da sua loja.` : '',
     R.sumidos ? `<strong>${fmtNum(R.sumidos)} clientes sumiram</strong> (mais de ${P.sumidoDias} dias sem comprar). Juntos eles gastaram ${fmtMoeda(R.fatSumidos)} — vale chamar de volta.` : '',
   ].filter(Boolean);
   const nAniv = (d.aniversariantes || []).filter(c => !c.jaPassou).length;
@@ -1761,6 +1788,7 @@ function desenharClientes() {
       <div class="cli-termo-topo"><span>Clientes dentro do prazo de volta: <strong>${fmtNum(Math.round(R.noPrazoPct))}%</strong></span><span class="cli-st" style="border-color:${cor}; color:${cor}">${rot}</span></div>
       <div class="cli-termo-barra">${seg.map(([k, n, c]) => n ? `<span style="width:${(n / tot * 100).toFixed(1)}%; background:${c}" title="${_CLI_ST[k][0]}: ${fmtNum(n)}"></span>` : '').join('')}</div>
       <div class="cli-termo-leg">${seg.map(([k, n, c]) => `<span><i style="background:${c}"></i>${_CLI_ST[k][0]} ${fmtNum(n)}</span>`).join('')}</div>
+      ${R.rede?.noPrazoMedioPct != null ? `<div class="cli-termo-leg" style="margin-top:4px">Média da rede: ${fmtNum(Math.round(R.rede.noPrazoMedioPct))}% dentro do prazo</div>` : ''}
       <div class="cli-termo-dica">${dica}</div>
     </div>`;
   })();
@@ -1786,6 +1814,7 @@ function desenharClientes() {
     <div class="panel cli-resumo">
       <div class="cli-resumo-t">Como estão seus clientes — ${esc(loja)}</div>
       ${frases.map(f => `<p>${f}</p>`).join('')}
+      ${comparaRedePrazo(R)}
       ${termometro}
       ${ident10 != null && ident10 < 7 ? `<p class="cli-alerta">Só ${ident10} de cada 10 vendas têm o CPF do cliente. <strong>Peça o CPF no caixa</strong>: sem ele, o cliente não aparece aqui e você não consegue chamá-lo de volta.</p>` : ''}
     </div>

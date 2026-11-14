@@ -27,3 +27,16 @@ jobs:
             sleep 5
           done
           echo "::warning::Não completou em 25 rodadas (as lojas que faltaram ficam para a próxima vez)."
+      - name: Prazo de volta dos clientes de cada loja (média da rede na tela Clientes)
+        env:
+          AQUECER_CHAVE: ${{ secrets.AQUECER_CHAVE }}
+          URL: https://cyxerqtlkhubrkcjqcmx.supabase.co/functions/v1/sss-compras
+        run: |
+          if [ -z "$AQUECER_CHAVE" ]; then exit 0; fi
+          for i in $(seq 1 15); do
+            r=$(curl -sS -m 160 -X POST "$URL" -H "Content-Type: application/json" -H "x-aquecer-chave: $AQUECER_CHAVE" -d '{"clientesRede":true}' || echo '{}')
+            echo "Rodada $i: $(echo "$r" | jq -c '{completo, prontas: (.prontas|length?), pendentes: (.pendentes|length?), erros, ms, error}' 2>/dev/null || echo "$r" | head -c 300)"
+            if [ "$(echo "$r" | jq -r '.completo' 2>/dev/null)" = "true" ]; then echo "Completo."; exit 0; fi
+            sleep 5
+          done
+          echo "::warning::Nem todas as lojas foram calculadas (ficam para a próxima vez)."

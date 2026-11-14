@@ -1765,6 +1765,7 @@ async function moduloDre(body: any, a: Acesso) {
 // a tarefa agendada chama de novo ate vir completo=true.
 async function aquecerCaches(body: any) {
   if (body.hoje) return aquecerHoje();
+  if (body.clientesRede) return aquecerClientesRede();
   const t0 = Date.now(), limite = 90_000;
   const apiBase = Deno.env.get('VAREJONLINE_API_BASE');
   if (!apiBase) throw new Error('VAREJONLINE_API_BASE não configurado.');
@@ -2418,6 +2419,13 @@ async function moduloClientes(body: any, a: Acesso) {
   const contVolta = { em_dia: 0, hora: 0, atrasado: 0, sumido: 0 } as Record<string, number>;
   for (const c of lista) contVolta[statusVolta(dias(c.ultima), prazoDe(c))]++;
   const noPrazoPct = lista.length ? r2((contVolta.em_dia + contVolta.hora) / lista.length * 100) : null;
+  // referência da rede: guarda o indicador desta loja (só na régua padrão: 12 meses, sumido = 90 dias)
+  const recompraLoja = lista.length ? r2(lista.filter((c) => c.dias.size >= 2).length / lista.length * 100) : null;
+  if (meses === 12 && sumidoDias === 90 && mediana != null && lista.length >= 30) {
+    try { await sb().from('clientes_indicadores').upsert({ loja, prazo_dias: prazoLoja, no_prazo_pct: noPrazoPct, recompra_pct: recompraLoja, clientes: lista.length, atualizado_em: new Date().toISOString() }, { onConflict: 'loja' }); } catch { /* sem a tabela: segue sem referência */ }
+  }
+  if (body.soIndicadores) return { loja, prazoDias: mediana != null ? prazoLoja : null, noPrazoPct, clientes: lista.length };
+  const rede = await referenciaRedeClientes(loja, mediana != null ? prazoLoja : null);
   // voltou em até 90 dias: entre quem fez a 1ª compra do período há mais de 90 dias (e depois do 1º mês, para não pegar quem já era cliente antes)
   const corteIni = new Date(ini); corteIni.setMonth(corteIni.getMonth() + 1);
   const corteIniIso = `${corteIni.getFullYear()}-${String(corteIni.getMonth() + 1).padStart(2, '0')}-${String(corteIni.getDate()).padStart(2, '0')}`;
@@ -2548,6 +2556,7 @@ async function moduloClientes(body: any, a: Acesso) {
       prazoIdealDias: prazoLoja, voltaEmDia: contVolta.em_dia, voltaHora: contVolta.hora, voltaAtrasado: contVolta.atrasado, voltaSumido: contVolta.sumido,
       noPrazoPct, situacaoPrazo: noPrazoPct == null ? null : noPrazoPct >= 50 ? 'perto' : noPrazoPct >= 30 ? 'atencao' : 'longe',
       horaDeChamar: contVolta.hora + contVolta.atrasado,
+      rede,
       fatRecorrentesPct: fatIdent ? r2(fatRec / fatIdent * 100) : null,
       ticketRecorrente: recorrentes.length ? r2(fatRec / recorrentes.reduce((s, c) => s + c.vendas, 0)) : null,
       ticketUmaVisita: lista.length - recorrentes.length ? r2((fatIdent - fatRec) / lista.filter((c) => c.dias.size < 2).reduce((s, c) => s + c.vendas, 0)) : null,
@@ -2565,6 +2574,47 @@ async function moduloClientes(body: any, a: Acesso) {
     aniversariantes,
     contatosIncompletos: cad.faltando > 0, contatosFaltando: cad.faltando,
   };
+}
+// Média da rede do prazo de volta (lojas atualizadas nos últimos 10 dias) e onde esta loja fica.
+async function referenciaRedeClientes(loja: string, prazoLoja: number | null) {
+  try {
+    const desde = new Date(Date.now() - 10 * 86400_000).toISOString();
+    const { data, error } = await sb().from('clientes_indicadores').select('loja, prazo_dias, no_prazo_pct').gte('atualizado_em', desde);
+    if (error || !data) return null;
+    const outras = data.filter((r: any) => r.prazo_dias != null);
+    if (outras.filter((r: any) => r.loja !== loja).length < 3) return null; // poucas lojas: a média ainda não diz nada
+    const media = Math.round(outras.reduce((s: number, r: any) => s + Number(r.prazo_dias), 0) / outras.length);
+    const comPct = outras.filter((r: any) => r.no_prazo_pct != null);
+    const mediaNoPrazo = comPct.length ? r2(comPct.reduce((s: number, r: any) => s + Number(r.no_prazo_pct), 0) / comPct.length) : null;
+    let situacao: string | null = null, posicao: number | null = null;
+    if (prazoLoja != null) {
+      situacao = prazoLoja <= media * 0.9 ? 'melhor' : prazoLoja <= media * 1.15 ? 'em_dia' : 'longe';
+      const lista = outras.filter((r: any) => r.loja !== loja).map((r: any) => Number(r.prazo_dias)).concat(prazoLoja).sort((x: number, y: number) => x - y);
+      posicao = lista.indexOf(prazoLoja) + 1; // 1 = loja onde o cliente volta mais rápido
+    }
+    return { prazoMedioDias: media, noPrazoMedioPct: mediaNoPrazo, lojas: Math.max(outras.length, outras.filter((r: any) => r.loja !== loja).length + (prazoLoja != null ? 1 : 0)), situacao, posicao };
+  } catch { return null; }
+}
+
+// Aquecimento: calcula o prazo de volta de cada loja (régua padrão) para a média da rede ficar pronta.
+async function aquecerClientesRede() {
+  const t0 = Date.now(), prazo = t0 + 110_000;
+  const tokens = await getLojasTokens(), nomes = Object.keys(tokens);
+  const ontem = new Date(Date.now() - 20 * 3600_000).toISOString();
+  let feitas = new Set<string>();
+  try { const { data } = await sb().from('clientes_indicadores').select('loja').gte('atualizado_em', ontem); feitas = new Set((data ?? []).map((r: any) => r.loja)); } catch { /* sem tabela */ }
+  const fila = nomes.filter((n) => !feitas.has(n)), prontas: string[] = [], pendentes: string[] = [], erros: any[] = [];
+  const todas: Acesso = { tipo: 'senha', nome: 'aquecimento', papel: 'admin', lojas: [], todas: true };
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(3, fila.length) }, async () => {
+    while (i < fila.length) {
+      const nome = fila[i++];
+      if (Date.now() > prazo - 30_000) { pendentes.push(nome); continue; }
+      try { await moduloClientes({ loja: nome, meses: 12, sumidoDias: 90, soIndicadores: true }, todas); prontas.push(nome); }
+      catch (e) { erros.push({ loja: nome, erro: e instanceof Error ? e.message : String(e) }); }
+    }
+  }));
+  return { completo: !pendentes.length, prontas, pendentes, erros, jaEstavam: feitas.size, ms: Date.now() - t0 };
 }
 const fmtBRL = (v: number) => `R$ ${v.toFixed(2).replace('.', ',')}`;
 
