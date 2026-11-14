@@ -1217,7 +1217,7 @@ async function moduloVendedores(apiBase: string, lojasTokens: Record<string, str
     }
     const paLoja = loja.atend ? loja.pecas / loja.atend : 0;
     const ticketLoja = loja.atend ? loja.fat / loja.atend : 0;
-    const vendedores = [...acc.values()].map((a) => {
+    const vendedoresTodos = [...acc.values()].map((a) => {
       const r = repInfo.get(a.id);
       const at = a.atend.size;
       const pa = at ? a.pecas / at : 0, ticket = at ? a.fat / at : 0;
@@ -1252,6 +1252,9 @@ async function moduloVendedores(apiBase: string, lojasTokens: Record<string, str
         cadastrosFaltando: cadPorVend.get(a.id)?.falta ?? {},
       };
     }).sort((x, y) => y.faturamento - x.faturamento);
+    // só vendedores ativos no cadastro da VarejOnline (os totais da loja continuam com todas as vendas)
+    const inativos = vendedoresTodos.filter((v) => v.ativo === false);
+    const vendedores = vendedoresTodos.filter((v) => v.ativo !== false);
     const pctLoja = loja.pecas ? loja.pecasBaratas / loja.pecas * 100 : 0;
     const nomeVend = (id: string) => id === 'sem_venda' ? 'Sem venda no período' : id === 'sem' ? 'Sem vendedor informado' : (repInfo.get(id)?.nome ?? `Vendedor ${id}`);
     return {
@@ -1274,6 +1277,7 @@ async function moduloVendedores(apiBase: string, lojasTokens: Record<string, str
         pecasBaratasSozinhas: r2(loja.baratasSozinhas), pecasBaratasAcrescimo: r2(loja.baratasAcrescimo), pecasBaratasSoBaratas: r2(loja.baratasSoBaratas),
       },
       vendedores,
+      inativosOcultos: inativos.length, faturamentoInativos: r2(inativos.reduce((t, v) => t + v.faturamento, 0)),
       pecasBaratas: {
         produtos: baratos.size,
         lista: [...baratos.values()].sort((x, y) => y.qtd - x.qtd).slice(0, 300).map((b) => {
