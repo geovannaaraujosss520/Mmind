@@ -104,3 +104,9 @@ Brasília, Goiânia e Ribeirão têm 2 unidades usando o mesmo token da VarejOnl
 - Tabela `clientes_indicadores` (migração 20261114000002): prazo de volta, % dentro do prazo e recompra de cada loja, sempre na régua padrão (12 meses, sumido = 90 dias, loja com 30+ clientes identificados).
 - Preenchida quando alguém abre Clientes com a régua padrão e pelo aquecimento diário (`{"clientesRede":true}`, passo novo em aquecer-cache.yml), que recalcula as lojas com mais de 20 h.
 - Média da rede = média dos prazos das lojas atualizadas nos últimos 10 dias (precisa de 3+ outras lojas). Situação: até 90% da média = melhor que a rede; até 115% = na média; acima = longe da rede. Posição 1 = loja onde o cliente volta mais rápido.
+
+## Compras — foto do produto e filtro de fornecedor
+
+- **Foto**: vem do cadastro da VarejOnline (`urlsFotosProduto`, a primeira foto). O painel pede as fotos só das linhas que aparecem na tela (`modulo: 'fotosProdutos'`, até 400 ids por chamada; guardadas 6 h na memória da função). Clicar na foto abre maior. Produto sem foto mostra um quadro cinza.
+- **Pedido Central**: seletor de fornecedor mostra um fornecedor por vez (o valor total do topo continua com todos).
+- **Compra Recorrente**: cada produto mostra o fornecedor pelo vínculo com o item da Central (catálogo fixo); sem vínculo = "Sem vínculo com a Central"; vínculo marcado como ignorar = "Fora da Central". Filtro de fornecedor e "Só o que comprar".

@@ -359,6 +359,15 @@ async function moduloRecorrente(apiBase: string, lojasTokens: Record<string, str
     const data = r.data;
     for (const v of data ?? []) vincRede.set(String(v.produto_chave), v);
   }
+  // fornecedor de cada produto: pelo vínculo com o item da Central (catálogo fixo)
+  const fornFixo = { porChave: new Map<string, string>(), porCodigo: new Map<string, string>() };
+  try {
+    for (const it of await carregarCatalogoFixo()) {
+      if (!it.fornecedor_nome) continue;
+      fornFixo.porChave.set(String(it.chave), it.fornecedor_nome);
+      const cn = codNorm(it.codigo); if (!fornFixo.porCodigo.has(cn)) fornFixo.porCodigo.set(cn, it.fornecedor_nome);
+    }
+  } catch { /* sem catálogo: fica sem fornecedor */ }
 
   async function processar(nomeLoja: string): Promise<any> {
     const token = lojasTokens[nomeLoja];
@@ -526,6 +535,8 @@ async function moduloRecorrente(apiBase: string, lojasTokens: Record<string, str
     const linhas: any[] = [];
     for (const [k, agg] of venda) {
       const vel = agg.qtd / diasHistorico;
+      const vf = vincRede.get(chaveProduto({ codigoSistema: agg.codigoSistema, produtoId: k }));
+      const fornecedorNome = !vf ? null : vf.ignorar ? 'Fora da Central' : (fornFixo.porChave.get(String(vf.chave_central)) ?? fornFixo.porCodigo.get(codNorm(vf.codigo_central ?? String(vf.chave_central).split('|')[0])) ?? null);
       const demanda = vel * diasPeriodoAlvo * fator;
       const seguranca = vel * diasSeguranca * fator;
       const est = estoqueDe(k, agg);
@@ -543,6 +554,7 @@ async function moduloRecorrente(apiBase: string, lojasTokens: Record<string, str
         // preco medio de venda (liquido do que foi cobrado) e custo medio, para retorno e perda no pedido
         precoMedioVenda: agg.qtd > 0 ? r2(agg.receita / agg.qtd) : null, custoUnitario: r2(custoUnit),
         riscoRuptura: est + emAndamento < demanda,
+        fornecedorNome,
       });
     }
     linhas.sort((a, b) => b.qtdRecomendadaCompra - a.qtdRecomendadaCompra);
@@ -1767,43 +1779,36 @@ async function moduloDre(body: any, a: Acesso) {
 // Pre-aquecimento: para cada loja, garante no cache os ultimos N dias de vendas (so baixa o que falta)
 // e atualiza o cache dos pedidos da Central. Para de comecar lojas novas perto do limite de tempo;
 // a tarefa agendada chama de novo ate vir completo=true.
-// Diagnóstico (temporário): só NOMES de campos e valores que parecem link de imagem, para achar a foto do produto.
-async function diagnosticoFotos() {
-  const pareceImagem = (k: string, v: any) => typeof v === 'string' && (/https?:\/\/.*\.(jpe?g|png|webp|gif)/i.test(v) || /img|imag|foto|photo|picture|thumb/i.test(k)) && v.length < 400;
-  const varrer = (o: any, pre = '', out: { campos: Set<string>; imagens: Record<string, string> } = { campos: new Set(), imagens: {} }, prof = 0) => {
-    if (!o || typeof o !== 'object' || prof > 3) return out;
-    for (const [k, v] of Object.entries(o)) {
-      const caminho = pre ? `${pre}.${k}` : k;
-      out.campos.add(caminho.replace(/\.\d+\./g, '[].'));
-      if (pareceImagem(k, v) && !out.imagens[caminho]) out.imagens[caminho] = String(v);
-      if (v && typeof v === 'object') varrer(Array.isArray(v) ? v.slice(0, 2) : v, caminho, out, prof + 1);
-    }
-    return out;
-  };
-  const res: any = {};
-  try {
-    const c = await sincronizarCentralDias(15, 40_000);
-    const itens = c.lista.flatMap((p: any) => (p.itensPedido ?? []).slice(0, 3)).slice(0, 30);
-    const r = { campos: new Set<string>(), imagens: {} as Record<string, string> };
-    for (const it of itens) varrer(it, '', r);
-    res.central = { itensLidos: itens.length, campos: [...r.campos].sort(), imagens: Object.fromEntries(Object.entries(r.imagens).slice(0, 8)) };
-  } catch (e) { res.central = { erro: e instanceof Error ? e.message : String(e) }; }
-  try {
-    const apiBase = Deno.env.get('VAREJONLINE_API_BASE')!;
-    const tokens = await getLojasTokens(); const loja = Object.keys(tokens)[0];
-    const pg = await paginaVarejo(`${apiBase}/produtos?inicio=0&quantidade=5`, tokens[loja]);
-    const prods = (Array.isArray(pg) ? pg : (pg.items ?? pg.dados ?? [])).slice(0, 5);
-    const r = { campos: new Set<string>(), imagens: {} as Record<string, string> };
-    for (const pr of prods) varrer(pr, '', r);
-    res.varejonline = { produtosLidos: prods.length, campos: [...r.campos].sort(), imagens: Object.fromEntries(Object.entries(r.imagens).slice(0, 8)) };
-  } catch (e) { res.varejonline = { erro: e instanceof Error ? e.message : String(e) }; }
-  return res;
+// Fotos dos produtos (cadastro da VarejOnline, campo urlsFotosProduto). Guardadas na memória por 6 h.
+const cacheFotos = new Map<string, { url: string | null; quando: number }>();
+async function moduloFotosProdutos(body: any, a: Acesso) {
+  const loja = String(body.loja ?? '');
+  exigirLoja(a, loja);
+  const apiBase = Deno.env.get('VAREJONLINE_API_BASE');
+  if (!apiBase) throw new Error('VAREJONLINE_API_BASE não configurado.');
+  const tokens = await getLojasTokens();
+  if (!tokens[loja]) throw new Error('Loja não encontrada.');
+  const ids: string[] = [...new Set<string>((Array.isArray(body.ids) ? body.ids : []).map((x: any) => String(x)).filter((x: string) => /^\d+$/.test(x)))].slice(0, 400);
+  const fotos: Record<string, string | null> = {}, faltam: string[] = [];
+  for (const id of ids) { const c = cacheFotos.get(id); if (c && Date.now() - c.quando < 6 * 3600_000) fotos[id] = c.url; else faltam.push(id); }
+  const lotes: string[][] = []; for (let i = 0; i < faltam.length; i += 50) lotes.push(faltam.slice(i, i + 50));
+  await Promise.all(lotes.map(async (lote) => {
+    try {
+      await fetchAllPages(`${apiBase}/produtos?idsProdutos=${lote.join(',')}`, tokens[loja], (pg) => {
+        for (const pr of pg) {
+          const url = (Array.isArray(pr.urlsFotosProduto) ? pr.urlsFotosProduto : []).find((u: any) => typeof u === 'string' && /^https:\/\//.test(u)) ?? null;
+          fotos[String(pr.id)] = url; cacheFotos.set(String(pr.id), { url, quando: Date.now() });
+        }
+      });
+    } catch (_) { /* sem foto neste lote */ }
+  }));
+  for (const id of faltam) if (!(id in fotos)) { fotos[id] = null; cacheFotos.set(id, { url: null, quando: Date.now() }); }
+  return { fotos };
 }
 
 async function aquecerCaches(body: any) {
   if (body.hoje) return aquecerHoje();
   if (body.clientesRede) return aquecerClientesRede();
-  if (body.diagnosticoFotos) return diagnosticoFotos();
   const t0 = Date.now(), limite = 90_000;
   const apiBase = Deno.env.get('VAREJONLINE_API_BASE');
   if (!apiBase) throw new Error('VAREJONLINE_API_BASE não configurado.');
@@ -3151,6 +3156,7 @@ Deno.serve(async (req) => {
     if (modulo === 'comparativo') return resp(await moduloComparativo(body, a));
     if (modulo === 'clientes') return resp(await moduloClientes(body, a));
     if (modulo === 'produtos') return resp(await moduloProdutos(body, a));
+    if (modulo === 'fotosProdutos') return resp(await moduloFotosProdutos(body, a));
     if (modulo === 'metasVendedores') return resp(await moduloMetasVendedores(body, a));
     if (modulo === 'sincronizarCentral') return resp(await moduloSincronizarCentral(body));
     if (modulo === 'lojaEditar') { exigirPapel(a, 'admin'); return resp(await moduloLojaEditar(body)); }
