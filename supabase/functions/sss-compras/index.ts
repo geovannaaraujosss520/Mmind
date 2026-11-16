@@ -2888,7 +2888,8 @@ async function catalogoIndexado() {
   const base = await buscarPedidosCentral(DIAS_CATALOGO);
   if (base.erro && !base.lista.length) throw new Error(base.erro);
   const cat = montarCatalogo(base.lista);
-  await gravarItensDosPedidos(cat).catch(() => {});
+  // grava os itens novos no catálogo fixo sem segurar a resposta (antes isso deixava a 1ª chamada bem mais lenta)
+  const grav = gravarItensDosPedidos(cat).catch(() => {}); (globalThis as any).EdgeRuntime?.waitUntil?.(grav);
   juntarCatalogoFixo(cat, await carregarCatalogoFixo());
   cacheCatalogo = { quando: cacheCentral?.quando ?? Date.now(), idx: indexarCatalogo(cat), cat };
   return cacheCatalogo;
@@ -3021,6 +3022,8 @@ async function moduloVinculos(body: any, apiBase?: string, lojasTokens?: Record<
       const { error } = await s.from(TABELA_VINCULOS).upsert(linhas.slice(i, i + 200), { onConflict: 'produto_chave' });
       if (error) throw new Error(`Erro ao salvar vinculos: ${error.message}`);
     }
+    // devolve a linha já atualizada (o painel não precisa de uma segunda chamada para redesenhar)
+    if (acao === 'salvar' && body.produto) { const r: any = await moduloVinculos({ acao: 'listar', loja, produtos: [body.produto] }); return { ok: true, salvos: linhas.length, linha: r.linhas?.[0] ?? null }; }
     return { ok: true, salvos: linhas.length };
   }
   if (acao === 'ignorar') {
