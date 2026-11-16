@@ -323,7 +323,7 @@ async function pedidosEmAndamento(listaPronta?: { lista: any[]; falhas: number; 
 
 async function carregarVinculos() {
   const mapa = new Map<string, Map<string, any>>();
-  const { data, error } = await sb().from('pedidos_vinculos').select('loja, codigo_central, produto_id, ignorar');
+  const { data, error } = await lerTudo('pedidos_vinculos', 'loja, codigo_central, produto_id, ignorar', 'produto_id');
   if (error) return { mapa, aviso: `Vinculos nao carregados: ${error.message}` as string | undefined };
   for (const r of data ?? []) {
     if (!mapa.has(r.loja)) mapa.set(r.loja, new Map());
@@ -354,8 +354,8 @@ async function moduloRecorrente(apiBase: string, lojasTokens: Record<string, str
   const [andamento, vinc] = await Promise.all([pedidosEmAndamento(listaCentral), carregarVinculos()]);
   const vincRede = new Map<string, any>();
   {
-    let r: any = await sb().from(TABELA_VINCULOS).select('produto_chave, chave_central, codigo_central, variacao, ignorar, grade, descricao_central');
-    if (r.error) r = await sb().from(TABELA_VINCULOS).select('produto_chave, chave_central, codigo_central, variacao, ignorar, descricao_central');
+    let r: any = await lerTudo(TABELA_VINCULOS, 'produto_chave, chave_central, codigo_central, variacao, ignorar, grade, descricao_central', 'produto_chave');
+    if (r.error) r = await lerTudo(TABELA_VINCULOS, 'produto_chave, chave_central, codigo_central, variacao, ignorar, descricao_central', 'produto_chave');
     const data = r.data;
     for (const v of data ?? []) vincRede.set(String(v.produto_chave), v);
   }
@@ -1543,15 +1543,29 @@ function indexarCatalogo(cat: any) {
 }
 
 // Vinculos da propria loja (cada loja tem sua conta na VarejOnline e o id do produto pode coincidir entre contas).
+// Lê a tabela inteira em páginas de 1000 (o Supabase devolve no máximo 1000 linhas por consulta).
+async function lerTudo(tabela: string, campos: string, ordem: string, filtro?: (q: any) => any): Promise<{ data: any[]; error: any }> {
+  const out: any[] = [];
+  for (let de = 0; de < 500_000; de += 1000) {
+    let q = sb().from(tabela).select(campos).order(ordem, { ascending: true }).range(de, de + 999);
+    if (filtro) q = filtro(q);
+    const r: any = await q;
+    if (r.error) return { data: out, error: r.error };
+    out.push(...(r.data ?? []));
+    if ((r.data ?? []).length < 1000) break;
+  }
+  return { data: out, error: null };
+}
+
 async function carregarVinculosLoja(loja: string) {
   const novos = new Map<string, any>(), antigos = new Map<string, string>();
   let tabelaNova = true;
-  let r1: any = await sb().from(TABELA_VINCULOS).select('produto_chave, produto_id, chave_central, codigo_central, variacao, ignorar, grade, motivo, loja_origem, atualizado_por, atualizado_em');
+  let r1: any = await lerTudo(TABELA_VINCULOS, 'produto_chave, produto_id, chave_central, codigo_central, variacao, ignorar, grade, motivo, loja_origem, atualizado_por, atualizado_em', 'produto_chave');
   // antes de rodar o SQL da grade a coluna nao existe: le sem ela
-  if (r1.error && /grade/i.test(r1.error.message)) r1 = await sb().from(TABELA_VINCULOS).select('produto_chave, produto_id, chave_central, codigo_central, variacao, ignorar, motivo, loja_origem, atualizado_por, atualizado_em');
+  if (r1.error && /grade/i.test(r1.error.message)) r1 = await lerTudo(TABELA_VINCULOS, 'produto_chave, produto_id, chave_central, codigo_central, variacao, ignorar, motivo, loja_origem, atualizado_por, atualizado_em', 'produto_chave');
   if (r1.error) tabelaNova = false; else for (const v of r1.data ?? []) novos.set(String(v.produto_chave), v);
   // vinculos antigos (por codigo da Central) continuam como reserva, so da propria loja
-  const r2 = await sb().from('pedidos_vinculos').select('loja, codigo_central, produto_id, ignorar').eq('loja', loja);
+  const r2 = await lerTudo('pedidos_vinculos', 'loja, codigo_central, produto_id, ignorar', 'produto_id', (q) => q.eq('loja', loja));
   for (const v of r2.data ?? []) if (!v.ignorar && v.produto_id != null) antigos.set(String(v.produto_id), String(v.codigo_central));
   return { novos, antigos, tabelaNova };
 }
