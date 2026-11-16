@@ -117,3 +117,10 @@ Brasília, Goiânia e Ribeirão têm 2 unidades usando o mesmo token da VarejOnl
 - O vínculo fica com `grade = true` (mesma coluna da grade de tamanhos/letras). No pedido, a quantidade sugerida é dividida entre as cores pela proporção do que a rede comprou de cada cor em 180 dias, e dá para ajustar no botão "Grade: cores".
 - Na Compra Recorrente, pedidos em andamento de qualquer cor desse código descontam da compra do produto.
 - Ordem de detecção: grade de tamanhos (fornecedores com grade) > letras > cores.
+
+## Início — Ações do dia (aviso)
+
+- Abre **uma vez por dia por loja** (guardado no navegador), depois que o Início termina de carregar com dados novos. O botão **Ações do dia (N)** no Início reabre a lista; fica com borda vermelha quando há ponto crítico.
+- **Franqueado (uma loja)**, em ordem: produtos que vendem e estão zerados (crítico), loja sem meta (crítico), pedido aprovado esperando envio (crítico), projeção abaixo de 90% da meta (crítico abaixo de 75%), quanto falta para a meta de hoje, hoje 15% ou mais abaixo do ano passado no mesmo horário, produtos que vão faltar antes da reposição, mais de 21 dias sem comprar na Central.
+- **Franqueadora (rede)**: lojas sem meta, lojas com projeção abaixo de 80% da meta, lojas com pedido aprovado esperando envio, lojas há mais de 21 dias sem comprar na Central, franqueados sem abrir o painel há mais de 7 dias.
+- Cada item tem um botão que leva à tela onde se resolve.
