@@ -316,6 +316,12 @@
   .acoes-dia-lista li.atencao .acoes-dia-sev{ background:var(--gold-tint); color:#7A4B00; }
   .acoes-dia-pe{ display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px 22px 18px; font-size:12px; color:var(--muted); border-top:1px solid var(--line); }
   @media (max-width: 560px){ .acoes-dia-lista li{ grid-template-columns:1fr; gap:6px; } .acoes-dia-sev{ justify-self:start; } .acoes-dia-pe{ flex-direction:column; align-items:stretch; } }
+  .ven-meta-loja{ display:flex; flex-wrap:wrap; gap:14px 28px; align-items:flex-end; background:var(--panel-2); border:1px solid var(--line); border-radius:10px; padding:12px 16px; margin-bottom:10px; }
+  .ven-meta-loja > div > span{ display:block; font-size:11.5px; color:var(--muted); }
+  .ven-meta-loja > div > b{ font-size:19px; }
+  .ven-meta-loja > div > small{ display:block; font-size:11px; color:var(--muted); }
+  .ven-meta-bts{ display:flex; gap:8px; flex-wrap:wrap; margin-left:auto; }
+  .ven-meta-bts button{ padding:7px 12px; font-size:12.5px; }
   .acoes-dia-bt.tem-critico{ border-color:var(--accent); color:var(--accent-deep); font-weight:650; }
   .foto-prod{ flex:none; display:inline-flex; align-items:center; justify-content:center; border-radius:8px; background:var(--panel-2); border:1px solid var(--line); overflow:hidden; }
   .foto-prod img{ width:100%; height:100%; object-fit:cover; display:block; }
@@ -1079,12 +1085,19 @@ function refTicketAnterior(d, atual, anterior) {
 // =====================================================================
 let _inicioFresco = false, _acoesDia = { chave: '', itens: [], loja: '' };
 const _hojeIso = () => { const t = new Date(); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`; };
+// quantos vendedores já têm meta neste mês (null = não deu para saber; só para o franqueado)
+async function contarMetasVendedores(l) {
+  if (_papelAtual !== 'franqueado' || !l.meta) return null;
+  try { const t = new Date(); return ((await chamarEdge({ modulo: 'metasVendedores', acao: 'listar', loja: l.loja, ano: t.getFullYear(), mes: t.getMonth() + 1 }, EDGE_COMPRAS_URL)).metas || []).length; }
+  catch (_) { return null; }
+}
 // franqueado: uma loja
 function acoesDaLoja(l, estoque) {
   const it = [];
   if (estoque?.zerados?.length) it.push({ sev: 'critico', rot: 'Ruptura', tit: `${estoque.zerados.length} produto(s) que vendem estão zerados`, det: `${estoque.zerados.slice(0, 3).map(x => x.descricao).join(' · ')}${estoque.perdaDia ? ` · cerca de ${fmtMoeda(estoque.perdaDia)} por dia deixando de vender` : ''}`, ir: 'pedido', bt: 'Fazer pedido' });
-  if (!l.meta) it.push({ sev: 'critico', rot: 'Meta', tit: 'A loja está sem meta neste mês', det: 'Sem meta não dá para saber quanto vender por dia. Leva 1 minuto para cadastrar.', ir: 'financeiro', bt: 'Cadastrar meta' });
+  if (!l.meta) it.push({ sev: 'atencao', rot: 'Meta', tit: 'A loja ainda está sem meta neste mês', det: 'A meta da loja é cadastrada pela franqueadora. Se já combinaram o valor, peça para ela cadastrar.' });
   else {
+    if (estoque?.metasVendedores === 0) it.push({ sev: 'atencao', rot: 'Equipe', tit: 'Divida a meta da loja entre os vendedores', det: `A meta de ${fmtMoeda(l.meta)} ainda não foi dividida. Cada vendedor passa a ver quanto falta para ele.`, ir: 'vendedores', bt: 'Dividir meta' });
     if (l.percentProjecao != null && l.percentProjecao < 90) it.push({ sev: l.percentProjecao < 75 ? 'critico' : 'atencao', rot: 'Mês', tit: `No ritmo atual, o mês fecha em ${fmtPct(l.percentProjecao, 0)} da meta`, det: `Projeção de ${fmtMoeda(l.projecao)} para uma meta de ${fmtMoeda(l.meta)}.${l.faltaPorDia ? ` Para chegar, faltam ${fmtMoeda(l.faltaPorDia)} por dia de venda.` : ''}`, ir: 'clientes', bt: 'Chamar clientes' });
     if (l.hojeContaNaMeta !== false && l.metaHoje > 0 && (l.faturadoHoje || 0) < l.metaHoje) it.push({ sev: 'atencao', rot: 'Hoje', tit: `Faltam ${fmtMoeda(l.metaHoje - (l.faturadoHoje || 0))} para a meta de hoje`, det: `Meta de hoje: ${fmtMoeda(l.metaHoje)} · vendido até agora: ${fmtMoeda(l.faturadoHoje || 0)}.` });
   }
@@ -1215,7 +1228,7 @@ function painelHoje(x, d, rede) {
   const temAA = x.anoAnteriorDia != null && d.diaAnoAnterior;
   const aa = temAA ? `<div class="ini-hoje-aa">No ano passado (${rotAA}): <strong>${fmtMoeda(x.anoAnteriorAteAgora)}</strong> até ${d.horaAgora || 'esta hora'} ${_cmpSeta(_cmpVar(x.faturadoHoje, x.anoAnteriorAteAgora))} · ${fmtMoeda(x.anoAnteriorDia)} no dia inteiro</div>` : '';
   let faixa;
-  if (!x.meta) faixa = `<div class="ini-meta-dia vazio">${rede ? 'Cadastre as metas das lojas' : 'Cadastre a meta do mês'} em Financeiro para ver a meta de hoje.</div>`;
+  if (!x.meta) faixa = `<div class="ini-meta-dia vazio">${rede ? 'Cadastre as metas das lojas em Financeiro para ver a meta de hoje.' : _papelAtual === 'franqueado' ? 'A meta deste mês ainda não foi cadastrada pela franqueadora. Assim que ela cadastrar, a meta de hoje aparece aqui.' : 'Cadastre a meta do mês em Financeiro para ver a meta de hoje.'}</div>`;
   else if (!rede && x.hojeContaNaMeta === false) faixa = `<div class="ini-meta-dia vazio">Hoje é domingo e não entra na meta. Se a loja vende aos domingos, marque <strong>Considerar domingo</strong> ao salvar a meta em Financeiro.</div>`;
   else {
     // na rede, a meta do dia compara só com o vendido hoje pelas lojas que têm meta
@@ -1334,7 +1347,7 @@ async function desenharMinhaLoja(d) {
     const zerados = recs.filter(x => (x.estoqueAtual ?? 0) <= 0 && x.vendaMediaDiaria > 0);
     const perdaDia = zerados.reduce((t, x) => t + x.vendaMediaDiaria * (x.precoMedioVenda || 0), 0);
     const comprar = recs.filter(x => x.riscoRuptura && x.qtdRecomendadaCompra > 0).sort((a, b) => b.vendaMediaDiaria * (b.precoMedioVenda || 0) - a.vendaMediaDiaria * (a.precoMedioVenda || 0));
-    if (_inicioFresco) mostrarAcoesDia(acoesDaLoja(l, { zerados, comprar, perdaDia }), l.loja);
+    if (_inicioFresco) mostrarAcoesDia(acoesDaLoja(l, { zerados, comprar, perdaDia, metasVendedores: await contarMetasVendedores(l) }), l.loja);
     const box = $('ini_compra_status'); if (!box) return;
     box.outerHTML = `${zerados.length ? `<div class="acao critico"><div class="sev critico">Ruptura</div><div><div class="tit">${zerados.length} produto(s) que vendem estão zerados</div><div class="det">${zerados.slice(0, 6).map(x => esc(x.descricao)).join(' · ')}${zerados.length > 6 ? '…' : ''}</div></div><div class="imp">${fmtMoeda(perdaDia)}<small>por dia sem vender</small></div></div>` : ''}
       ${comprar.length ? `<div class="acao atencao"><div class="sev atencao">Comprar</div><div><div class="tit">${comprar.length} produto(s) vão faltar antes da próxima reposição</div>
@@ -1344,7 +1357,7 @@ async function desenharMinhaLoja(d) {
       ${!zerados.length && !comprar.length ? '<div class="acao oportunidade"><div class="sev oportunidade">Estoque</div><div><div class="tit">Estoque em dia</div><div class="det">Nenhum produto em risco de faltar no próximo mês.</div></div><div class="imp">✓</div></div>' : ''}`;
     ligarIrPara($('ini_acoes'), l.loja);
   } catch (e) {
-    if (_inicioFresco) mostrarAcoesDia(acoesDaLoja(l, null), l.loja);
+    if (_inicioFresco) mostrarAcoesDia(acoesDaLoja(l, { metasVendedores: await contarMetasVendedores(l) }), l.loja);
     const box = $('ini_compra_status'); if (box) box.textContent = 'Não foi possível analisar o estoque agora: ' + e.message;
   }
 }
@@ -3033,7 +3046,8 @@ function renderFinanceiro(data, box) {
         <div style="font-size:13px; color:var(--muted); margin-bottom:2px;">Faturamento do mês (Receita Bruta)</div>
         <div id="fin_faturamento_valor" style="font-family:var(--mono); font-size:20px; font-weight:650; margin-bottom:10px;"></div>
         <div id="fin_barra_meta"></div>
-        <div style="display:flex; gap:10px; align-items:center; margin-top:10px;">
+        <div id="fin_meta_franq" class="sub" style="display:none; margin-top:10px; max-width:none; font-size:13px"></div>
+        <div id="fin_meta_form" style="display:flex; gap:10px; align-items:center; margin-top:10px;">
           <input id="fin_meta_input" type="number" placeholder="Definir meta do mês (R$)" style="max-width:220px">
           <label style="display:flex; align-items:center; gap:6px; font-size:12.5px; text-transform:none; letter-spacing:0; margin:0; color:var(--text); white-space:nowrap" title="A meta do dia é dividida pelos dias de venda que faltam no mês. Padrão: segunda a sábado. Marque se a loja abre e vende aos domingos."><input type="checkbox" id="fin_meta_domingo" style="width:auto"> Considerar domingo</label>
           <button id="fin_meta_salvar" class="secondary" style="padding:8px 16px;">Salvar meta</button>
@@ -3089,6 +3103,16 @@ function renderFinanceiro(data, box) {
     document.getElementById('fin_meta_input').value = metaAtual || '';
     document.getElementById('fin_meta_domingo').checked = !!(data.domingoPorLoja || {})[loja.nomeLoja];
     document.getElementById('fin_meta_status').textContent = '';
+    const souFranq = _papelAtual === 'franqueado';
+    document.getElementById('fin_meta_form').style.display = souFranq ? 'none' : 'flex';
+    const mf = document.getElementById('fin_meta_franq');
+    mf.style.display = souFranq ? '' : 'none';
+    if (souFranq) {
+      mf.innerHTML = metaAtual
+        ? `A meta do mês da loja é definida pela franqueadora${(data.domingoPorLoja || {})[loja.nomeLoja] ? ' (com domingo nos dias de venda)' : ''}. Para dividir entre os vendedores, use <a href="#" data-ir="vendedores">Equipe › Metas por vendedor</a>.`
+        : 'A franqueadora ainda não cadastrou a meta deste mês para esta loja.';
+      ligarIrPara(mf, loja.nomeLoja);
+    }
 
     document.getElementById('fin_meta_salvar').onclick = async () => {
       const novaMeta = Number(document.getElementById('fin_meta_input').value || 0);
@@ -4672,11 +4696,39 @@ async function desenharMetasVendedores(l, p) {
       <td class="num">${meta && diasRestantes && mesInteiroAteAgora ? fmtMoeda(falta / diasRestantes) : '—'}</td></tr>`;
   };
   const totalMeta = vs.reduce((t, v) => t + (metas.get(String(v.id)) || 0), 0);
+  // meta da loja (cadastrada pela franqueadora em Financeiro)
+  let metaLoja = 0;
+  try {
+    const ch = `loja|${ano}|${mes}`;
+    if (!_metasVendCache.has(ch)) _metasVendCache.set(ch, (await chamarEdge({ modulo: 'metas', acao: 'listar', ano, mes })).metas || []);
+    metaLoja = Number((_metasVendCache.get(ch).find(m => m.loja === l.nomeLoja) || {}).meta) || 0;
+  } catch (_) { }
+  if ($('ven_sel')?.value !== l.nomeLoja) return;
   box.innerHTML = `<div class="subsecao-titulo" style="margin-top:18px">Metas de ${nomeMesTxt} por vendedor</div>
+    <div class="ven-meta-loja">${metaLoja ? `<div><span>Meta da loja</span><b>${fmtMoeda(metaLoja)}</b><small>definida pela franqueadora</small></div>
+      <div><span>Dividido entre os vendedores</span><b id="ven_meta_soma">${fmtMoeda(totalMeta)}</b></div>
+      <div><span id="ven_meta_resto_rot">Falta dividir</span><b id="ven_meta_resto">${fmtMoeda(Math.max(0, metaLoja - totalMeta))}</b></div>
+      <div class="ven-meta-bts"><button type="button" class="secondary" id="ven_div_venda" title="Cada vendedor recebe uma parte da meta igual à parte que ele vendeu no período analisado">Dividir pelo que cada um vendeu</button><button type="button" class="secondary" id="ven_div_igual">Dividir igualmente</button></div>`
+      : `<div class="sub" style="margin:0; max-width:none">A meta da loja para ${nomeMesTxt} ainda não foi cadastrada pela franqueadora. Você pode definir a meta de cada vendedor mesmo assim.</div>`}</div>
     ${!mesInteiroAteAgora ? `<div class="sub" style="font-size:12px; margin-bottom:8px; max-width:none">O período analisado não começa no dia 1º: o "vendido" é só do período escolhido. Use <strong>Mês atual</strong> para acompanhar a meta do mês.</div>` : ''}
     <div style="overflow-x:auto"><table class="no-tools"><thead><tr><th>Vendedor</th><th>Meta do mês</th><th class="num">Vendido${mesInteiroAteAgora ? ' no mês' : ' no período'}</th><th class="num">% da meta</th><th class="num">Falta</th><th class="num">Falta por dia</th></tr></thead>
     <tbody>${vs.map(linha).join('') || '<tr><td colspan="6" class="empty">Nenhum vendedor com venda no período.</td></tr>'}</tbody></table></div>
     <div class="actions" style="margin-top:8px"><button id="ven_metas_salvar">Salvar metas</button><span class="status" id="ven_metas_status">${totalMeta ? `Soma das metas: ${fmtMoeda(totalMeta)}` : 'Defina a meta de cada vendedor e salve.'}</span></div>`;
+  const recalcular = () => {
+    const soma = [...box.querySelectorAll('[data-meta-vend]')].reduce((t, i) => t + (Number(i.value) || 0), 0);
+    if ($('ven_meta_soma')) { $('ven_meta_soma').textContent = fmtMoeda(soma); const r = metaLoja - soma;
+      $('ven_meta_resto_rot').textContent = r >= 0 ? 'Falta dividir' : 'Acima da meta da loja'; $('ven_meta_resto').textContent = fmtMoeda(Math.abs(r)); $('ven_meta_resto').style.color = Math.abs(r) < 1 ? 'var(--good)' : r < 0 ? 'var(--warn)' : ''; }
+    $('ven_metas_status').textContent = 'Alterações não salvas.';
+  };
+  box.querySelectorAll('[data-meta-vend]').forEach(i => i.addEventListener('input', recalcular));
+  const dividir = pesos => {
+    const ins = [...box.querySelectorAll('[data-meta-vend]')]; const tot = pesos.reduce((a, b) => a + b, 0) || 1;
+    let acum = 0; ins.forEach((inp, k) => { let v = Math.round(metaLoja * pesos[k] / tot / 10) * 10; if (k === ins.length - 1) v = Math.round((metaLoja - acum) * 100) / 100; acum += v; inp.value = v; });
+    recalcular();
+  };
+  $('ven_div_igual')?.addEventListener('click', () => dividir(vs.map(() => 1)));
+  $('ven_div_venda')?.addEventListener('click', () => dividir(vs.map(v => Math.max(0, v.faturamento || 0))));
+  if ($('ven_meta_resto')) { const r = metaLoja - totalMeta; $('ven_meta_resto').style.color = totalMeta && Math.abs(r) < 1 ? 'var(--good)' : r < 0 ? 'var(--warn)' : ''; if (r < 0) $('ven_meta_resto_rot').textContent = 'Acima da meta da loja', $('ven_meta_resto').textContent = fmtMoeda(-r); }
   $('ven_metas_salvar').addEventListener('click', async () => {
     const lista = [...box.querySelectorAll('[data-meta-vend]')].map(i => ({ vendedorId: i.dataset.metaVend, vendedorNome: i.dataset.nome, meta: Number(i.value) || 0 }));
     $('ven_metas_salvar').disabled = true; $('ven_metas_status').textContent = 'Salvando…';

@@ -124,3 +124,9 @@ Brasília, Goiânia e Ribeirão têm 2 unidades usando o mesmo token da VarejOnl
 - **Franqueado (uma loja)**, em ordem: produtos que vendem e estão zerados (crítico), loja sem meta (crítico), pedido aprovado esperando envio (crítico), projeção abaixo de 90% da meta (crítico abaixo de 75%), quanto falta para a meta de hoje, hoje 15% ou mais abaixo do ano passado no mesmo horário, produtos que vão faltar antes da reposição, mais de 21 dias sem comprar na Central.
 - **Franqueadora (rede)**: lojas sem meta, lojas com projeção abaixo de 80% da meta, lojas com pedido aprovado esperando envio, lojas há mais de 21 dias sem comprar na Central, franqueados sem abrir o painel há mais de 7 dias.
 - Cada item tem um botão que leva à tela onde se resolve.
+
+## Metas — quem faz o quê
+
+- **Meta da loja** (Financeiro): só a franqueadora (administrador/equipe) cadastra. O servidor já recusava o salvar para franqueado; agora o franqueado vê só a meta, sem o formulário, com um atalho para dividir na Equipe.
+- **Meta por vendedor** (Equipe › Metas por vendedor): o franqueado divide a meta da loja. A tela mostra a meta da loja, quanto já foi dividido e quanto falta, com os botões **Dividir pelo que cada um vendeu** (proporção do faturamento do período analisado) e **Dividir igualmente** (arredonda em R$ 10; o último vendedor fica com o resto para fechar a meta).
+- Aviso do dia (franqueado): sem meta da loja = atenção ("a franqueadora cadastra"); meta cadastrada mas nenhuma meta por vendedor no mês = "Divida a meta da loja entre os vendedores".
