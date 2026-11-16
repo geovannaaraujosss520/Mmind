@@ -470,7 +470,7 @@ async function moduloRecorrente(apiBase: string, lojasTokens: Record<string, str
         const f = multiplicar ? (Number(i.fatorConversao ?? 1) || 1) : 1;
         const q = Number(i.quantidadeProdutos ?? 0) * f;
         const ch = andamento.idVar(i).chave;
-        const cur = itens.get(ch) ?? { cod: c, chave: ch, codigoCentral: String(i.codigo).trim(), descricao: i.descricaoProduto, qtd: 0, pedidos: [] };
+        const cur = itens.get(ch) ?? { cod: c, chave: ch, codigoCentral: String(i.codigo).trim(), descricao: i.descricaoProduto, forn: p.fornecedor?.nome ?? '', qtd: 0, pedidos: [] };
         cur.qtd += q;
         cur.pedidos.push({ pedido: p.codigo, situacao: p.situacao?.descricao, quantidade: q, criadoEm: p.dataCriacao });
         itens.set(ch, cur);
@@ -496,6 +496,7 @@ async function moduloRecorrente(apiBase: string, lojasTokens: Record<string, str
           // familia por letra (A-Z, cada letra com codigo proprio): pedido de qualquer letra e deste produto
           const kl = chaveFamiliaLetra(v.descricao_central, String(v.chave_central).split('|')[1]); if (kl) { if (!porGrade.has(kl)) porGrade.set(kl, []); if (!porGrade.get(kl)!.includes(prod)) porGrade.get(kl)!.push(prod); }
           // letras como variacao do mesmo codigo (A, B, ... Z): pedido de qualquer letra
+          { const kq = `${String(v.chave_central).split('|')[0]}|**`; if (!porGrade.has(kq)) porGrade.set(kq, []); if (!porGrade.get(kq)!.includes(prod)) porGrade.get(kq)!.push(prod); } // grade de cores
           if (/^[A-Z]( |$)/.test(String(v.chave_central).split('|')[1] ?? '')) { const kc = `${String(v.chave_central).split('|')[0]}|*`; if (!porGrade.has(kc)) porGrade.set(kc, []); if (!porGrade.get(kc)!.includes(prod)) porGrade.get(kc)!.push(prod); }
         }
       }
@@ -504,7 +505,7 @@ async function moduloRecorrente(apiBase: string, lojasTokens: Record<string, str
       const v = vl.get(it.cod);
       const kl = chaveFamiliaLetra(it.descricao, String(it.chave).split('|')[1]);
       const varIt = String(it.chave).split('|')[1] ?? '';
-      const ex = exatos.get(it.chave) ?? exatos.get(`CV:${codVar(it.cod, varIt)}`) ?? (/^[A-Z]( |$)/.test(varIt) ? porGrade.get(`${String(it.chave).split('|')[0]}|*`) : undefined) ?? porGrade.get(`${String(it.chave).split('|')[0]}|${andamento.cbPorChave.get(it.chave) ?? corBaseDaChave(it.chave)}`) ?? (kl ? porGrade.get(kl) : undefined);
+      const ex = exatos.get(it.chave) ?? exatos.get(`CV:${codVar(it.cod, varIt)}`) ?? (/^[A-Z]( |$)/.test(varIt) ? porGrade.get(`${String(it.chave).split('|')[0]}|*`) : undefined) ?? porGrade.get(`${String(it.chave).split('|')[0]}|${andamento.cbPorChave.get(it.chave) ?? corBaseDaChave(it.chave)}`) ?? (kl ? porGrade.get(kl) : undefined) ?? (!fornecedorTemGrade(it.forn) ? porGrade.get(`${String(it.chave).split('|')[0]}|**`) : undefined);
       if (!ex && v?.ignorar) { ignorados++; continue; }
       let pid: string | null = null;
       if (ex?.length === 1) pid = ex[0];
@@ -803,6 +804,7 @@ async function gerarPedidoSugerido(apiBase: string, lojasTokens: Record<string, 
       grade: (() => {
         const fam = itensDaGrade(idx, esc);
         if (fam?.tipo === 'letra') return fam.itens.map((x: any) => ({ ...resumoItemCentral(x), rotuloGrade: `Letra ${letraDoItem(x)}` }));
+        if (fam?.tipo === 'cor') return (m as any).grade ? fam.itens.map(resumoItemCentral) : [];
         return !fornecedorTemGrade(esc.fornecedorNome) ? [] : (idx.porCodigo.get(codNorm(esc.codigo)) ?? []).filter((x: any) => x.fornecedorId === esc.fornecedorId && codNorm(x.codigo) === codNorm(esc.codigo)).slice(0, 80).map(resumoItemCentral);
       })(),
       fornecedorId: esc.fornecedorId, fornecedorNome: esc.fornecedorNome,
@@ -1620,7 +1622,7 @@ const letraDoItem = (it: any) => letraDe(it.descricao) ?? letraDaVariacao(it);
 const familiaDoItem = (it: any) => { const k = chaveFamiliaLetra(it.descricao, String(it.chave ?? '').split('|')[1]); return k ? `${it.fornecedorId}|${k}` : null; };
 
 // Grade do item: tamanhos do mesmo codigo/cor (fornecedores com grade) ou familia por letra.
-function itensDaGrade(idx: ReturnType<typeof indexarCatalogo>, it: any): { tipo: 'tamanho' | 'letra'; itens: any[]; rotulos: string[] } | null {
+function itensDaGrade(idx: ReturnType<typeof indexarCatalogo>, it: any): { tipo: 'tamanho' | 'letra' | 'cor'; itens: any[]; rotulos: string[] } | null {
   if (!it) return null;
   const t = tamanhosDaGrade(idx, it);
   if (t.length > 1) return { tipo: 'tamanho', itens: t, rotulos: t.map((x: any) => x.variacao) };
@@ -1634,6 +1636,12 @@ function itensDaGrade(idx: ReturnType<typeof indexarCatalogo>, it: any): { tipo:
   if (fam.length > 1) {
     const ord = [...fam].sort((a: any, b: any) => String(letraDe(a.descricao)).localeCompare(String(letraDe(b.descricao))));
     return { tipo: 'letra', itens: ord, rotulos: ord.map((x: any) => letraDe(x.descricao) ?? '?') };
+  }
+  // Grade de cores: o mesmo código e fornecedor em 2 ou mais cores (ex.: produto da loja "[ROSA, VERDE E AZUL]").
+  const cores = (idx.porCodigo.get(codNorm(it.codigo)) ?? []).filter((x: any) => x.fornecedorId === it.fornecedorId && codNorm(x.codigo) === codNorm(it.codigo));
+  if (new Set(cores.map((x: any) => x.corBase ?? corBase(x.variacaoDescricao ?? x.variacao))).size >= 2 && cores.length <= 40) {
+    const ord = [...cores].sort((a: any, b: any) => String(a.variacao ?? '').localeCompare(String(b.variacao ?? ''), 'pt-BR', { numeric: true }));
+    return { tipo: 'cor', itens: ord, rotulos: ord.map((x: any) => String(x.variacaoDescricao ?? x.variacao ?? '')) };
   }
   return null;
 }
