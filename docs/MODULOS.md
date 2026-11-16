@@ -110,3 +110,10 @@ Brasília, Goiânia e Ribeirão têm 2 unidades usando o mesmo token da VarejOnl
 - **Foto**: vem do cadastro da VarejOnline (`urlsFotosProduto`, a primeira foto). O painel pede as fotos só das linhas que aparecem na tela (`modulo: 'fotosProdutos'`, até 400 ids por chamada; guardadas 6 h na memória da função). Clicar na foto abre maior. Produto sem foto mostra um quadro cinza.
 - **Pedido Central**: seletor de fornecedor mostra um fornecedor por vez (o valor total do topo continua com todos).
 - **Compra Recorrente**: cada produto mostra o fornecedor pelo vínculo com o item da Central (catálogo fixo); sem vínculo = "Sem vínculo com a Central"; vínculo marcado como ignorar = "Fora da Central". Filtro de fornecedor e "Só o que comprar".
+
+## Vínculos — grade de cores
+
+- Quando o mesmo código da Central tem 2 ou mais cores do mesmo fornecedor (ex.: MB26 0001 ROSA, 0002 AZUL, 0003 VERDE) e a loja vende tudo num produto só ("DEZENA ... [ROSA, VERDE E AZUL]"), a tela de vínculos oferece **Vincular a todas as cores**.
+- O vínculo fica com `grade = true` (mesma coluna da grade de tamanhos/letras). No pedido, a quantidade sugerida é dividida entre as cores pela proporção do que a rede comprou de cada cor em 180 dias, e dá para ajustar no botão "Grade: cores".
+- Na Compra Recorrente, pedidos em andamento de qualquer cor desse código descontam da compra do produto.
+- Ordem de detecção: grade de tamanhos (fornecedores com grade) > letras > cores.
