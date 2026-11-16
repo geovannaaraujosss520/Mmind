@@ -1767,9 +1767,43 @@ async function moduloDre(body: any, a: Acesso) {
 // Pre-aquecimento: para cada loja, garante no cache os ultimos N dias de vendas (so baixa o que falta)
 // e atualiza o cache dos pedidos da Central. Para de comecar lojas novas perto do limite de tempo;
 // a tarefa agendada chama de novo ate vir completo=true.
+// Diagnóstico (temporário): só NOMES de campos e valores que parecem link de imagem, para achar a foto do produto.
+async function diagnosticoFotos() {
+  const pareceImagem = (k: string, v: any) => typeof v === 'string' && (/https?:\/\/.*\.(jpe?g|png|webp|gif)/i.test(v) || /img|imag|foto|photo|picture|thumb/i.test(k)) && v.length < 400;
+  const varrer = (o: any, pre = '', out: { campos: Set<string>; imagens: Record<string, string> } = { campos: new Set(), imagens: {} }, prof = 0) => {
+    if (!o || typeof o !== 'object' || prof > 3) return out;
+    for (const [k, v] of Object.entries(o)) {
+      const caminho = pre ? `${pre}.${k}` : k;
+      out.campos.add(caminho.replace(/\.\d+\./g, '[].'));
+      if (pareceImagem(k, v) && !out.imagens[caminho]) out.imagens[caminho] = String(v);
+      if (v && typeof v === 'object') varrer(Array.isArray(v) ? v.slice(0, 2) : v, caminho, out, prof + 1);
+    }
+    return out;
+  };
+  const res: any = {};
+  try {
+    const c = await sincronizarCentralDias(15, 40_000);
+    const itens = c.lista.flatMap((p: any) => (p.itensPedido ?? []).slice(0, 3)).slice(0, 30);
+    const r = { campos: new Set<string>(), imagens: {} as Record<string, string> };
+    for (const it of itens) varrer(it, '', r);
+    res.central = { itensLidos: itens.length, campos: [...r.campos].sort(), imagens: Object.fromEntries(Object.entries(r.imagens).slice(0, 8)) };
+  } catch (e) { res.central = { erro: e instanceof Error ? e.message : String(e) }; }
+  try {
+    const apiBase = Deno.env.get('VAREJONLINE_API_BASE')!;
+    const tokens = await getLojasTokens(); const loja = Object.keys(tokens)[0];
+    const pg = await paginaVarejo(`${apiBase}/produtos?inicio=0&quantidade=5`, tokens[loja]);
+    const prods = (Array.isArray(pg) ? pg : (pg.items ?? pg.dados ?? [])).slice(0, 5);
+    const r = { campos: new Set<string>(), imagens: {} as Record<string, string> };
+    for (const pr of prods) varrer(pr, '', r);
+    res.varejonline = { produtosLidos: prods.length, campos: [...r.campos].sort(), imagens: Object.fromEntries(Object.entries(r.imagens).slice(0, 8)) };
+  } catch (e) { res.varejonline = { erro: e instanceof Error ? e.message : String(e) }; }
+  return res;
+}
+
 async function aquecerCaches(body: any) {
   if (body.hoje) return aquecerHoje();
   if (body.clientesRede) return aquecerClientesRede();
+  if (body.diagnosticoFotos) return diagnosticoFotos();
   const t0 = Date.now(), limite = 90_000;
   const apiBase = Deno.env.get('VAREJONLINE_API_BASE');
   if (!apiBase) throw new Error('VAREJONLINE_API_BASE não configurado.');
