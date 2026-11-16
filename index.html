@@ -322,6 +322,20 @@
   .ven-meta-loja > div > small{ display:block; font-size:11px; color:var(--muted); }
   .ven-meta-bts{ display:flex; gap:8px; flex-wrap:wrap; margin-left:auto; }
   .ven-meta-bts button{ padding:7px 12px; font-size:12.5px; }
+  .ini-rup-sub{ font-weight:400; font-size:12.5px; color:var(--muted); margin-left:6px; }
+  .rup-chips{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+  .rup-chip{ border-radius:20px; padding:4px 12px; font-size:12.5px; border:1px solid var(--line); background:var(--panel-2); }
+  .rup-chip b{ font-size:14px; }
+  .rup-chip.z{ background:var(--accent); color:#fff; border-color:var(--accent); }
+  .rup-chip.c{ border-color:var(--accent); color:var(--accent-deep); }
+  .rup-chip.a{ border-color:#C98A00; color:#7A4B00; background:var(--gold-tint); }
+  .rup-chip.ok{ border-color:var(--good); color:var(--good); }
+  .rup-tag{ display:inline-block; border-radius:8px; padding:2px 8px; font-size:11.5px; font-weight:650; white-space:nowrap; }
+  .rup-tag.z{ background:var(--accent); color:#fff; } .rup-tag.c{ border:1px solid var(--accent); color:var(--accent-deep); }
+  .rup-tag.a{ background:var(--gold-tint); color:#7A4B00; } .rup-tag.ok{ border:1px solid var(--good); color:var(--good); }
+  .ini-rup-ok{ color:var(--good); font-weight:600; }
+  .ini-rup-tab td{ vertical-align:middle; }
+  @media (max-width: 600px){ .ini-rup-tab th:nth-child(4), .ini-rup-tab td:nth-child(4), .ini-rup-tab th:nth-child(5), .ini-rup-tab td:nth-child(5), .ini-rup-tab th:nth-child(6), .ini-rup-tab td:nth-child(6){ display:none; } .ini-rup-tab .prod-com-foto .foto-prod{ display:none; } }
   .acoes-dia-bt.tem-critico{ border-color:var(--accent); color:var(--accent-deep); font-weight:650; }
   .foto-prod{ flex:none; display:inline-flex; align-items:center; justify-content:center; border-radius:8px; background:var(--panel-2); border:1px solid var(--line); overflow:hidden; }
   .foto-prod img{ width:100%; height:100%; object-fit:cover; display:block; }
@@ -1095,6 +1109,7 @@ async function contarMetasVendedores(l) {
 function acoesDaLoja(l, estoque) {
   const it = [];
   if (estoque?.zerados?.length) it.push({ sev: 'critico', rot: 'Ruptura', tit: `${estoque.zerados.length} produto(s) que vendem estão zerados`, det: `${estoque.zerados.slice(0, 3).map(x => x.descricao).join(' · ')}${estoque.perdaDia ? ` · cerca de ${fmtMoeda(estoque.perdaDia)} por dia deixando de vender` : ''}`, ir: 'pedido', bt: 'Fazer pedido' });
+  if (estoque?.ate7?.length) it.push({ sev: 'critico', rot: 'Ruptura', tit: `${estoque.ate7.length} produto(s) acabam em até 7 dias`, det: estoque.ate7.slice(0, 3).map(x => `${x.descricao} (${Math.floor(x.dias) <= 0 ? 'hoje' : Math.floor(x.dias) + ' d'})`).join(' · '), ir: 'pedido', bt: 'Fazer pedido' });
   if (!l.meta) it.push({ sev: 'atencao', rot: 'Meta', tit: 'A loja ainda está sem meta neste mês', det: 'A meta da loja é cadastrada pela franqueadora. Se já combinaram o valor, peça para ela cadastrar.' });
   else {
     if (estoque?.metasVendedores === 0) it.push({ sev: 'atencao', rot: 'Equipe', tit: 'Divida a meta da loja entre os vendedores', det: `A meta de ${fmtMoeda(l.meta)} ainda não foi dividida. Cada vendedor passa a ver quanto falta para ele.`, ir: 'vendedores', bt: 'Dividir meta' });
@@ -1103,7 +1118,9 @@ function acoesDaLoja(l, estoque) {
   }
   if (l.anoAnteriorAteAgora > 0 && (l.faturadoHoje || 0) < l.anoAnteriorAteAgora * 0.85) it.push({ sev: 'atencao', rot: 'Hoje', tit: `Hoje está ${fmtPct((1 - (l.faturadoHoje || 0) / l.anoAnteriorAteAgora) * 100, 0)} abaixo do ano passado neste horário`, det: `${fmtMoeda(l.faturadoHoje || 0)} hoje contra ${fmtMoeda(l.anoAnteriorAteAgora)} no mesmo dia da semana do ano passado.`, ir: 'comparativo', bt: 'Ver comparativo' });
   if (l.pedidosInsightPendentes) it.push({ sev: 'critico', rot: 'Pedido', tit: `${l.pedidosInsightPendentes} pedido(s) aprovado(s) esperando envio à Central`, det: `${fmtMoeda(l.valorInsightPendente || 0)} aprovados que ainda não chegaram à Central.`, ir: 'pedido', bt: 'Enviar pedido' });
-  if (estoque?.comprar?.length) it.push({ sev: 'atencao', rot: 'Comprar', tit: `${estoque.comprar.length} produto(s) vão faltar antes da próxima reposição`, det: estoque.comprar.slice(0, 3).map(x => x.descricao).join(' · '), ir: 'pedido', bt: 'Montar pedido' });
+  const jaNoAlerta = new Set([...(estoque?.ate7 || []), ...(estoque?.zerados || [])].map(x => String(x.produtoId)));
+  const comprarResto = (estoque?.comprar || []).filter(x => !jaNoAlerta.has(String(x.produtoId)));
+  if (comprarResto.length) it.push({ sev: 'atencao', rot: 'Comprar', tit: `${comprarResto.length} produto(s) vão faltar antes da próxima reposição`, det: comprarResto.slice(0, 3).map(x => x.descricao).join(' · '), ir: 'pedido', bt: 'Montar pedido' });
   if (l.diasSemComprar != null && l.diasSemComprar > 21) it.push({ sev: 'atencao', rot: 'Central', tit: `${l.diasSemComprar} dias sem comprar na Central`, det: 'Sem reposição, os produtos que mais vendem começam a faltar.', ir: 'pedido', bt: 'Fazer pedido' });
   return it.sort((a, b) => (a.sev === 'critico' ? 0 : 1) - (b.sev === 'critico' ? 0 : 1));
 }
@@ -1327,6 +1344,8 @@ async function desenharMinhaLoja(d) {
       <div class="kpi"><div class="label">Peças por atendimento</div><div class="value">${fmtNum(l.pecasPorAtendimento)}</div><div class="hint">quanto maior, melhor a venda</div></div>
       <div class="kpi"><div class="label">Última compra na Central</div><div class="value" style="color:${l.diasSemComprar == null || l.diasSemComprar > 21 ? 'var(--warn)' : 'inherit'}">${l.ultimaCompraCentral ? dataCurta(l.ultimaCompraCentral) : '—'}</div><div class="hint">${l.diasSemComprar != null ? `${l.diasSemComprar} dia(s) atrás` : 'sem pedido nos últimos 60 dias'}${l.pedidosCentralEmAndamento ? ` · ${l.pedidosCentralEmAndamento} em andamento` : ''}</div></div>
     </div>
+    <div class="subsecao-titulo">Alerta de ruptura <span class="ini-rup-sub">produtos que vão acabar nos próximos 15 dias</span></div>
+    <div class="panel" id="ini_ruptura"><span class="loader"></span> Analisando o estoque da loja…</div>
     <div class="subsecao-titulo">O que fazer hoje</div>
     <div class="acoes" id="ini_acoes">
       ${l.pedidosInsightPendentes ? `<div class="acao atencao"><div class="sev atencao">Pedido</div><div><div class="tit">${l.pedidosInsightPendentes} pedido(s) aprovado(s) esperando envio à Central</div><div class="det">${fmtMoeda(l.valorInsightPendente)} aprovados no Insight. Envie para não atrasar a reposição.</div><button class="secondary" data-ir="pedido">Abrir Pedido Central</button></div><div class="imp">${l.pedidosInsightPendentes}</div></div>` : ''}
@@ -1347,19 +1366,68 @@ async function desenharMinhaLoja(d) {
     const zerados = recs.filter(x => (x.estoqueAtual ?? 0) <= 0 && x.vendaMediaDiaria > 0);
     const perdaDia = zerados.reduce((t, x) => t + x.vendaMediaDiaria * (x.precoMedioVenda || 0), 0);
     const comprar = recs.filter(x => x.riscoRuptura && x.qtdRecomendadaCompra > 0).sort((a, b) => b.vendaMediaDiaria * (b.precoMedioVenda || 0) - a.vendaMediaDiaria * (a.precoMedioVenda || 0));
-    if (_inicioFresco) mostrarAcoesDia(acoesDaLoja(l, { zerados, comprar, perdaDia, metasVendedores: await contarMetasVendedores(l) }), l.loja);
+    const rup = rupturaChegando(recs);
+    if (_inicioFresco) mostrarAcoesDia(acoesDaLoja(l, { zerados, comprar, perdaDia, ate7: rup.lista.filter(x => x.faixa === '7' && !x.cobre), metasVendedores: await contarMetasVendedores(l) }), l.loja);
+    desenharRuptura(rup, l.loja, perdaDia);
     const box = $('ini_compra_status'); if (!box) return;
-    box.outerHTML = `${zerados.length ? `<div class="acao critico"><div class="sev critico">Ruptura</div><div><div class="tit">${zerados.length} produto(s) que vendem estão zerados</div><div class="det">${zerados.slice(0, 6).map(x => esc(x.descricao)).join(' · ')}${zerados.length > 6 ? '…' : ''}</div></div><div class="imp">${fmtMoeda(perdaDia)}<small>por dia sem vender</small></div></div>` : ''}
-      ${comprar.length ? `<div class="acao atencao"><div class="sev atencao">Comprar</div><div><div class="tit">${comprar.length} produto(s) vão faltar antes da próxima reposição</div>
+    box.outerHTML = `${comprar.length ? `<div class="acao atencao"><div class="sev atencao">Comprar</div><div><div class="tit">${comprar.length} produto(s) vão faltar antes da próxima reposição</div>
         <div class="det" style="margin-top:6px"><table class="no-tools" style="font-size:12.5px"><thead><tr><th>Produto</th><th class="num">Estoque</th><th class="num">Vende por dia</th><th class="num">Comprar</th></tr></thead><tbody>
         ${comprar.slice(0, 8).map(x => `<tr><td class="prod-name">${esc(x.descricao)}</td><td class="num">${fmtNum(x.estoqueAtual ?? 0)}</td><td class="num">${fmtNum(x.vendaMediaDiaria)}</td><td class="num"><strong>${fmtNum(x.qtdRecomendadaCompra)}</strong></td></tr>`).join('')}</tbody></table></div>
         <button data-ir="pedido" style="margin-top:8px">Montar o pedido com esses itens</button></div><div class="imp">${comprar.length}<small>itens</small></div></div>` : ''}
-      ${!zerados.length && !comprar.length ? '<div class="acao oportunidade"><div class="sev oportunidade">Estoque</div><div><div class="tit">Estoque em dia</div><div class="det">Nenhum produto em risco de faltar no próximo mês.</div></div><div class="imp">✓</div></div>' : ''}`;
+      ${!comprar.length ? '<div class="acao oportunidade"><div class="sev oportunidade">Estoque</div><div><div class="tit">Estoque em dia</div><div class="det">Nenhum produto em risco de faltar no próximo mês.</div></div><div class="imp">✓</div></div>' : ''}`;
     ligarIrPara($('ini_acoes'), l.loja);
   } catch (e) {
     if (_inicioFresco) mostrarAcoesDia(acoesDaLoja(l, { metasVendedores: await contarMetasVendedores(l) }), l.loja);
     const box = $('ini_compra_status'); if (box) box.textContent = 'Não foi possível analisar o estoque agora: ' + e.message;
+    const rb = $('ini_ruptura'); if (rb) rb.innerHTML = `<div class="empty">Não foi possível analisar o estoque agora: ${esc(e.message)}</div>`;
   }
+}
+
+// ---- Alerta de ruptura: em quantos dias cada produto acaba (estoque ÷ venda média por dia) ----
+function rupturaChegando(recs) {
+  const lista = [];
+  for (const r of recs) {
+    const vel = Number(r.vendaMediaDiaria) || 0; if (!(vel > 0)) continue;
+    const est = Math.max(0, Number(r.estoqueAtual) || 0), dias = est / vel;
+    const faixa = est <= 0 ? 'zerado' : dias <= 7 ? '7' : dias <= 15 ? '15' : null;
+    if (!faixa) continue;
+    const cobre = (est + (Number(r.emAndamento) || 0)) / vel > 15;
+    lista.push({ ...r, dias, faixa, cobre, valorDia: vel * (r.precoMedioVenda || 0) });
+  }
+  const ordem = { zerado: 0, '7': 1, '15': 2 };
+  lista.sort((a, b) => (a.cobre - b.cobre) || (ordem[a.faixa] - ordem[b.faixa]) || (a.dias - b.dias) || (b.valorDia - a.valorDia));
+  const conta = f => lista.filter(x => x.faixa === f && !x.cobre).length;
+  return { lista, zerados: conta('zerado'), ate7: conta('7'), ate15: conta('15'), cobertos: lista.filter(x => x.cobre).length };
+}
+function desenharRuptura(rup, loja, perdaDia) {
+  const box = $('ini_ruptura'); if (!box) return;
+  if (!rup.lista.length) { box.innerHTML = '<div class="ini-rup-ok">✓ Nenhum produto vai acabar nos próximos 15 dias no ritmo atual de vendas.</div>'; return; }
+  const hoje = new Date();
+  const quando = x => {
+    if (x.faixa === 'zerado') return '<strong style="color:var(--danger)">Zerado</strong>';
+    const d = Math.floor(x.dias), dt = new Date(hoje.getTime() + d * 864e5);
+    return `<strong>${d <= 0 ? 'hoje' : d === 1 ? 'amanhã' : `em ${d} dias`}</strong><br><span class="ini-prod-sub">≈ ${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')}</span>`;
+  };
+  const sit = x => x.cobre ? '<span class="rup-tag ok">Pedido a caminho</span>' : x.faixa === 'zerado' ? '<span class="rup-tag z">Ruptura</span>' : x.faixa === '7' ? '<span class="rup-tag c">Até 7 dias</span>' : '<span class="rup-tag a">8 a 15 dias</span>';
+  const linha = (x, i) => `<tr ${i >= 10 ? 'data-rup-extra style="display:none"' : ''}><td class="prod-name"><div class="prod-com-foto" style="align-items:center">${fotoProdutoHtml(x.produtoId, 38)}<div>${esc(x.descricao)}${x.codigoSistema ? `<br><span class="ini-prod-sub">${esc(x.codigoSistema)}</span>` : ''}</div></div></td>
+    <td>${sit(x)}</td><td class="num">${quando(x)}</td><td class="num">${fmtNum(Math.max(0, x.estoqueAtual || 0))}</td><td class="num">${fmtNum(x.vendaMediaDiaria)}</td>
+    <td class="num">${x.emAndamento ? `+${fmtNum(x.emAndamento)}` : '—'}</td><td class="num">${x.qtdRecomendadaCompra > 0 ? `<strong>${fmtNum(x.qtdRecomendadaCompra)}</strong>` : '—'}</td></tr>`;
+  box.innerHTML = `<div class="rup-chips">
+      ${rup.zerados ? `<span class="rup-chip z"><b>${rup.zerados}</b> zerado(s)${perdaDia ? ` · ${fmtMoeda(perdaDia)}/dia sem vender` : ''}</span>` : ''}
+      ${rup.ate7 ? `<span class="rup-chip c"><b>${rup.ate7}</b> acaba(m) em até 7 dias</span>` : ''}
+      ${rup.ate15 ? `<span class="rup-chip a"><b>${rup.ate15}</b> em 8 a 15 dias</span>` : ''}
+      ${rup.cobertos ? `<span class="rup-chip ok"><b>${rup.cobertos}</b> com pedido a caminho</span>` : ''}
+    </div>
+    <div style="overflow-x:auto"><table class="no-tools ini-rup-tab"><thead><tr><th>Produto</th><th>Situação</th><th class="num">Acaba</th><th class="num">Estoque</th><th class="num">Vende/dia</th><th class="num">A caminho</th><th class="num">Comprar</th></tr></thead>
+    <tbody>${rup.lista.map(linha).join('')}</tbody></table></div>
+    <div class="actions" style="margin-top:10px; flex-wrap:wrap">
+      <button data-ir="pedido">Montar o pedido para a Central</button>
+      ${rup.lista.length > 10 ? `<button type="button" class="secondary" id="rup_mais">Ver todos (${rup.lista.length})</button>` : ''}
+      <span class="ini-prod-sub" style="align-self:center">Acaba = estoque ÷ venda média por dia dos últimos 60 dias. "Pedido a caminho" = o que está nos pedidos em andamento cobre mais de 15 dias.</span>
+    </div>`;
+  $('rup_mais')?.addEventListener('click', e => { box.querySelectorAll('[data-rup-extra]').forEach(r => r.style.display = ''); e.target.remove(); carregarFotos(loja, box); });
+  ligarIrPara(box, loja);
+  carregarFotos(loja, box);
 }
 
 // =====================================================================

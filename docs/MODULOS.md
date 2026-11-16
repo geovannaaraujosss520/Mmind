@@ -130,3 +130,11 @@ Brasília, Goiânia e Ribeirão têm 2 unidades usando o mesmo token da VarejOnl
 - **Meta da loja** (Financeiro): só a franqueadora (administrador/equipe) cadastra. O servidor já recusava o salvar para franqueado; agora o franqueado vê só a meta, sem o formulário, com um atalho para dividir na Equipe.
 - **Meta por vendedor** (Equipe › Metas por vendedor): o franqueado divide a meta da loja. A tela mostra a meta da loja, quanto já foi dividido e quanto falta, com os botões **Dividir pelo que cada um vendeu** (proporção do faturamento do período analisado) e **Dividir igualmente** (arredonda em R$ 10; o último vendedor fica com o resto para fechar a meta).
 - Aviso do dia (franqueado): sem meta da loja = atenção ("a franqueadora cadastra"); meta cadastrada mas nenhuma meta por vendedor no mês = "Divida a meta da loja entre os vendedores".
+
+## Início — Alerta de ruptura (franqueado)
+
+- Bloco próprio no Início da loja, logo abaixo dos números do mês: produtos que vendem e vão acabar nos **próximos 15 dias**.
+- **Acaba em** = estoque ÷ venda média por dia dos últimos 60 dias (da análise de Compra Recorrente da loja), com a data estimada. Faixas: zerado, até 7 dias, 8 a 15 dias.
+- **Pedido a caminho**: quando estoque + pedidos em andamento na Central cobrem mais de 15 dias, o produto vai para o fim da lista com essa etiqueta.
+- Ordem: sem cobertura primeiro, depois zerados, depois menos dias, depois quem vende mais em R$. Mostra 10 e "Ver todos". Botão para montar o pedido.
+- O aviso do dia ganha o item crítico "N produto(s) acabam em até 7 dias" (sem pedido a caminho); o item "vão faltar antes da próxima reposição" deixa de repetir esses produtos.
