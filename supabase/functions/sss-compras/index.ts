@@ -502,6 +502,7 @@ async function moduloRecorrente(apiBase: string, lojasTokens: Record<string, str
           // familia por letra (A-Z, cada letra com codigo proprio): pedido de qualquer letra e deste produto
           const kl = chaveFamiliaLetra(v.descricao_central, String(v.chave_central).split('|')[1]); if (kl) { if (!porGrade.has(kl)) porGrade.set(kl, []); if (!porGrade.get(kl)!.includes(prod)) porGrade.get(kl)!.push(prod); }
           // letras como variacao do mesmo codigo (A, B, ... Z): pedido de qualquer letra
+          { const tcv = tamanhoDoCodigo(String(v.chave_central).split('|')[0]); if (tcv) { const kt = `TC:${tcv.base}|${varNorm(String(v.chave_central).split('|')[1] ?? '')}`; if (!porGrade.has(kt)) porGrade.set(kt, []); if (!porGrade.get(kt)!.includes(prod)) porGrade.get(kt)!.push(prod); } }
           { const kq = `${String(v.chave_central).split('|')[0]}|**`; if (!porGrade.has(kq)) porGrade.set(kq, []); if (!porGrade.get(kq)!.includes(prod)) porGrade.get(kq)!.push(prod); } // grade de cores
           if (/^[A-Z]( |$)/.test(String(v.chave_central).split('|')[1] ?? '')) { const kc = `${String(v.chave_central).split('|')[0]}|*`; if (!porGrade.has(kc)) porGrade.set(kc, []); if (!porGrade.get(kc)!.includes(prod)) porGrade.get(kc)!.push(prod); }
         }
@@ -511,7 +512,8 @@ async function moduloRecorrente(apiBase: string, lojasTokens: Record<string, str
       const v = vl.get(it.cod);
       const kl = chaveFamiliaLetra(it.descricao, String(it.chave).split('|')[1]);
       const varIt = String(it.chave).split('|')[1] ?? '';
-      const ex = exatos.get(it.chave) ?? exatos.get(`CV:${codVar(it.cod, varIt)}`) ?? (/^[A-Z]( |$)/.test(varIt) ? porGrade.get(`${String(it.chave).split('|')[0]}|*`) : undefined) ?? porGrade.get(`${String(it.chave).split('|')[0]}|${andamento.cbPorChave.get(it.chave) ?? corBaseDaChave(it.chave)}`) ?? (kl ? porGrade.get(kl) : undefined) ?? (!fornecedorTemGrade(it.forn) ? porGrade.get(`${String(it.chave).split('|')[0]}|**`) : undefined);
+      const ex = exatos.get(it.chave) ?? exatos.get(`CV:${codVar(it.cod, varIt)}`) ?? (/^[A-Z]( |$)/.test(varIt) ? porGrade.get(`${String(it.chave).split('|')[0]}|*`) : undefined) ?? porGrade.get(`${String(it.chave).split('|')[0]}|${andamento.cbPorChave.get(it.chave) ?? corBaseDaChave(it.chave)}`) ?? (kl ? porGrade.get(kl) : undefined) ?? (() => { const t = tamanhoDoCodigo(it.codigoCentral ?? String(it.chave).split('|')[0]); return t ? porGrade.get(`TC:${t.base}|${varNorm(String(it.chave).split('|')[1] ?? '')}`) : undefined; })()
+        ?? (!fornecedorTemGrade(it.forn) ? porGrade.get(`${String(it.chave).split('|')[0]}|**`) : undefined);
       if (!ex && v?.ignorar) { ignorados++; continue; }
       let pid: string | null = null;
       if (ex?.length === 1) pid = ex[0];
@@ -812,6 +814,7 @@ async function gerarPedidoSugerido(apiBase: string, lojasTokens: Record<string, 
         const fam = itensDaGrade(idx, esc);
         if (fam?.tipo === 'letra') return fam.itens.map((x: any) => ({ ...resumoItemCentral(x), rotuloGrade: `Letra ${letraDoItem(x)}` }));
         if (fam?.tipo === 'cor') return (m as any).grade ? fam.itens.map(resumoItemCentral) : [];
+        if (fam?.tipo === 'tamanho' && tamanhoDoCodigo(esc.codigo) && fam.itens.some((x: any) => codNorm(x.codigo) !== codNorm(esc.codigo))) return fam.itens.map((x: any) => ({ ...resumoItemCentral(x), rotuloGrade: `Tamanho ${tamanhoDoCodigo(x.codigo)!.tam}` }));
         return !fornecedorTemGrade(esc.fornecedorNome) ? [] : (idx.porCodigo.get(codNorm(esc.codigo)) ?? []).filter((x: any) => x.fornecedorId === esc.fornecedorId && codNorm(x.codigo) === codNorm(esc.codigo)).slice(0, 80).map(resumoItemCentral);
       })(),
       fornecedorId: esc.fornecedorId, fornecedorNome: esc.fornecedorNome,
@@ -1647,6 +1650,23 @@ const letraDoItem = (it: any) => letraDe(it.descricao) ?? letraDaVariacao(it);
 const familiaDoItem = (it: any) => { const k = chaveFamiliaLetra(it.descricao, String(it.chave ?? '').split('|')[1]); return k ? `${it.fornecedorId}|${k}` : null; };
 
 // Grade do item: tamanhos do mesmo codigo/cor (fornecedores com grade) ou familia por letra.
+// Tamanho no final do código da Central (4443.XPP, 4443.PP, 4443.P, 4443.M, 4443.G): cada tamanho é um código.
+const ORDEM_TAM = ['XXPP', 'XPP', 'PP', 'P', 'M', 'G', 'GG', 'XG', 'XGG', 'EG', 'EGG', 'U', 'UN'];
+function tamanhoDoCodigo(codigo: any): { base: string; tam: string } | null {
+  const m = String(codigo ?? '').trim().toUpperCase().match(/^(.+)[.\-]([A-Z]{1,4})$/);
+  return m && ORDEM_TAM.includes(m[2]) ? { base: m[1], tam: m[2] } : null;
+}
+const _porBaseTam = new WeakMap<any, Map<string, any[]>>();
+function gradeTamanhoPorCodigo(idx: ReturnType<typeof indexarCatalogo>, it: any): any[] {
+  const tc = tamanhoDoCodigo(it.codigo); if (!tc) return [];
+  let mapa = _porBaseTam.get(idx);
+  if (!mapa) { mapa = new Map(); for (const x of idx.itens) { const t = tamanhoDoCodigo(x.codigo); if (!t) continue; const k = `${x.fornecedorId}|${t.base}`; if (!mapa.has(k)) mapa.set(k, []); mapa.get(k)!.push(x); } _porBaseTam.set(idx, mapa); }
+  const v = varNorm(it.variacaoDescricao ?? it.variacao ?? '');
+  const mesmos = (mapa.get(`${it.fornecedorId}|${tc.base}`) ?? []).filter((x: any) => varNorm(x.variacaoDescricao ?? x.variacao ?? '') === v);
+  const porTam = new Map<string, any>(); for (const x of mesmos) { const t = tamanhoDoCodigo(x.codigo)!.tam; if (!porTam.has(t)) porTam.set(t, x); }
+  return [...porTam.entries()].sort((a, b) => ORDEM_TAM.indexOf(a[0]) - ORDEM_TAM.indexOf(b[0])).map(([, x]) => x);
+}
+
 function itensDaGrade(idx: ReturnType<typeof indexarCatalogo>, it: any): { tipo: 'tamanho' | 'letra' | 'cor'; itens: any[]; rotulos: string[] } | null {
   if (!it) return null;
   const t = tamanhosDaGrade(idx, it);
@@ -1662,6 +1682,9 @@ function itensDaGrade(idx: ReturnType<typeof indexarCatalogo>, it: any): { tipo:
     const ord = [...fam].sort((a: any, b: any) => String(letraDe(a.descricao)).localeCompare(String(letraDe(b.descricao))));
     return { tipo: 'letra', itens: ord, rotulos: ord.map((x: any) => letraDe(x.descricao) ?? '?') };
   }
+  // Tamanhos em códigos diferentes, mesma cor (4443.PP|6, 4443.P|6, 4443.M|6…): vem antes da grade de cores
+  const tcod = gradeTamanhoPorCodigo(idx, it);
+  if (tcod.length > 1) return { tipo: 'tamanho', itens: tcod, rotulos: tcod.map((x: any) => tamanhoDoCodigo(x.codigo)!.tam) };
   // Grade de cores: o mesmo código e fornecedor em 2 ou mais cores (ex.: produto da loja "[ROSA, VERDE E AZUL]").
   const cores = (idx.porCodigo.get(codNorm(it.codigo)) ?? []).filter((x: any) => x.fornecedorId === it.fornecedorId && codNorm(x.codigo) === codNorm(it.codigo));
   if (new Set(cores.map((x: any) => x.corBase ?? corBase(x.variacaoDescricao ?? x.variacao))).size >= 2 && cores.length <= 40) {

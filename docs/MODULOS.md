@@ -145,3 +145,9 @@ Brasília, Goiânia e Ribeirão têm 2 unidades usando o mesmo token da VarejOnl
 - Grava `chave_central` = primeiro item e `chaves_grade` = os demais (coluna nova: migração `20261116000001_vinculos_varios_itens.sql`). Todos precisam ser do mesmo fornecedor.
 - Pedido: a linha vira "Grade: N itens" e a quantidade é dividida entre os itens pela proporção do que a rede pediu de cada um (ajustável). Compra Recorrente: pedido em andamento de qualquer desses itens desconta do produto.
 - Vincular um item só (botão Vincular, Confirmar ou um marcado) limpa os itens extras.
+
+## Grade de tamanhos por código (ex.: 4443.XPP / .PP / .P / .M / .G)
+
+- Alguns fornecedores cadastram cada tamanho como um código próprio na Central e a cor na variação (PULSEIRA CRISTAL: 4443.pp|6, 4443.p|6, 4443.m|6…). O sistema reconhece o tamanho no final do código (XXPP, XPP, PP, P, M, G, GG, XG, EG, U…) e monta a grade com os tamanhos da **mesma cor e fornecedor**.
+- Ordem de detecção: tamanhos na variação > letras > **tamanhos por código** > cores.
+- Vínculos: aparece "Vincular à grade (N tamanhos)". Pedido: "Grade: tamanhos (N)", na ordem dos tamanhos, com a quantidade dividida pela proporção da rede. Compra Recorrente: pedido em andamento de qualquer tamanho da mesma cor desconta do produto.
