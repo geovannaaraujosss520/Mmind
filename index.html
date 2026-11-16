@@ -298,6 +298,25 @@
   .cli-ajustes{ margin-top:10px; font-size:12.5px; } .cli-ajustes summary{ cursor:pointer; color:var(--muted); }
   .cli-resumo p{ margin:6px 0; font-size:15px; line-height:1.5; }
   .cli-resumo-t{ font-size:13px; color:var(--muted); margin-bottom:4px; }
+  dialog.acoes-dia{ border:none; border-radius:16px; padding:0; width:min(640px, calc(100vw - 32px)); max-height:calc(100vh - 48px); box-shadow:0 20px 60px rgba(40,15,5,.35); color:var(--text); background:var(--panel); }
+  dialog.acoes-dia::backdrop{ background:rgba(30,15,8,.45); }
+  .acoes-dia-topo{ display:flex; justify-content:space-between; gap:12px; padding:20px 22px 10px; border-bottom:1px solid var(--line); }
+  .acoes-dia-topo h2{ margin:2px 0 4px; font-size:22px; color:var(--accent-deep); }
+  .acoes-dia-topo p{ margin:0; font-size:13.5px; color:var(--muted); }
+  .acoes-dia-rot{ font-size:12px; color:var(--muted); }
+  .acoes-dia-x{ background:none; border:none; font-size:26px; line-height:1; color:var(--muted); padding:0 4px; align-self:flex-start; }
+  .acoes-dia-lista{ list-style:none; margin:0; padding:8px 22px; }
+  .acoes-dia-lista li{ display:grid; grid-template-columns:76px 1fr auto; gap:12px; align-items:center; padding:12px 0; border-bottom:1px solid var(--line); }
+  .acoes-dia-lista li:last-child{ border-bottom:none; }
+  .acoes-dia-lista .tit{ font-weight:650; font-size:14.5px; }
+  .acoes-dia-lista .det{ font-size:12.5px; color:var(--muted); margin-top:2px; }
+  .acoes-dia-lista button{ padding:7px 12px; font-size:13px; white-space:nowrap; }
+  .acoes-dia-sev{ font-size:11.5px; font-weight:700; text-align:center; border-radius:8px; padding:4px 6px; }
+  .acoes-dia-lista li.critico .acoes-dia-sev{ background:var(--accent); color:#fff; }
+  .acoes-dia-lista li.atencao .acoes-dia-sev{ background:var(--gold-tint); color:#7A4B00; }
+  .acoes-dia-pe{ display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px 22px 18px; font-size:12px; color:var(--muted); border-top:1px solid var(--line); }
+  @media (max-width: 560px){ .acoes-dia-lista li{ grid-template-columns:1fr; gap:6px; } .acoes-dia-sev{ justify-self:start; } .acoes-dia-pe{ flex-direction:column; align-items:stretch; } }
+  .acoes-dia-bt.tem-critico{ border-color:var(--accent); color:var(--accent-deep); font-weight:650; }
   .foto-prod{ flex:none; display:inline-flex; align-items:center; justify-content:center; border-radius:8px; background:var(--panel-2); border:1px solid var(--line); overflow:hidden; }
   .foto-prod img{ width:100%; height:100%; object-fit:cover; display:block; }
   .foto-prod.com-foto{ cursor:zoom-in; }
@@ -558,6 +577,7 @@
     <div class="actions" style="margin:-6px 0 14px; flex-wrap:wrap; align-items:flex-end">
       <div id="ini_loja_box" style="display:none; min-width:220px"><label>Loja</label><select id="ini_loja"></select></div>
       <button class="secondary" id="ini_atualizar">Atualizar</button>
+      <button class="secondary acoes-dia-bt" id="ini_acoes_dia" hidden>Ações do dia <span id="ini_acoes_dia_n"></span></button>
       <span class="status" id="ini_status"></span>
     </div>
     <div id="ini_erro"></div>
@@ -1039,7 +1059,7 @@ async function carregarInicio(forcar = false) {
     const ultimo = lerUltimo('inicio', { papel: _papelAtual });
     if (ultimo && !_inicioDados) { _inicioDados = ultimo.data; desenharInicio(); st.textContent = `Mostrando ${new Date(ultimo.t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} · atualizando…`; }
     const d = await chamarEdge({ modulo: 'painel' }, EDGE_COMPRAS_URL);
-    _inicioDados = d; guardarUltimo('inicio', { papel: _papelAtual }, d);
+    _inicioDados = d; _inicioFresco = true; guardarUltimo('inicio', { papel: _papelAtual }, d);
     st.textContent = `Atualizado às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} ${resumoDesempenho(t0)}`;
     desenharInicio();
   } catch (e) { $('ini_erro').innerHTML = `<div class="panel err">${esc(e.message)}</div>`; st.textContent = ''; }
@@ -1052,6 +1072,69 @@ function refTicketAnterior(d, atual, anterior) {
   const nomeAnt = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'][(d.mes + 10) % 12];
   const dr = d.diaRefMesAnterior ?? d.dia;
   return `<div class="ticket-ref" title="Ticket médio de 1 a ${dr} de ${nomeAnt} (mesmo período do mês anterior)">${nomeAnt} (1 a ${dr}): <strong style="color:var(--text)">${fmtMoeda(anterior)}</strong> ${_cmpSeta(_cmpVar(atual, anterior))}</div>`;
+}
+
+// =====================================================================
+// AÇÕES CRÍTICAS DO DIA — aviso que abre uma vez por dia com o que precisa de atenção agora
+// =====================================================================
+let _inicioFresco = false, _acoesDia = { chave: '', itens: [], loja: '' };
+const _hojeIso = () => { const t = new Date(); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`; };
+// franqueado: uma loja
+function acoesDaLoja(l, estoque) {
+  const it = [];
+  if (estoque?.zerados?.length) it.push({ sev: 'critico', rot: 'Ruptura', tit: `${estoque.zerados.length} produto(s) que vendem estão zerados`, det: `${estoque.zerados.slice(0, 3).map(x => x.descricao).join(' · ')}${estoque.perdaDia ? ` · cerca de ${fmtMoeda(estoque.perdaDia)} por dia deixando de vender` : ''}`, ir: 'pedido', bt: 'Fazer pedido' });
+  if (!l.meta) it.push({ sev: 'critico', rot: 'Meta', tit: 'A loja está sem meta neste mês', det: 'Sem meta não dá para saber quanto vender por dia. Leva 1 minuto para cadastrar.', ir: 'financeiro', bt: 'Cadastrar meta' });
+  else {
+    if (l.percentProjecao != null && l.percentProjecao < 90) it.push({ sev: l.percentProjecao < 75 ? 'critico' : 'atencao', rot: 'Mês', tit: `No ritmo atual, o mês fecha em ${fmtPct(l.percentProjecao, 0)} da meta`, det: `Projeção de ${fmtMoeda(l.projecao)} para uma meta de ${fmtMoeda(l.meta)}.${l.faltaPorDia ? ` Para chegar, faltam ${fmtMoeda(l.faltaPorDia)} por dia de venda.` : ''}`, ir: 'clientes', bt: 'Chamar clientes' });
+    if (l.hojeContaNaMeta !== false && l.metaHoje > 0 && (l.faturadoHoje || 0) < l.metaHoje) it.push({ sev: 'atencao', rot: 'Hoje', tit: `Faltam ${fmtMoeda(l.metaHoje - (l.faturadoHoje || 0))} para a meta de hoje`, det: `Meta de hoje: ${fmtMoeda(l.metaHoje)} · vendido até agora: ${fmtMoeda(l.faturadoHoje || 0)}.` });
+  }
+  if (l.anoAnteriorAteAgora > 0 && (l.faturadoHoje || 0) < l.anoAnteriorAteAgora * 0.85) it.push({ sev: 'atencao', rot: 'Hoje', tit: `Hoje está ${fmtPct((1 - (l.faturadoHoje || 0) / l.anoAnteriorAteAgora) * 100, 0)} abaixo do ano passado neste horário`, det: `${fmtMoeda(l.faturadoHoje || 0)} hoje contra ${fmtMoeda(l.anoAnteriorAteAgora)} no mesmo dia da semana do ano passado.`, ir: 'comparativo', bt: 'Ver comparativo' });
+  if (l.pedidosInsightPendentes) it.push({ sev: 'critico', rot: 'Pedido', tit: `${l.pedidosInsightPendentes} pedido(s) aprovado(s) esperando envio à Central`, det: `${fmtMoeda(l.valorInsightPendente || 0)} aprovados que ainda não chegaram à Central.`, ir: 'pedido', bt: 'Enviar pedido' });
+  if (estoque?.comprar?.length) it.push({ sev: 'atencao', rot: 'Comprar', tit: `${estoque.comprar.length} produto(s) vão faltar antes da próxima reposição`, det: estoque.comprar.slice(0, 3).map(x => x.descricao).join(' · '), ir: 'pedido', bt: 'Montar pedido' });
+  if (l.diasSemComprar != null && l.diasSemComprar > 21) it.push({ sev: 'atencao', rot: 'Central', tit: `${l.diasSemComprar} dias sem comprar na Central`, det: 'Sem reposição, os produtos que mais vendem começam a faltar.', ir: 'pedido', bt: 'Fazer pedido' });
+  return it.sort((a, b) => (a.sev === 'critico' ? 0 : 1) - (b.sev === 'critico' ? 0 : 1));
+}
+// franqueadora: a rede
+function acoesDaRede(d) {
+  const ok = (d.lojas || []).filter(l => !l.erro), it = [];
+  const semMeta = ok.filter(l => !l.meta);
+  if (semMeta.length) it.push({ sev: 'critico', rot: 'Meta', tit: `${semMeta.length} loja(s) sem meta neste mês`, det: semMeta.map(l => l.loja).join(' · '), ir: 'financeiro', bt: 'Ver financeiro' });
+  const longe = ok.filter(l => l.meta && l.percentProjecao != null && l.percentProjecao < 80).sort((a, b) => a.percentProjecao - b.percentProjecao);
+  if (longe.length) it.push({ sev: 'critico', rot: 'Mês', tit: `${longe.length} loja(s) fechando abaixo de 80% da meta`, det: longe.slice(0, 6).map(l => `${l.loja} (${fmtPct(l.percentProjecao, 0)})`).join(' · ') });
+  const pend = ok.filter(l => l.pedidosInsightPendentes);
+  if (pend.length) it.push({ sev: 'critico', rot: 'Pedido', tit: `${pend.length} loja(s) com pedido aprovado esperando envio à Central`, det: pend.map(l => `${l.loja} (${l.pedidosInsightPendentes})`).join(' · '), ir: 'pedido', bt: 'Ver pedidos' });
+  const semCompra = ok.filter(l => l.diasSemComprar != null && l.diasSemComprar > 21).sort((a, b) => b.diasSemComprar - a.diasSemComprar);
+  if (semCompra.length) it.push({ sev: 'atencao', rot: 'Central', tit: `${semCompra.length} loja(s) há mais de 21 dias sem comprar na Central`, det: semCompra.slice(0, 6).map(l => `${l.loja} (${l.diasSemComprar} d)`).join(' · ') });
+  const semAcesso = ok.filter(l => (l.franqueados || []).length && (!l.ultimoAcesso || Date.now() - Date.parse(l.ultimoAcesso) > 7 * 864e5));
+  if (semAcesso.length) it.push({ sev: 'atencao', rot: 'Acesso', tit: `${semAcesso.length} loja(s) com franqueado sem abrir o painel há mais de 7 dias`, det: semAcesso.slice(0, 6).map(l => l.loja).join(' · ') });
+  return it;
+}
+function mostrarAcoesDia(itens, loja, abrirSempre) {
+  _acoesDia = { itens, loja };
+  const bt = $('ini_acoes_dia');
+  if (bt) { bt.hidden = !itens.length; $('ini_acoes_dia_n').textContent = itens.length ? `(${itens.length})` : ''; bt.classList.toggle('tem-critico', itens.some(x => x.sev === 'critico')); }
+  if (!itens.length) return;
+  const chave = `sss_acoes_dia_${_hojeIso()}_${loja || 'rede'}`;
+  if (!abrirSempre) { try { if (localStorage.getItem(chave)) return; } catch (_) { } }
+  try { localStorage.setItem(chave, '1'); } catch (_) { }
+  document.getElementById('acoes_dia_modal')?.remove();
+  const dlg = document.createElement('dialog'); dlg.id = 'acoes_dia_modal'; dlg.className = 'acoes-dia';
+  const nCrit = itens.filter(x => x.sev === 'critico').length;
+  dlg.innerHTML = `<div class="acoes-dia-topo">
+      <div><div class="acoes-dia-rot">${(t => t[0].toUpperCase() + t.slice(1))(new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit' }))}${loja ? ' · ' + esc(loja) : ' · rede'}</div>
+      <h2>Ações de hoje</h2>
+      <p>${nCrit ? `${nCrit} ${nCrit === 1 ? 'ponto crítico' : 'pontos críticos'}${itens.length > nCrit ? ` e ${itens.length - nCrit} de atenção` : ''}.` : `${itens.length} ${itens.length === 1 ? 'ponto' : 'pontos'} de atenção.`} Comece pelo primeiro.</p></div>
+      <button type="button" class="acoes-dia-x" aria-label="Fechar">×</button></div>
+    <ol class="acoes-dia-lista">${itens.map(x => `<li class="${x.sev}"><span class="acoes-dia-sev">${esc(x.rot)}</span><div><div class="tit">${esc(x.tit)}</div>${x.det ? `<div class="det">${esc(x.det)}</div>` : ''}</div>${x.ir ? `<button type="button" class="${x.sev === 'critico' ? '' : 'secondary'}" data-ir="${x.ir}">${esc(x.bt || 'Abrir')}</button>` : ''}</li>`).join('')}</ol>
+    <div class="acoes-dia-pe"><span>Aparece uma vez por dia. Para ver de novo, use <strong>Ações do dia</strong> no Início.</span><button type="button" class="secondary acoes-dia-ok">Ver depois</button></div>`;
+  document.body.appendChild(dlg);
+  const fechar = () => { dlg.close(); dlg.remove(); };
+  dlg.querySelector('.acoes-dia-x').addEventListener('click', fechar);
+  dlg.querySelector('.acoes-dia-ok').addEventListener('click', fechar);
+  dlg.addEventListener('click', e => { if (e.target === dlg) fechar(); });
+  dlg.querySelectorAll('[data-ir]').forEach(b => b.addEventListener('click', fechar));
+  ligarIrPara(dlg, loja);
+  dlg.showModal();
 }
 
 function desenharInicio() {
@@ -1196,6 +1279,7 @@ function desenharVisaoRede(d) {
     </div>`;
   ligarIrPara($('ini_conteudo'), '');
   carregarProdutosInicio('', (d.lojas || []).map(l => l.loja));
+  if (_inicioFresco) mostrarAcoesDia(acoesDaRede(d), '');
 }
 
 async function desenharMinhaLoja(d) {
@@ -1250,6 +1334,7 @@ async function desenharMinhaLoja(d) {
     const zerados = recs.filter(x => (x.estoqueAtual ?? 0) <= 0 && x.vendaMediaDiaria > 0);
     const perdaDia = zerados.reduce((t, x) => t + x.vendaMediaDiaria * (x.precoMedioVenda || 0), 0);
     const comprar = recs.filter(x => x.riscoRuptura && x.qtdRecomendadaCompra > 0).sort((a, b) => b.vendaMediaDiaria * (b.precoMedioVenda || 0) - a.vendaMediaDiaria * (a.precoMedioVenda || 0));
+    if (_inicioFresco) mostrarAcoesDia(acoesDaLoja(l, { zerados, comprar, perdaDia }), l.loja);
     const box = $('ini_compra_status'); if (!box) return;
     box.outerHTML = `${zerados.length ? `<div class="acao critico"><div class="sev critico">Ruptura</div><div><div class="tit">${zerados.length} produto(s) que vendem estão zerados</div><div class="det">${zerados.slice(0, 6).map(x => esc(x.descricao)).join(' · ')}${zerados.length > 6 ? '…' : ''}</div></div><div class="imp">${fmtMoeda(perdaDia)}<small>por dia sem vender</small></div></div>` : ''}
       ${comprar.length ? `<div class="acao atencao"><div class="sev atencao">Comprar</div><div><div class="tit">${comprar.length} produto(s) vão faltar antes da próxima reposição</div>
@@ -1258,7 +1343,10 @@ async function desenharMinhaLoja(d) {
         <button data-ir="pedido" style="margin-top:8px">Montar o pedido com esses itens</button></div><div class="imp">${comprar.length}<small>itens</small></div></div>` : ''}
       ${!zerados.length && !comprar.length ? '<div class="acao oportunidade"><div class="sev oportunidade">Estoque</div><div><div class="tit">Estoque em dia</div><div class="det">Nenhum produto em risco de faltar no próximo mês.</div></div><div class="imp">✓</div></div>' : ''}`;
     ligarIrPara($('ini_acoes'), l.loja);
-  } catch (e) { const box = $('ini_compra_status'); if (box) box.textContent = 'Não foi possível analisar o estoque agora: ' + e.message; }
+  } catch (e) {
+    if (_inicioFresco) mostrarAcoesDia(acoesDaLoja(l, null), l.loja);
+    const box = $('ini_compra_status'); if (box) box.textContent = 'Não foi possível analisar o estoque agora: ' + e.message;
+  }
 }
 
 // =====================================================================
@@ -1991,6 +2079,7 @@ function ligarIrPara(box, loja) {
     setTimeout(() => { const el = $(campo); if (!el || !loja) return; if (el.tagName === 'SELECT') { if ([...el.options].some(o => o.value === loja)) el.value = loja; } else el.value = loja; el.dispatchEvent(new Event('change')); }, 300);
   }));
 }
+$('ini_acoes_dia').addEventListener('click', () => mostrarAcoesDia(_acoesDia.itens, _acoesDia.loja, true));
 $('ini_atualizar').addEventListener('click', () => carregarInicio(true));
 $('ini_loja').addEventListener('change', () => desenharInicio());
 document.querySelector('.nav-item[data-view="inicio"]').addEventListener('click', () => carregarInicio(false));
