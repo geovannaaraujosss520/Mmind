@@ -4105,10 +4105,14 @@ function renderPedido() {
     ${d.avisoCentral ? `<div class="panel err">${esc(d.avisoCentral)}</div>` : ''}
     ${d.diagEstoque ? `<div class="panel" style="padding:12px 18px"><div style="font-size:12px; font-weight:600; color:var(--accent-deep); text-transform:uppercase; letter-spacing:.4px">Estoque da unidade (VarejOnline)</div>${htmlDiagEstoque(d.diagEstoque)}</div>` : ''}
     ${alertas.length ? `<div class="acoes" style="margin-bottom:20px">${alertas.join('')}</div>` : ''}
-    ${d.fornecedores.length > 1 ? `<div class="filtros-compra" style="margin-bottom:12px">
-      <div class="loja-select"><label>Fornecedor</label><select id="ped_filtroForn"><option value="">Todos os fornecedores (${d.fornecedores.length})</option>${d.fornecedores.map((f, fi) => `<option value="${fi}">${esc(f.fornecedorNome)} · ${f.itens.length} ${f.itens.length === 1 ? 'item' : 'itens'}${f.itensRisco ? ` · ${f.itensRisco} em risco` : ''}</option>`).join('')}</select></div>
+    ${d.fornecedores.length > 1 || (d.outrosFornecedores || []).length ? `<div class="filtros-compra" style="margin-bottom:12px">
+      <div class="loja-select"><label>Fornecedor</label><select id="ped_filtroForn"><option value="">Todos com sugestão (${d.fornecedores.length})</option>
+        ${d.fornecedores.length ? `<optgroup label="Com itens sugeridos">${d.fornecedores.map((f, fi) => `<option value="${fi}">${esc(f.fornecedorNome)} · ${f.itens.length} ${f.itens.length === 1 ? 'item' : 'itens'}${f.itensRisco ? ` · ${f.itensRisco} em risco` : ''}</option>`).join('')}</optgroup>` : ''}
+        ${(d.outrosFornecedores || []).length ? `<optgroup label="Sem sugestão para esta loja (pedir à mão)">${d.outrosFornecedores.map(o => `<option value="o:${esc(o.fornecedorId)}">${esc(o.fornecedorNome)} · ${o.itensCatalogo} no catálogo</option>`).join('')}</optgroup>` : ''}
+      </select></div>
       <span class="sub" id="ped_filtroInfo" style="margin:0"></span>
-    </div>` : ''}
+    </div>
+    <div id="ped_outro"></div>` : ''}
     ${d.fornecedores.length ? d.fornecedores.map((f, fi) => cardFornecedor(f, fi)).join('') : '<div class="panel"><div class="empty">Nenhum item a comprar nesta loja agora.</div></div>'}
     ${d.semCorrespondencia.length ? `
       <div class="subsecao-titulo">Sem item correspondente na Central (${d.semCorrespondencia.length})</div>
@@ -4126,13 +4130,53 @@ function renderPedido() {
   if (fsel) {
     const aplicar = () => {
       const v = fsel.value; d.filtroForn = v;
+      const outro = v.startsWith('o:');
       box.querySelectorAll('.ped-forn').forEach(p => { p.style.display = !v || p.dataset.fi === v ? '' : 'none'; });
-      $('ped_filtroInfo').textContent = v ? `Mostrando 1 de ${d.fornecedores.length} fornecedores. O valor do pedido no topo continua com todos.` : '';
+      $('ped_filtroInfo').textContent = outro ? '' : v ? `Mostrando 1 de ${d.fornecedores.length} fornecedores. O valor do pedido no topo continua com todos.` : '';
+      if (outro) mostrarOutroFornecedor(d, v.slice(2)); else $('ped_outro').innerHTML = '';
     };
-    if (d.filtroForn && d.fornecedores[d.filtroForn]) fsel.value = d.filtroForn;
+    if (d.filtroForn && (d.fornecedores[d.filtroForn] || [...fsel.options].some(o => o.value === d.filtroForn))) fsel.value = d.filtroForn;
     fsel.addEventListener('change', aplicar); aplicar();
   }
   carregarFotos(d.loja, box);
+}
+
+// Fornecedor sem item sugerido: lista o catálogo dele para escolher itens e quantidades à mão
+async function mostrarOutroFornecedor(d, fid) {
+  const box = $('ped_outro'); const o = (d.outrosFornecedores || []).find(x => x.fornecedorId === fid); if (!box || !o) return;
+  box.innerHTML = `<div class="panel"><span class="loader"></span> Carregando o catálogo de ${esc(o.fornecedorNome)}…</div>`;
+  let itens;
+  try { itens = (await chamarEdge({ modulo: 'vinculos', acao: 'itensFornecedor', loja: d.loja, fornecedorId: fid }, EDGE_COMPRAS_URL)).itens || []; }
+  catch (e) { box.innerHTML = `<div class="panel err">${esc(e.message)}</div>`; return; }
+  if ($('ped_filtroForn')?.value !== 'o:' + fid) return;
+  box.innerHTML = `<div class="panel">
+    <div style="font-size:18px; font-weight:700; color:var(--accent-deep)">${esc(o.fornecedorNome)}</div>
+    <div class="sub" style="max-width:none; margin:4px 0 10px">Nenhum produto desta loja ligado a este fornecedor precisa de compra agora, por isso ele não entrou no pedido sugerido. Para pedir mesmo assim, digite a quantidade dos itens e clique em <strong>Adicionar ao pedido</strong>.
+      ${o.prazoInformado ? ` Prazo informado: ${esc(o.prazoInformado)}.` : ''}${o.pedidosDestaLoja ? ` ${o.pedidosDestaLoja} pedido(s) desta loja em 180 dias.` : ' Esta loja ainda não pediu deste fornecedor.'}</div>
+    <div class="tbl-tools"><input type="search" id="ped_outro_q" placeholder="Filtrar itens…"><span class="cnt">${itens.length} ${itens.length === 1 ? 'item' : 'itens'} no catálogo do Insight</span></div>
+    <div style="overflow-x:auto; max-height:520px; overflow-y:auto"><table class="no-tools"><thead><tr><th>Qtd</th><th>Código</th><th>Item da Central</th><th>Preço</th><th>Mín</th><th>Último pedido na rede</th></tr></thead><tbody>
+    ${itens.map((it, k) => `<tr data-outro-row="${k}" data-busca="${esc((it.codigo + ' ' + it.descricao + ' ' + (it.variacao || '')).toLowerCase())}"><td><input type="number" min="0" step="1" data-outro-qtd="${k}" placeholder="0" style="width:72px; padding:5px 7px"></td>
+      <td style="font-family:var(--mono); font-size:12px">${esc(it.codigo)}</td><td class="prod-name">${esc(it.descricao)}${it.variacao ? ` · <strong>${esc(it.variacao)}</strong>` : ''}</td>
+      <td>${fmtMoeda(it.preco)}</td><td>${it.qtdMinima || 1}</td><td style="font-size:11.5px; color:var(--muted)">${it.ultimaCompra ? new Date(it.ultimaCompra).toLocaleDateString('pt-BR') : '—'}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">Sem itens no catálogo do Insight para este fornecedor.</td></tr>'}
+    </tbody></table></div>
+    <div class="actions" style="margin-top:10px"><button type="button" id="ped_outro_add" disabled>Adicionar ao pedido</button><span class="status" id="ped_outro_st">O catálogo do Insight só tem os itens que a rede já pediu na Central (180 dias) ou que vieram da planilha "Peças da Central".</span></div>
+  </div>`;
+  const qtds = () => [...box.querySelectorAll('[data-outro-qtd]')].map(i => [Number(i.dataset.outroQtd), Math.max(0, Math.round(Number(i.value) || 0))]).filter(([, q]) => q > 0);
+  box.querySelectorAll('[data-outro-qtd]').forEach(i => i.addEventListener('input', () => { const n = qtds().length; $('ped_outro_add').disabled = !n; $('ped_outro_add').textContent = n ? `Adicionar ${n} ${n === 1 ? 'item' : 'itens'} ao pedido` : 'Adicionar ao pedido'; }));
+  $('ped_outro_q').addEventListener('input', e => { const q = e.target.value.trim().toLowerCase(); box.querySelectorAll('[data-outro-row]').forEach(r => { r.style.display = !q || r.dataset.busca.includes(q) ? '' : 'none'; }); });
+  $('ped_outro_add').addEventListener('click', () => {
+    const escolhidos = qtds(); if (!escolhidos.length) return;
+    const novos = escolhidos.map(([k, q]) => { const it = itens[k]; return {
+      produtoId: null, descricaoLoja: '(adicionado à mão)', codigoSistema: null, riscoRuptura: false, vendaMediaDiaria: null, estoqueAtual: null, emAndamento: 0,
+      precoVenda: null, demandaPeriodo: null, unidadesPorQtd: 1, qtdRecomendadaUnidades: 0, qtd: q, qtdOriginal: 0, valor: Math.round(q * (it.preco || 0) * 100) / 100, via: 'manual', ajustes: [], variacaoIncerta: false, incluir: true,
+      central: { chave: it.chave, codigo: it.codigo, idProduto: it.idProduto, descricao: it.descricao, variacao: it.variacao, variacaoDescricao: it.variacaoDescricao ?? it.variacao, corBase: it.corBase, preco: it.preco, qtdMinima: it.qtdMinima || 1, qtdMaxima: it.qtdMaxima, fatorConversao: it.fatorConversao || 1, emEstoque: it.emEstoque },
+      alternativas: [], grade: [], extraGrade: true, fornecedorId: o.fornecedorId, fornecedorNome: o.fornecedorNome }; });
+    let fi = d.fornecedores.findIndex(f => f.fornecedorId === o.fornecedorId);
+    if (fi < 0) { d.fornecedores.push({ ...o, itens: [], valorTotal: 0, itensRisco: 0, abaixoDoHabitual: false }); fi = d.fornecedores.length - 1; d.outrosFornecedores = d.outrosFornecedores.filter(x => x.fornecedorId !== o.fornecedorId); }
+    d.fornecedores[fi].itens.push(...novos);
+    d.filtroForn = String(fi);
+    renderPedido();
+  });
 }
 
 function cardFornecedor(f, fi) {

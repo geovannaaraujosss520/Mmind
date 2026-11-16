@@ -151,3 +151,9 @@ Brasília, Goiânia e Ribeirão têm 2 unidades usando o mesmo token da VarejOnl
 - Alguns fornecedores cadastram cada tamanho como um código próprio na Central e a cor na variação (PULSEIRA CRISTAL: 4443.pp|6, 4443.p|6, 4443.m|6…). O sistema reconhece o tamanho no final do código (XXPP, XPP, PP, P, M, G, GG, XG, EG, U…) e monta a grade com os tamanhos da **mesma cor e fornecedor**.
 - Ordem de detecção: tamanhos na variação > letras > **tamanhos por código** > cores.
 - Vínculos: aparece "Vincular à grade (N tamanhos)". Pedido: "Grade: tamanhos (N)", na ordem dos tamanhos, com a quantidade dividida pela proporção da rede. Compra Recorrente: pedido em andamento de qualquer tamanho da mesma cor desconta do produto.
+
+## Pedido Central — fornecedores sem sugestão (pedido à mão)
+
+- O filtro de fornecedor tem dois grupos: **Com itens sugeridos** e **Sem sugestão para esta loja (pedir à mão)** — todos os fornecedores do catálogo do Insight que não entraram no pedido sugerido (`outrosFornecedores`).
+- Ao escolher um deles, o painel busca o catálogo dele (`modulo: 'vinculos', acao: 'itensFornecedor'`, até 600 itens, mais pedidos recentemente primeiro) para digitar quantidades e **Adicionar ao pedido**. Vira um cartão normal do fornecedor (aprovar, copiar, exportar, enviar), com os itens marcados "adicionado à mão".
+- Limite: o catálogo do Insight só tem itens pedidos pela rede na Central em 180 dias ou importados pela planilha "Peças da Central".

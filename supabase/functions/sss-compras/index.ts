@@ -849,6 +849,14 @@ async function gerarPedidoSugerido(apiBase: string, lojasTokens: Record<string, 
     avisoCentral: base.erro, pedidosAndamento: l.pedidosCentral, diagEstoque: l.diagEstoque,
     totais: { valor: r2(fornecedores.reduce((s, f) => s + f.valorTotal, 0)), itens: linhas.length, fornecedores: fornecedores.length, semCorrespondencia: semCorrespondencia.length, ignoradosVinculo, itensRisco: linhas.filter((x) => x.riscoRuptura).length },
     fornecedores,
+    // fornecedores do catálogo sem item sugerido para esta loja: dá para montar um pedido à mão
+    outrosFornecedores: (() => {
+      const cont = new Map<string, { nome: string; n: number }>();
+      for (const it of idx.itens) { if (!it.fornecedorId || grupos.has(it.fornecedorId)) continue; const c = cont.get(it.fornecedorId) ?? { nome: it.fornecedorNome ?? '', n: 0 }; c.n++; cont.set(it.fornecedorId, c); }
+      return [...cont.entries()].map(([id, c]) => { const fi = fInfo.get(id); const hist = fi?._porLoja.get(kLoja);
+        return { fornecedorId: id, fornecedorNome: c.nome || fi?.nome || id, itensCatalogo: c.n, prazoInformado: fi?.prazoInformado ?? null, leadTimeMedianoDias: fi?.leadTimeMedianoDias ?? null, taxaCancelamento: fi?.taxaCancelamento ?? 0, formaPagamento: fi?.formaPagamento ?? null, ticketP10Rede: fi?.ticketP10 ?? 0, pedidosDestaLoja: hist?.n ?? 0, ticketMedioDestaLoja: hist?.n ? r2(hist.valor / hist.n) : null, ultimoPedidoDestaLoja: hist?.ultimo ?? null }; })
+        .sort((a, b) => a.fornecedorNome.localeCompare(b.fornecedorNome, 'pt-BR'));
+    })(),
     semCorrespondencia: semCorrespondencia.sort((a, b) => Number(b.riscoRuptura) - Number(a.riscoRuptura) || b.valorEstimado - a.valorEstimado),
   };
 }
@@ -2919,6 +2927,14 @@ async function moduloVinculos(body: any, apiBase?: string, lojasTokens?: Record<
   const loja = String(body.loja ?? '').trim();
   const s = sb();
 
+  if (acao === 'itensFornecedor') {
+    const { idx } = await catalogoIndexado();
+    const fid = String(body.fornecedorId ?? '');
+    const itens = idx.itens.filter((x: any) => x.fornecedorId === fid)
+      .sort((a: any, b: any) => String(b.ultimaCompra ?? '').localeCompare(String(a.ultimaCompra ?? '')) || String(a.descricao).localeCompare(String(b.descricao), 'pt-BR'))
+      .slice(0, 600).map(resumoItemCentral);
+    return { itens };
+  }
   if (acao === 'buscar') {
     const q = limpa(body.q);
     if (q.length < 2) return { itens: [] };
