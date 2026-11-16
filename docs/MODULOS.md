@@ -157,3 +157,9 @@ Brasília, Goiânia e Ribeirão têm 2 unidades usando o mesmo token da VarejOnl
 - O filtro de fornecedor tem dois grupos: **Com itens sugeridos** e **Sem sugestão para esta loja (pedir à mão)** — todos os fornecedores do catálogo do Insight que não entraram no pedido sugerido (`outrosFornecedores`).
 - Ao escolher um deles, o painel busca o catálogo dele (`modulo: 'vinculos', acao: 'itensFornecedor'`, até 600 itens, mais pedidos recentemente primeiro) para digitar quantidades e **Adicionar ao pedido**. Vira um cartão normal do fornecedor (aprovar, copiar, exportar, enviar), com os itens marcados "adicionado à mão".
 - Limite: o catálogo do Insight só tem itens pedidos pela rede na Central em 180 dias ou importados pela planilha "Peças da Central".
+
+## Em andamento: pedidos aprovados no Insight
+
+- O "em andamento" de cada produto (Compra Recorrente, Pedido Central, Início) soma: pedidos da Central que não estão em situação final nem cancelados (alterados nos últimos 120 dias) **+ pedidos aprovados no Insight e ainda não lançados na Central** (status aprovado, enviando ou erro no envio, últimos 15 dias), pelo produto da loja de cada item.
+- Quantidade sugerida = demanda do período + segurança − estoque − em andamento. Aparecem na lista de pedidos do produto como "Insight …, aprovado no Insight, ainda não lançado".
+- Trava extra na aprovação: mesmo fornecedor e loja aprovado nas últimas 72 h pede confirmação.

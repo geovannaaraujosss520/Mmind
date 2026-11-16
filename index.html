@@ -4470,7 +4470,7 @@ function retornoForn(f) {
 function itensSelecionados(f) {
   return f.itens.filter(i => i.incluir && i.qtd > 0).map(i => ({
     chave: i.central.chave, codigo: i.central.codigo, variacao: i.central.variacao, descricao: i.central.descricao, idProduto: i.central.idProduto,
-    qtd: i.qtd, preco: i.central.preco, produtoIdLoja: i.produtoId, descricaoLoja: i.descricaoLoja, risco: i.riscoRuptura,
+    qtd: i.qtd, preco: i.central.preco, produtoIdLoja: i.produtoId, descricaoLoja: i.descricaoLoja, risco: i.riscoRuptura, fator: i.central.fatorConversao || 1,
   }));
 }
 
