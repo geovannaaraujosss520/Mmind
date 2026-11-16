@@ -335,6 +335,16 @@ async function carregarVinculos() {
 const enxutoSaldo = (sl: any) => ({ quantidade: sl.quantidade, entidade: sl.entidade ? { id: sl.entidade.id, nome: sl.entidade.nome } : undefined,
   produto: sl.produto ? { id: sl.produto.id, codigoSistema: sl.produto.codigoSistema, codigoInterno: sl.produto.codigoInterno, codigoBarras: sl.produto.codigoBarras } : undefined });
 
+// Pedidos aprovados no Insight que ainda não viraram pedido na Central (últimos 15 dias). Cache curto por chamada.
+let _aprovados: { quando: number; p: Promise<any[]> } | null = null;
+function aprovadosNaoLancados(): Promise<any[]> {
+  if (_aprovados && Date.now() - _aprovados.quando < 20_000) return _aprovados.p;
+  const desde = new Date(Date.now() - 15 * 86400_000).toISOString();
+  const p = (async () => { try { const { data } = await sb().from('pedidos_sugeridos').select('id, loja, status, itens, criado_em, fornecedor_nome').in('status', ['aprovado', 'enviando', 'erro_envio']).gte('criado_em', desde); return data ?? []; } catch { return []; } })();
+  _aprovados = { quando: Date.now(), p };
+  return p;
+}
+
 async function moduloRecorrente(apiBase: string, lojasTokens: Record<string, string>, body: any, listaCentral?: { lista: any[]; falhas: number; erro?: string }) {
   const diasHistorico = Number(body.diasHistorico ?? 90);
   const diasPeriodoAlvo = Number(body.diasPeriodoAlvo ?? 30);
@@ -537,6 +547,20 @@ async function moduloRecorrente(apiBase: string, lojasTokens: Record<string, str
             candidatos: cands.map((c) => ({ produtoId: venda.get(c.id).produtoId, descricao: venda.get(c.id).descricao, codigoSistema: venda.get(c.id).codigoSistema, similaridade: Math.round(c.sc * 100) / 100 })),
           });
         }
+      }
+    }
+    // Pedidos aprovados no Insight e ainda não lançados na Central também contam como "em andamento"
+    // (senão o pedido seguinte sugere de novo o que já foi aprovado).
+    for (const pa of (await aprovadosNaoLancados()).filter((x: any) => normLoja(x.loja) === normLoja(nomeLoja))) {
+      for (const it of Array.isArray(pa.itens) ? pa.itens : []) {
+        const pid = it.produtoIdLoja != null ? String(it.produtoIdLoja) : null;
+        if (!pid || !venda.has(pid)) continue;
+        const q = Number(it.qtd ?? 0) * (multiplicar ? (Number(it.fator ?? 1) || 1) : 1);
+        if (!(q > 0)) continue;
+        const cur = andamentoProd.get(pid) ?? { qtd: 0, pedidos: [] };
+        cur.qtd += q;
+        cur.pedidos.push({ pedido: `Insight ${String(pa.id).slice(0, 8)}`, situacao: pa.status === 'erro_envio' ? 'aprovado no Insight (erro no envio)' : 'aprovado no Insight, ainda não lançado', quantidade: q, criadoEm: pa.criado_em, fornecedor: pa.fornecedor_nome });
+        andamentoProd.set(pid, cur);
       }
     }
     revisao.sort((a, b) => b.quantidade - a.quantidade);
@@ -965,6 +989,7 @@ async function moduloPedidoSugerido(apiBase: string, lojasTokens: Record<string,
       itens, valor_total: valor, status: 'aprovado', aprovado_por: aprovadoPor, observacao: body.observacao ?? null,
     }).select('id').single();
     if (error) throw new Error(`Erro ao salvar o pedido: ${error.message}`);
+    _aprovados = null;
     return { ok: true, id: data.id, valor };
   }
 
@@ -974,6 +999,7 @@ async function moduloPedidoSugerido(apiBase: string, lojasTokens: Record<string,
     const patch: any = { status: novo };
     if (novo === 'lancado') { patch.lancado_em = new Date().toISOString(); patch.codigo_pedido_central = body.codigoPedidoCentral ? Number(body.codigoPedidoCentral) : null; }
     const { error } = await s.from('pedidos_sugeridos').update(patch).eq('id', body.id);
+    _aprovados = null;
     if (error) throw new Error(`Erro ao atualizar: ${error.message}`);
     return { ok: true };
   }
