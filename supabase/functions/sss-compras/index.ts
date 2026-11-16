@@ -354,7 +354,8 @@ async function moduloRecorrente(apiBase: string, lojasTokens: Record<string, str
   const [andamento, vinc] = await Promise.all([pedidosEmAndamento(listaCentral), carregarVinculos()]);
   const vincRede = new Map<string, any>();
   {
-    let r: any = await lerTudo(TABELA_VINCULOS, 'produto_chave, chave_central, codigo_central, variacao, ignorar, grade, descricao_central', 'produto_chave');
+    let r: any = await lerTudo(TABELA_VINCULOS, 'produto_chave, chave_central, codigo_central, variacao, ignorar, grade, chaves_grade, descricao_central', 'produto_chave');
+    if (r.error) r = await lerTudo(TABELA_VINCULOS, 'produto_chave, chave_central, codigo_central, variacao, ignorar, grade, descricao_central', 'produto_chave');
     if (r.error) r = await lerTudo(TABELA_VINCULOS, 'produto_chave, chave_central, codigo_central, variacao, ignorar, descricao_central', 'produto_chave');
     const data = r.data;
     for (const v of data ?? []) vincRede.set(String(v.produto_chave), v);
@@ -488,6 +489,11 @@ async function moduloRecorrente(apiBase: string, lojasTokens: Record<string, str
       const v = vincRede.get(chaveProduto({ codigoSistema: vd.codigoSistema, produtoId: prod }));
       if (v && !v.ignorar && v.chave_central) {
         if (!exatos.has(v.chave_central)) exatos.set(v.chave_central, []); exatos.get(v.chave_central)!.push(prod);
+        // itens extras escolhidos à mão (vários tamanhos/cores): pedido de qualquer um deles é deste produto
+        for (const ch of Array.isArray(v.chaves_grade) ? v.chaves_grade : []) {
+          if (!exatos.has(ch)) exatos.set(ch, []); if (!exatos.get(ch)!.includes(prod)) exatos.get(ch)!.push(prod);
+          const cvx = `CV:${codVar(String(ch).split('|')[0], String(ch).split('|')[1] ?? '')}`; if (!exatos.has(cvx)) exatos.set(cvx, []); if (!exatos.get(cvx)!.includes(prod)) exatos.get(cvx)!.push(prod);
+        }
         const cv = `CV:${codVar(v.codigo_central ?? String(v.chave_central).split('|')[0], v.variacao ?? String(v.chave_central).split('|')[1])}`;
         if (!exatos.has(cv)) exatos.set(cv, []); if (!exatos.get(cv)!.includes(prod)) exatos.get(cv)!.push(prod);
         // vinculo a grade: qualquer tamanho do mesmo codigo e cor e deste produto
@@ -798,10 +804,11 @@ async function gerarPedidoSugerido(apiBase: string, lojasTokens: Record<string, 
       central: { chave: esc.chave, codigo: esc.codigo, idProduto: esc.idProduto, descricao: esc.descricao, variacao: esc.variacao, variacaoDescricao: esc.variacaoDescricao ?? esc.variacao, corBase: esc.corBase ?? corBase(esc.variacaoDescricao ?? esc.variacao), referencia: esc.referencia, categoria: esc.categoria, preco: esc.preco, qtdMinima: esc.qtdMinima, qtdMaxima: esc.qtdMaxima, fatorConversao: fator, prazo: esc.prazo, emEstoque: esc.emEstoque, ultimaCompra: esc.ultimaCompra },
       alternativas: m.alternativas.map(resumoItemCentral),
       // vinculo a grade: o painel distribui a quantidade entre os tamanhos pela proporcao da rede
-      distribuirGrade: !!(m as any).grade && !!itensDaGrade(idx, esc),
-      tipoGrade: itensDaGrade(idx, esc)?.tipo ?? null,
+      distribuirGrade: !!(m as any).gradeEscolhida || (!!(m as any).grade && !!itensDaGrade(idx, esc)),
+      tipoGrade: (m as any).gradeEscolhida ? 'escolhida' : itensDaGrade(idx, esc)?.tipo ?? null,
       // grade: familia por letra (A-Z) ou todas as variacoes (cores/tamanhos) do mesmo codigo e fornecedor
       grade: (() => {
+        if ((m as any).gradeEscolhida) return (m as any).gradeEscolhida.map((x: any) => ({ ...resumoItemCentral(x), rotuloGrade: `${x.codigo} · ${x.variacaoDescricao ?? x.variacao ?? ''}` }));
         const fam = itensDaGrade(idx, esc);
         if (fam?.tipo === 'letra') return fam.itens.map((x: any) => ({ ...resumoItemCentral(x), rotuloGrade: `Letra ${letraDoItem(x)}` }));
         if (fam?.tipo === 'cor') return (m as any).grade ? fam.itens.map(resumoItemCentral) : [];
@@ -1557,10 +1564,12 @@ async function lerTudo(tabela: string, campos: string, ordem: string, filtro?: (
   return { data: out, error: null };
 }
 
+let colunaChavesGrade: boolean | null = null; // a coluna chaves_grade já existe no banco?
 async function carregarVinculosLoja(loja: string) {
   const novos = new Map<string, any>(), antigos = new Map<string, string>();
   let tabelaNova = true;
-  let r1: any = await lerTudo(TABELA_VINCULOS, 'produto_chave, produto_id, chave_central, codigo_central, variacao, ignorar, grade, motivo, loja_origem, atualizado_por, atualizado_em', 'produto_chave');
+  let r1: any = await lerTudo(TABELA_VINCULOS, 'produto_chave, produto_id, chave_central, codigo_central, variacao, ignorar, grade, chaves_grade, motivo, loja_origem, atualizado_por, atualizado_em', 'produto_chave');
+  if (r1.error && /chaves_grade/i.test(r1.error.message)) r1 = await lerTudo(TABELA_VINCULOS, 'produto_chave, produto_id, chave_central, codigo_central, variacao, ignorar, grade, motivo, loja_origem, atualizado_por, atualizado_em', 'produto_chave');
   // antes de rodar o SQL da grade a coluna nao existe: le sem ela
   if (r1.error && /grade/i.test(r1.error.message)) r1 = await lerTudo(TABELA_VINCULOS, 'produto_chave, produto_id, chave_central, codigo_central, variacao, ignorar, motivo, loja_origem, atualizado_por, atualizado_em', 'produto_chave');
   if (r1.error) tabelaNova = false; else for (const v of r1.data ?? []) novos.set(String(v.produto_chave), v);
@@ -1580,6 +1589,8 @@ function casarProduto(r: any, idx: ReturnType<typeof indexarCatalogo>, vinc: { n
       const cs = (idx.porCodigo.get(codNorm(vn.codigo_central)) ?? []).filter((x: any) => codNorm(x.codigo) === codNorm(vn.codigo_central));
       it = cs.find((x: any) => limpa(x.variacaoDescricao ?? x.variacao) === limpa(vn.variacao)) ?? cs.find((x: any) => varNorm(x.variacaoDescricao ?? x.variacao) === varNorm(vn.variacao)) ?? (cs.length === 1 ? cs[0] : undefined);
     }
+    const extras = (Array.isArray(vn.chaves_grade) ? vn.chaves_grade : []).map((ch: string) => idx.porChave.get(String(ch))).filter((x: any) => x && x !== it);
+    if (it && extras.length) return { via: 'vínculo', item: it, variacaoIncerta: false, grade: true, gradeEscolhida: [it, ...extras], alternativas: (idx.porCodigo.get(codNorm(it.codigo)) ?? []).filter((x: any) => x !== it).slice(0, 5) };
     if (it) return { via: 'vínculo', item: it, variacaoIncerta: false, grade: !!vn.grade, alternativas: (idx.porCodigo.get(codNorm(it.codigo)) ?? []).filter((x: any) => x !== it).slice(0, 5) };
     // item vinculado sumiu do catalogo (sem pedidos no periodo): cai para as outras regras, avisando
   }
@@ -2948,6 +2959,7 @@ async function moduloVinculos(body: any, apiBase?: string, lojasTokens?: Record<
         vendaMediaDiaria: r.vendaMediaDiaria ?? 0, estoqueAtual: r.estoqueAtual ?? null,
         via: m.via, variacaoIncerta: m.variacaoIncerta, vinculoQuebrado: !!(m as any).vinculoQuebrado, motivo: (m as any).motivo ?? null,
         grade: !!(m as any).grade,
+        gradeEscolhida: (m as any).gradeEscolhida ? (m as any).gradeEscolhida.map(resumoItemCentral) : null,
         gradeDisponivel: (() => { const g = itensDaGrade(idx, m.item); return g ? { chave: m.item.chave, codigo: m.item.codigo, tipo: g.tipo, tamanhos: g.rotulos, codigos: g.tipo === 'letra' ? g.itens.map((x: any) => x.codigo) : [m.item.codigo] } : null; })(),
         central: m.item ? resumoItemCentral(m.item) : null,
         alternativas: m.alternativas.map(resumoItemCentral),
@@ -2961,6 +2973,7 @@ async function moduloVinculos(body: any, apiBase?: string, lojasTokens?: Record<
   const quem = String(body.usuario ?? '').trim() || null;
 
   if (acao === 'salvar' || acao === 'salvarLote') {
+    if (colunaChavesGrade === null) colunaChavesGrade = !(await s.from(TABELA_VINCULOS).select('chaves_grade').limit(1)).error;
     const lista: any[] = acao === 'salvar' ? [body] : (Array.isArray(body.itens) ? body.itens : []);
     if (!lista.length || lista.length > 1000) throw new Error('Envie de 1 a 1000 vinculos.');
     const { idx } = await catalogoIndexado();
@@ -2968,11 +2981,15 @@ async function moduloVinculos(body: any, apiBase?: string, lojasTokens?: Record<
       if (v.produtoId == null || !v.chave) throw new Error('Cada vinculo precisa de produtoId e chave do item da Central.');
       const it = idx.porChave.get(String(v.chave));
       if (!it) throw new Error(`Item da Central "${v.chave}" nao existe no catalogo.`);
-      return { produto_chave: chaveProduto(v), produto_id: String(v.produtoId), codigo_sistema: v.codigoSistema ? String(v.codigoSistema) : null, descricao_produto: v.descricaoLoja ?? null,
+      const extras = [...new Set<string>((Array.isArray(v.chaves) ? v.chaves : []).map((x: any) => String(x)))].filter((ch) => ch !== it.chave);
+      for (const ch of extras) { const x = idx.porChave.get(ch); if (!x) throw new Error(`Item da Central "${ch}" nao existe no catalogo.`); if (x.fornecedorId !== it.fornecedorId) throw new Error('Todos os itens marcados precisam ser do mesmo fornecedor (o pedido é separado por fornecedor).'); }
+      return {
+        ...(extras.length ? { chaves_grade: extras.slice(0, 60), grade: true } : (colunaChavesGrade ? { chaves_grade: null } : {})), produto_chave: chaveProduto(v), produto_id: String(v.produtoId), codigo_sistema: v.codigoSistema ? String(v.codigoSistema) : null, descricao_produto: v.descricaoLoja ?? null,
         chave_central: it.chave, codigo_central: it.codigo, variacao: it.variacao || null, fornecedor_id: it.fornecedorId, descricao_central: it.descricao,
         ignorar: false, motivo: null, loja_origem: loja, atualizado_por: quem, atualizado_em: new Date().toISOString(),
         ...(v.grade === true ? { grade: !!itensDaGrade(idx, it) } : (v.grade === false ? { grade: false } : {})) };
     });
+    if (linhas.some((l: any) => l.chaves_grade?.length) && !colunaChavesGrade) throw new Error('Para vincular vários itens da Central, rode antes o SQL 20261116000001_vinculos_varios_itens.sql no Supabase.');
     if (linhas.some((l: any) => l.grade === true)) {
       const t = await s.from(TABELA_VINCULOS).select('grade').limit(1);
       if (t.error) throw new Error('Para vincular a grade, rode antes o SQL 20261105000001_vinculos_grade.sql no Supabase.');

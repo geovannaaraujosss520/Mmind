@@ -138,3 +138,10 @@ Brasília, Goiânia e Ribeirão têm 2 unidades usando o mesmo token da VarejOnl
 - **Pedido a caminho**: quando estoque + pedidos em andamento na Central cobrem mais de 15 dias, o produto vai para o fim da lista com essa etiqueta.
 - Ordem: sem cobertura primeiro, depois zerados, depois menos dias, depois quem vende mais em R$. Mostra 10 e "Ver todos". Botão para montar o pedido.
 - O aviso do dia ganha o item crítico "N produto(s) acabam em até 7 dias" (sem pedido a caminho); o item "vão faltar antes da próxima reposição" deixa de repetir esses produtos.
+
+## Vínculos — vários itens da Central para um produto
+
+- Quando um produto da loja corresponde a vários itens da Central que não formam uma grade automática (ex.: PULSEIRA CRISTAL cor 22 = 4443.pp|22, 4443.p|22, 4443.m|22, 4443.g|22), marque os itens (sugestões ou busca) e clique em **Vincular os marcados**.
+- Grava `chave_central` = primeiro item e `chaves_grade` = os demais (coluna nova: migração `20261116000001_vinculos_varios_itens.sql`). Todos precisam ser do mesmo fornecedor.
+- Pedido: a linha vira "Grade: N itens" e a quantidade é dividida entre os itens pela proporção do que a rede pediu de cada um (ajustável). Compra Recorrente: pedido em andamento de qualquer desses itens desconta do produto.
+- Vincular um item só (botão Vincular, Confirmar ou um marcado) limpa os itens extras.
