@@ -336,6 +336,7 @@
   .ini-rup-ok{ color:var(--good); font-weight:600; }
   .ini-rup-tab td{ vertical-align:middle; }
   @media (max-width: 600px){ .ini-rup-tab th:nth-child(4), .ini-rup-tab td:nth-child(4), .ini-rup-tab th:nth-child(5), .ini-rup-tab td:nth-child(5), .ini-rup-tab th:nth-child(6), .ini-rup-tab td:nth-child(6){ display:none; } .ini-rup-tab .prod-com-foto .foto-prod{ display:none; } }
+  button.salvando{ opacity:.85; cursor:progress; }
   .vin-marcar-barra{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:12px; padding:10px 12px; background:var(--panel); border:1px dashed var(--line-strong, var(--line)); border-radius:10px; font-size:12.5px; }
   .vin-marcar-barra span{ flex:1 1 300px; min-width:0; white-space:normal; }
   .vin-marcar-barra button{ flex:none; padding:7px 14px; font-size:12px; }
@@ -5334,9 +5335,19 @@ function precisaNome() {
 }
 async function acaoVinculo(l, payload, botao) {
   if (precisaNome()) return;
-  if (botao) botao.disabled = true;
-  try { await vinCall({ loja: vinState.loja, produtoId: l.produtoId, codigoSistema: l.codigoSistema, descricaoLoja: l.descricao, ...payload }); await atualizarLinhaVinculo(l); vinState.abertos.delete(String(l.produtoId)); renderVinculos(); }
-  catch (e) { $('status-vinculos').textContent = 'Erro: ' + e.message; if (botao) botao.disabled = false; }
+  const textoOriginal = botao?.textContent;
+  if (botao) { botao.disabled = true; botao.textContent = 'Salvando…'; botao.classList.add('salvando'); }
+  // trava os outros botões da mesma linha para não salvar duas vezes
+  const trLinha = botao?.closest('tr'); trLinha?.querySelectorAll('button').forEach(b => { if (b !== botao) b.disabled = true; });
+  const st = $('status-vinculos'), stAntes = st.textContent; st.textContent = `Salvando o vínculo de ${l.descricao}…`;
+  try {
+    const produto = { produtoId: l.produtoId, descricao: l.descricao, codigoSistema: l.codigoSistema, codigoInterno: l.codigoInterno, vendaMediaDiaria: l.vendaMediaDiaria, estoqueAtual: l.estoqueAtual };
+    const r = await vinCall({ loja: vinState.loja, produtoId: l.produtoId, codigoSistema: l.codigoSistema, descricaoLoja: l.descricao, produto, ...payload });
+    if (r && r.linha) { const lv = l.lojasQueVendem; Object.assign(l, r.linha); l.lojasQueVendem = lv; } else await atualizarLinhaVinculo(l);
+    vinState.abertos.delete(String(l.produtoId)); renderVinculos();
+    st.textContent = `✓ Salvo: ${l.descricao}`; setTimeout(() => { if (st.textContent.startsWith('✓ Salvo')) st.textContent = stAntes; }, 4000);
+  }
+  catch (e) { st.textContent = 'Erro: ' + e.message; if (botao) { botao.disabled = false; botao.textContent = textoOriginal; botao.classList.remove('salvando'); } trLinha?.querySelectorAll('button').forEach(b => { b.disabled = false; }); }
 }
 
 function ligarLinhasVinculos(tbody) {
