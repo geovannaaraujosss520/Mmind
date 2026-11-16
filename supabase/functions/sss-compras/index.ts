@@ -2973,7 +2973,7 @@ async function moduloVinculos(body: any, apiBase?: string, lojasTokens?: Record<
   const quem = String(body.usuario ?? '').trim() || null;
 
   if (acao === 'salvar' || acao === 'salvarLote') {
-    if (colunaChavesGrade === null) colunaChavesGrade = !(await s.from(TABELA_VINCULOS).select('chaves_grade').limit(1)).error;
+    if (colunaChavesGrade !== true) colunaChavesGrade = !(await s.from(TABELA_VINCULOS).select('chaves_grade').limit(1)).error; // só guarda quando a coluna já existe
     const lista: any[] = acao === 'salvar' ? [body] : (Array.isArray(body.itens) ? body.itens : []);
     if (!lista.length || lista.length > 1000) throw new Error('Envie de 1 a 1000 vinculos.');
     const { idx } = await catalogoIndexado();
