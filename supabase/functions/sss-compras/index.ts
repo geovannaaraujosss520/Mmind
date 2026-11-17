@@ -1899,6 +1899,12 @@ async function moduloFotosProdutos(body: any, a: Acesso) {
 async function aquecerCaches(body: any) {
   if (body.hoje) return aquecerHoje();
   if (body.clientesRede) return aquecerClientesRede();
+  if (body.painel) { // recalcula o Início da rede e guarda (moduloPainel grava painel_cache)
+    const t0 = Date.now();
+    const r: any = await moduloPainel({ recalcular: true }, { tipo: 'senha', nome: 'aquecimento', papel: 'admin', lojas: [], todas: true } as Acesso);
+    const comErro = r.lojas.filter((l: any) => l.erro).map((l: any) => l.loja);
+    return { ok: comErro.length === 0, lojas: r.lojas.length, comErro, ms: Date.now() - t0 };
+  }
   const t0 = Date.now(), limite = 90_000;
   const apiBase = Deno.env.get('VAREJONLINE_API_BASE');
   if (!apiBase) throw new Error('VAREJONLINE_API_BASE não configurado.');
@@ -1967,6 +1973,24 @@ async function moduloPainel(body: any, a: Acesso) {
   // Mês anterior (referência do ticket): o mês inteiro e o mesmo período (dia 1 até o dia de hoje)
   const iniAnt = new Date(ano, mes - 2, 1), diasMesAnt = new Date(ano, mes - 1, 0).getDate(), diaRefAnt = Math.min(dia, diasMesAnt);
   const ehAdmin = a.papel !== 'franqueado';
+
+  // Resultado pré-calculado pelo aquecimento (a cada 15 min): lê pronto em vez de recalcular as 29 lojas.
+  if (!body.recalcular) {
+    try {
+      const { data: c } = await sb().from('painel_cache').select('dados, atualizado_em').eq('chave', 'rede').maybeSingle();
+      const idade = c ? Date.now() - Date.parse(c.atualizado_em) : Infinity;
+      if (c && c.dados?.hoje === hojeIso && idade < 20 * 60_000) {
+        const d = c.dados;
+        let lojasC = (d.lojas ?? []).filter((l: any) => nomes.includes(l.loja));
+        if (!ehAdmin) lojasC = lojasC.map(({ franqueados: _f, ultimoAcesso: _u, ...resto }: any) => resto);
+        // pedidos aprovados no Insight mudam a qualquer hora: lidos na hora (consulta leve)
+        const { data: pend } = await sb().from('pedidos_sugeridos').select('loja, valor_total').in('status', ['aprovado', 'erro_envio', 'enviando']);
+        const pm = new Map<string, any[]>(); for (const p of pend ?? []) { if (!pm.has(p.loja)) pm.set(p.loja, []); pm.get(p.loja)!.push(p); }
+        lojasC = lojasC.map((l: any) => { const ped = pm.get(l.loja) ?? []; return { ...l, pedidosInsightPendentes: ped.length, valorInsightPendente: r2(ped.reduce((t, p) => t + Number(p.valor_total ?? 0), 0)) }; });
+        return { ...d, lojas: lojasC, rede: montarRedePainel(lojasC), calculadoEm: c.atualizado_em };
+      }
+    } catch { /* sem a tabela ou erro: calcula na hora */ }
+  }
 
   // ano anterior: mesmo dia da semana (364 dias antes) — compara sábado com sábado
   const diaAAiso = new Date(Date.parse(hojeIso) - 364 * 86400_000).toISOString().slice(0, 10);
@@ -2073,19 +2097,28 @@ async function moduloPainel(body: any, a: Acesso) {
     }
   }));
   lojas.sort((x, y) => x.loja.localeCompare(y.loja));
+  const resultado = {
+    ano, mes, dia, diasNoMes, hoje: hojeIso, horaAgora, diaAnoAnterior: diaAAiso, diaRefMesAnterior: diaRefAnt, centralIncompleta: !!(central.falhas || central.pendentes || central.erro),
+    rede: montarRedePainel(lojas), lojas, calculadoEm: new Date().toISOString(),
+  };
+  // visão completa (franqueadora, todas as lojas, sem erro): guarda para as próximas aberturas
+  if (ehAdmin && nomes.length === Object.keys(tokens).length && !lojas.some((l) => l.erro)) {
+    try { await sb().from('painel_cache').upsert({ chave: 'rede', dados: resultado, atualizado_em: resultado.calculadoEm }, { onConflict: 'chave' }); } catch { /* sem a tabela */ }
+  }
+  return resultado;
+}
+
+// Totais da rede a partir das lojas (serve tanto o cálculo na hora quanto o resultado guardado)
+function montarRedePainel(lojas: any[]) {
   const soma = (k: string) => r2(lojas.reduce((t, l) => t + (Number(l[k]) || 0), 0));
   const metaRede = lojas.reduce((t, l) => t + (l.meta || 0), 0);
-  return {
-    ano, mes, dia, diasNoMes, hoje: hojeIso, horaAgora, diaAnoAnterior: diaAAiso, diaRefMesAnterior: diaRefAnt, centralIncompleta: !!(central.falhas || central.pendentes || central.erro),
-    rede: { faturadoMes: soma('faturadoMes'), faturadoOntem: soma('faturadoOntem'), faturadoHoje: soma('faturadoHoje'), meta: r2(metaRede),
-      metaHoje: soma('metaHoje'), faturadoHojeComMeta: r2(lojas.filter((l) => l.meta).reduce((t, l) => t + (l.faturadoHoje || 0), 0)), lojasComMeta: lojas.filter((l) => l.meta).length,
-      anoAnteriorDia: soma('anoAnteriorDia'), anoAnteriorAteAgora: soma('anoAnteriorAteAgora'), atendimentosHoje: soma('atendimentosHoje'),
-      percentMeta: metaRede ? r2(soma('faturadoMes') / metaRede * 100) : null, projecao: soma('projecao'), comprasCentralMes: soma('comprasCentralMes'),
-      atendimentos: soma('atendimentos'), ticketMedio: soma('atendimentos') ? r2(soma('faturadoMes') / soma('atendimentos')) : 0,
-      faturadoMesAnteriorMesmoPeriodo: soma('faturadoMesAnteriorMesmoPeriodo'),
-      ticketMedioMesAnterior: soma('atendimentosMesAnteriorMesmoPeriodo') ? r2(soma('faturadoMesAnteriorMesmoPeriodo') / soma('atendimentosMesAnteriorMesmoPeriodo')) : null },
-    lojas,
-  };
+  return { faturadoMes: soma('faturadoMes'), faturadoOntem: soma('faturadoOntem'), faturadoHoje: soma('faturadoHoje'), meta: r2(metaRede),
+    metaHoje: soma('metaHoje'), faturadoHojeComMeta: r2(lojas.filter((l) => l.meta).reduce((t, l) => t + (l.faturadoHoje || 0), 0)), lojasComMeta: lojas.filter((l) => l.meta).length,
+    anoAnteriorDia: soma('anoAnteriorDia'), anoAnteriorAteAgora: soma('anoAnteriorAteAgora'), atendimentosHoje: soma('atendimentosHoje'),
+    percentMeta: metaRede ? r2(soma('faturadoMes') / metaRede * 100) : null, projecao: soma('projecao'), comprasCentralMes: soma('comprasCentralMes'),
+    atendimentos: soma('atendimentos'), ticketMedio: soma('atendimentos') ? r2(soma('faturadoMes') / soma('atendimentos')) : 0,
+    faturadoMesAnteriorMesmoPeriodo: soma('faturadoMesAnteriorMesmoPeriodo'),
+    ticketMedioMesAnterior: soma('atendimentosMesAnteriorMesmoPeriodo') ? r2(soma('faturadoMesAnteriorMesmoPeriodo') / soma('atendimentosMesAnteriorMesmoPeriodo')) : null };
 }
 
 // =====================================================================

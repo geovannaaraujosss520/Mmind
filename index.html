@@ -1082,11 +1082,20 @@ async function carregarInicio(forcar = false) {
   try {
     const ultimo = lerUltimo('inicio', { papel: _papelAtual });
     if (ultimo && !_inicioDados) { _inicioDados = ultimo.data; desenharInicio(); st.textContent = `Mostrando ${new Date(ultimo.t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} · atualizando…`; }
-    const d = await chamarEdge({ modulo: 'painel' }, EDGE_COMPRAS_URL);
+    const d = await chamarEdge(forcar ? { modulo: 'painel', recalcular: true } : { modulo: 'painel' }, EDGE_COMPRAS_URL);
     _inicioDados = d; _inicioFresco = true; guardarUltimo('inicio', { papel: _papelAtual }, d);
-    st.textContent = `Atualizado às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} ${resumoDesempenho(t0)}`;
+    const hhmm = (t) => new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const minutos = d.calculadoEm ? (Date.now() - Date.parse(d.calculadoEm)) / 60000 : 0;
+    st.textContent = minutos > 2
+      ? `Vendas das ${hhmm(d.calculadoEm)} (atualizam sozinhas a cada 15 min · use Atualizar para ver agora)`
+      : `Atualizado às ${hhmm(Date.now())} ${resumoDesempenho(t0)}`;
     desenharInicio();
-  } catch (e) { $('ini_erro').innerHTML = `<div class="panel err">${esc(e.message)}</div>`; st.textContent = ''; }
+  } catch (e) {
+    if (_inicioDados) { // já há números na tela: avisa sem esconder nada
+      const ult = lerUltimo('inicio', { papel: _papelAtual });
+      st.textContent = `Mostrando os dados${ult ? ' das ' + new Date(ult.t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : ''} — não deu para atualizar agora. Tente Atualizar em alguns instantes.`;
+    } else { $('ini_erro').innerHTML = `<div class="panel err">${esc(e.message)}</div>`; st.textContent = ''; }
+  }
   finally { _inicioCarregando = false; }
 }
 
@@ -2244,10 +2253,26 @@ document.querySelectorAll('[data-run]').forEach(btn => {
   btn.addEventListener('click', () => rodarModulo(btn.dataset.run));
 });
 
+// Leituras (não gravam nada) podem ser repetidas com segurança quando o Supabase oscila.
+const ACOES_LEITURA = /^(listar|buscar|produtosVendidos|itensFornecedor|localizacao|exportar)$/;
+const MODULOS_QUE_GRAVAM = /^(lojaEditar|sincronizarCentral)$/;
+const ehLeitura = (p) => !!p && !MODULOS_QUE_GRAVAM.test(p.modulo || '') && (!p.acao || ACOES_LEITURA.test(p.acao));
 async function chamarEdge(payload, url = EDGE_URL) {
-  let resp;
-  try { resp = await fetch(url, { method: 'POST', headers: headersComSenha(), body: JSON.stringify(payload) }); }
-  catch (e) { throw new Error('Sem resposta do servidor (Supabase). Pode ter sido a internet ou uma atualização em andamento — confira se a alteração foi salva e tente de novo em alguns segundos.'); }
+  const leitura = ehLeitura(payload);
+  const esperas = leitura ? [1500, 4000] : [];
+  for (let tentativa = 0; ; tentativa++) {
+    let resp, falhaRede = false;
+    try { resp = await fetch(url, { method: 'POST', headers: headersComSenha(), body: JSON.stringify(payload) }); }
+    catch (e) { falhaRede = true; }
+    const instavel = falhaRede || [502, 503, 504, 546].includes(resp.status);
+    if (instavel && tentativa < esperas.length) { await new Promise((r) => setTimeout(r, esperas[tentativa])); continue; }
+    if (falhaRede) throw new Error(leitura
+      ? 'O servidor (Supabase) não respondeu, mesmo tentando de novo. Pode ser a internet ou uma instabilidade passageira — tente de novo em alguns instantes.'
+      : 'Sem resposta do servidor (Supabase). Pode ter sido a internet ou uma atualização em andamento — confira se a alteração foi salva e tente de novo em alguns segundos.');
+    return await lerRespostaEdge(resp);
+  }
+}
+async function lerRespostaEdge(resp) {
   let data;
   try { data = await resp.json(); }
   catch (e) { throw new Error(resp.status === 546 ? 'Erro 546: a consulta passou do limite de tempo/memória do Supabase.' : `Erro HTTP ${resp.status} (resposta inválida do servidor).`); }
