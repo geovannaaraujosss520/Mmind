@@ -708,9 +708,9 @@
         <div><label>Produtos de</label><select id="vin_loja"><option value="__REDE__">Toda a rede (recomendado)</option></select></div>
         <div><label>Seu nome</label><input id="vin_usuario" placeholder="quem está ajustando"></div>
       </div>
-      <div class="sub" style="margin-top:10px; font-size:12px">"Toda a rede" junta os produtos vendidos em todas as lojas nos últimos 90 dias (venda somada), dos que mais vendem para os que menos vendem. Escolher uma loja só filtra a lista — o vínculo salvo vale sempre para todas as lojas.</div>
+      <div class="sub" style="margin-top:10px; font-size:12px">A lista é fixa: ao abrir a tela, aparecem na hora todos os produtos que as lojas já venderam (guardados toda madrugada). Quem vendeu uma vez continua na lista mesmo que pare de vender (sai só depois de 1 ano sem venda). A venda/dia é dos últimos 90 dias. Escolher uma loja só filtra a lista — o vínculo salvo vale sempre para todas as lojas.</div>
       <div class="actions">
-        <button id="vin_carregar">Carregar produtos</button>
+        <button class="secondary" id="vin_carregar" title="Lê de novo as vendas de 90 dias de todas as lojas (demora alguns minutos)">Atualizar lista agora</button>
         <span class="status" id="status-vinculos"></span>
       </div>
     </div>
@@ -2321,7 +2321,7 @@ document.querySelectorAll('[data-run]').forEach(btn => {
 });
 
 // Leituras (não gravam nada) podem ser repetidas com segurança quando o Supabase oscila.
-const ACOES_LEITURA = /^(listar|buscar|produtosVendidos|itensFornecedor|localizacao|exportar)$/;
+const ACOES_LEITURA = /^(listar|listaFixa|buscar|produtosVendidos|itensFornecedor|localizacao|exportar)$/;
 const MODULOS_QUE_GRAVAM = /^(lojaEditar|sincronizarCentral)$/;
 const ehLeitura = (p) => !!p && !MODULOS_QUE_GRAVAM.test(p.modulo || '') && (!p.acao || ACOES_LEITURA.test(p.acao));
 async function chamarEdge(payload, url = EDGE_URL) {
@@ -5168,7 +5168,8 @@ async function carregarLojasVinculos() {
   try { const atual = sel.value; const lojas = await lojasConfiguradas(); sel.innerHTML = '<option value="__REDE__">Toda a rede (recomendado)</option>' + lojas.map(n => `<option>${esc(n)}</option>`).join(''); if ([...sel.options].some(o => o.value === atual)) sel.value = atual; sel.dataset.ok = '1'; }
   catch (e) { $('status-vinculos').textContent = e.message; }
 }
-document.querySelector('[data-view="vinculos"]').addEventListener('click', carregarLojasVinculos);
+document.querySelector('[data-view="vinculos"]').addEventListener('click', async () => { await carregarLojasVinculos(); if (!vinState?.linhas) abrirListaFixaVinculos(); });
+$('vin_loja').addEventListener('change', () => abrirListaFixaVinculos());
 $('senhaAcesso').addEventListener('change', () => { delete $('vin_loja').dataset.ok; });
 
 const vinCall = payload => chamarEdge({ modulo: 'vinculos', usuario: $('vin_usuario').value.trim(), ...payload }, EDGE_COMPRAS_URL);
@@ -5272,6 +5273,32 @@ $('vin_imp_vin').addEventListener('change', async e => {
     if (r.erros.length) $('vin_imp_erros').innerHTML = `<div style="margin-top:10px; overflow-x:auto"><table class="no-tools"><thead><tr><th>Produto</th><th>Código</th><th>Variação</th><th>Motivo</th></tr></thead><tbody>${r.erros.slice(0, 200).map(x => `<tr><td class="prod-name">${esc(x.produto || '')}</td><td>${esc(x.codigo || '')}</td><td>${esc(x.variacao || '')}</td><td style="font-size:12px">${esc(x.motivo)}</td></tr>`).join('')}</tbody></table></div>`;
   } catch (err) { $('vin_imp_status').textContent = 'Erro: ' + err.message; }
 });
+// Abre a lista fixa (guardada no servidor) sem ler as vendas das lojas de novo
+let _vinFixaVoo = null;
+function abrirListaFixaVinculos(depois) {
+  const escolha = $('vin_loja').value || '__REDE__';
+  if (_vinFixaVoo && _vinFixaVoo.escolha === escolha) return _vinFixaVoo.p.then(() => depois && depois());
+  const p = _abrirListaFixa(escolha, depois).finally(() => { if (_vinFixaVoo?.p === p) _vinFixaVoo = null; });
+  _vinFixaVoo = { escolha, p };
+  return p;
+}
+async function _abrirListaFixa(escolha, depois) {
+  const erro = $('erro-vinculos'), st = $('status-vinculos');
+  if (!$('senhaAcesso').value.trim()) return;
+  erro.innerHTML = ''; st.innerHTML = '<span class="loader"></span> Abrindo a lista de produtos…';
+  try {
+    const d = await vinCall({ acao: 'listaFixa', loja: escolha });
+    if (d.vazia) { st.textContent = 'A lista ainda não foi montada. Clique em "Atualizar lista agora" (só na primeira vez; depois ela se atualiza sozinha toda madrugada).'; return; }
+    d.linhas.sort((a, b) => b.vendaMediaDiaria - a.vendaMediaDiaria);
+    const filtroAntes = vinState?.filtro, buscaAntes = vinState?.busca;
+    vinState = { ...d, rede: escolha === '__REDE__', totalLojas: d.lojasNaLista, filtro: filtroAntes || 'todos', busca: buscaAntes || '', limite: 150, abertos: new Set(), sel: new Set() };
+    renderVinculos();
+    const quando = d.atualizadoAte ? new Date(d.atualizadoAte).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+    st.textContent = `Lista fixa · ${fmtNum(d.linhas.length)} produtos${escolha === '__REDE__' ? ` de ${d.lojasNaLista} loja(s)` : ''} · vendas lidas até ${quando}`;
+    depois && depois();
+  } catch (e) { st.textContent = ''; erro.innerHTML = `<div class="panel err">${esc(e.message)}</div>`; }
+}
+
 async function carregarVinculos(depois) {
   const erro = $('erro-vinculos'), st = $('status-vinculos'), box = $('resultado-vinculos');
   erro.innerHTML = '';
@@ -5444,7 +5471,7 @@ function linhaVinculoHTML(l) {
   return `<tr data-vin-linha="${id}">
     <td>${selecionavelVinculo(l) ? `<input type="checkbox" data-vin-sel="${id}" ${vinState.sel.has(String(l.produtoId)) ? 'checked' : ''} style="width:auto">` : ''}</td>
     <td class="prod-name">${esc(l.descricao)}<br><span style="font-size:11px; color:var(--muted)">${esc(l.codigoSistema || '')}${l.codigoInterno ? ' · ' + esc(l.codigoInterno) : ''}</span></td>
-    <td>${fmtNum(l.vendaMediaDiaria)}</td>
+    <td>${l.vendaMediaDiaria ? fmtNum(l.vendaMediaDiaria) : `<span style="font-size:11px; color:var(--muted)" title="Continua na lista porque já vendeu${l.vistoEm ? ' (última leitura com venda: ' + _cliData(l.vistoEm) + ')' : ''}">sem venda em 90 dias</span>`}</td>
     ${vinState.rede ? `<td>${l.lojasQueVendem ?? '–'} de ${vinState.totalLojas}</td>` : ''}
     <td><span class="${st.cls}" title="${esc(st.dica)}" style="font-size:11px; padding:2px 8px; border-radius:20px">${st.txt}</span>
       ${l.gradeEscolhida?.length ? `<br><span style="font-size:10.5px; color:var(--accent-deep); font-weight:600" title="${esc(l.gradeEscolhida.map(x => `${x.codigo} · ${x.variacao || ''}`).join('\n'))}">vinculado a ${l.gradeEscolhida.length} itens: ${esc(l.gradeEscolhida.map(x => `${x.codigo}${x.variacao ? ' ' + x.variacao : ''}`).join(' · '))}</span>` : l.grade ? `<br><span style="font-size:10.5px; color:var(--accent-deep); font-weight:600">grade: ${l.gradeDisponivel ? gradeNome(l.gradeDisponivel) : 'todos os tamanhos'}</span>` : ''}
@@ -5576,7 +5603,9 @@ async function irParaVinculo(loja, produtoId, descricao) {
   const abrir = () => { vinState.filtro = 'todos'; vinState.busca = descricao; renderVinculos(); abrirBuscaVinculo(produtoId, true); document.querySelector(`[data-vin-linha="${CSS.escape(String(produtoId))}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }); };
   if (vinState && (vinState.loja === loja || (vinState.rede && vinState.linhas.some(x => String(x.produtoId) === String(produtoId))))) { abrir(); return; }
   if ([...sel.options].some(o => o.value === loja)) sel.value = loja;
-  await carregarVinculos(abrir);
+  await abrirListaFixaVinculos();
+  if (vinState?.linhas?.some(x => String(x.produtoId) === String(produtoId))) { abrir(); return; }
+  await carregarVinculos(abrir); // produto ainda não está na lista fixa: lê as vendas agora
 }
 
 // =====================================================================

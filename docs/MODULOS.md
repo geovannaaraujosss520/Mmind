@@ -183,3 +183,11 @@ Brasília, Goiânia e Ribeirão têm 2 unidades usando o mesmo token da VarejOnl
 ## Deploy das funções com versão fixa do Supabase CLI (nov/2026)
 
 - `deploy-edge-functions.yml` usa `supabase/setup-cli@v1` com `version: 3.2.0` em vez de `latest`. Com `latest`, a ação consultava a API do GitHub para descobrir a versão e às vezes falhava por limite de consultas, o que exigia rodar o deploy de novo. Para atualizar, troque o número pela versão desejada.
+
+## Vínculos: lista fixa de produtos (nov/2026)
+
+- A tela Vínculos abre sozinha com a **lista fixa** (`vinculos` / `listaFixa`): todos os produtos que as lojas já venderam, guardados em `painel_cache` (uma linha por loja, chave `vinc_loja:<loja>`), com os vínculos e status calculados na hora.
+- Toda leitura de vendas de uma loja (`produtosVendidos`, usada pelo botão **Atualizar lista agora** e pelo aquecimento) junta o que leu com o que já estava guardado: quem parou de vender continua na lista com "sem venda em 90 dias"; sai só depois de 1 ano sem aparecer.
+- Aquecimento diário (`aquecer-cache.yml`, passo `{"vinculosRede":true}`) atualiza a lista de cada loja, continuando de onde parou.
+- O atalho "abrir no Vínculos" (tela de pedido) usa a lista fixa; se o produto ainda não estiver nela, lê as vendas na hora.
+- Usa a tabela `painel_cache` (SQL 20261117000001); não precisa de SQL novo.
