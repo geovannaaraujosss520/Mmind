@@ -198,3 +198,8 @@ Brasília, Goiânia e Ribeirão têm 2 unidades usando o mesmo token da VarejOnl
 - Agora cada vendedor tem **Dias com venda** e **Venda por dia** (faturamento ÷ dias com venda, + atendimentos por dia). A referência é a **média da loja por vendedor por dia** (soma do faturamento ÷ soma dos dias trabalhados dos vendedores com 15+ atendimentos). Dividir por dias evita prejudicar quem trabalhou menos dias (folga, meio período, férias, gerente).
 - Perfis (15+ atendimentos): Tirador de pedido (igual antes) · **Destaque** = PA ≥ 110% e ticket ≥ 105% da loja **e** venda/dia ≥ 100% da média · **Atende bem, vende pouco** = PA e ticket altos com venda/dia abaixo · **Puxa as vendas** = PA e ticket na média e venda/dia ≥ 115% · **Muito volume, ticket baixo** = PA ou ticket < 90% com venda/dia ≥ 115% · Atenção = PA ou ticket < 90% · **Pouca venda por dia** = PA e ticket na média e venda/dia < 75% · Na média.
 - Cada vendedor ganha uma leitura em uma frase (`leitura`, no título do perfil) e a loja devolve `referenciaDia`.
+
+## Equipe: horários de pico (nov/2026)
+
+- `moduloVendedores` monta, por loja e por vendedor, a grade dia da semana × hora (atendimentos e faturamento) a partir da data/hora de cada venda (`horarios`): horas com venda, número de cada dia da semana no período, os 3 blocos de 2 horas mais fortes da loja (média por dia) com quem mais vende em cada um, e para cada vendedor o dia e o horário mais fortes e a % das vendas feita nos horários fortes da loja (quintil de cima).
+- Tela Equipe (loja): seção **Horários de pico** com mapa de calor (média por dia de cada dia da semana; Loja inteira ou um vendedor; Faturamento ou Atendimentos), cartões dos 3 picos e tabela por vendedor.

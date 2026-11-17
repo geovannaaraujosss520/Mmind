@@ -1149,6 +1149,56 @@ const compactarSaida = (sd: any) => ({
 // =====================================================================
 const ehVenda = (s: any) => !s.cancelado && (!s.tipoSaida || (/VENDA/.test(String(s.tipoSaida)) && !/DEVOLU/.test(String(s.tipoSaida))));
 
+// Horários de pico: grade dia da semana × hora (só as horas com venda), os blocos de 2 horas mais fortes da loja
+// (média por dia daquele dia da semana no período) e quem mais vende em cada um; para cada vendedor, seu dia e horário mais fortes.
+const DIAS_SEMANA = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+function montarHorariosPico(gl: { at: number[][]; fat: number[][] }, gv: Map<string, { at: number[][]; fat: number[][] }>, vendedores: any[], dIni: Date, dFim: Date, semHora: number) {
+  const ocorr = new Array(7).fill(0); // quantos domingos, segundas… no período
+  for (let d = new Date(dIni); d <= dFim; d.setDate(d.getDate() + 1)) ocorr[d.getDay()]++;
+  let hMin = 24, hMax = -1;
+  for (let w = 0; w < 7; w++) for (let h = 0; h < 24; h++) if (gl.at[w][h]) { hMin = Math.min(hMin, h); hMax = Math.max(hMax, h); }
+  if (hMax < 0) return { semDados: true, semHora };
+  const horas = Array.from({ length: hMax - hMin + 1 }, (_, i) => hMin + i);
+  const corta = (g: number[][], dec = 0) => g.map((l) => horas.map((h) => dec ? r2(l[h]) : l[h]));
+  // blocos de 2h (h e h+1) por dia da semana, pela média por dia
+  const blocos: any[] = [];
+  for (let w = 0; w < 7; w++) for (const h of horas) {
+    if (h + 1 > hMax && horas.length > 1) continue;
+    const fat = gl.fat[w][h] + (gl.fat[w][h + 1] ?? 0), at = gl.at[w][h] + (gl.at[w][h + 1] ?? 0);
+    if (!at || !ocorr[w]) continue;
+    blocos.push({ dow: w, h, fat, at, fatMedio: fat / ocorr[w] });
+  }
+  blocos.sort((x, y) => y.fatMedio - x.fatMedio);
+  const escolhidos: any[] = [];
+  for (const b of blocos) { if (escolhidos.length >= 3) break; if (escolhidos.some((e) => e.dow === b.dow && Math.abs(e.h - b.h) < 2)) continue; escolhidos.push(b); }
+  const nomeDe = new Map(vendedores.map((v: any) => [v.id, v.nome]));
+  const ativos = new Set(vendedores.filter((v: any) => v.ativo !== false).map((v: any) => v.id));
+  const picos = escolhidos.map((b) => {
+    const quem = [...gv.entries()].filter(([id]) => id !== 'sem' && ativos.has(id)).map(([id, g]) => ({ id, nome: nomeDe.get(id) ?? id, fat: g.fat[b.dow][b.h] + (g.fat[b.dow][b.h + 1] ?? 0), at: g.at[b.dow][b.h] + (g.at[b.dow][b.h + 1] ?? 0) }))
+      .filter((x) => x.at > 0).sort((x, y) => y.fat - x.fat);
+    const tot = quem.reduce((t, x) => t + x.fat, 0);
+    return { dia: DIAS_SEMANA[b.dow], dow: b.dow, de: b.h, ate: b.h + 2, faturamentoMedioDia: r2(b.fatMedio), atendimentosMedioDia: r2(b.at / ocorr[b.dow]),
+      quem: quem.slice(0, 4).map((x) => ({ nome: x.nome, faturamento: r2(x.fat), atendimentos: x.at, participacao: tot ? r2(x.fat / tot * 100) : 0 })), vendedoresNoHorario: quem.length };
+  });
+  // horários fortes da loja = blocos de 1h no quintil de cima (para medir quanto de cada vendedor cai no pico)
+  const celulas: number[] = []; for (let w = 0; w < 7; w++) for (const h of horas) if (gl.at[w][h] && ocorr[w]) celulas.push(gl.fat[w][h] / ocorr[w]);
+  celulas.sort((x, y) => y - x);
+  const corte = celulas[Math.max(0, Math.ceil(celulas.length * 0.2) - 1)] ?? Infinity;
+  const ehPico = (w: number, h: number) => ocorr[w] > 0 && gl.at[w][h] > 0 && gl.fat[w][h] / ocorr[w] >= corte;
+  const porVendedor: Record<string, any> = {};
+  for (const [id, g] of gv) {
+    if (id === 'sem' || !ativos.has(id)) continue;
+    let tot = 0, noPico = 0; const porDia = new Array(7).fill(0); let melhor = { h: -1, v: 0 };
+    for (let w = 0; w < 7; w++) for (let h = 0; h < 24; h++) { const v = g.fat[w][h]; tot += v; porDia[w] += v; if (ehPico(w, h)) noPico += v; }
+    for (const h of horas) { const v = g.fat.reduce((t, l) => t + l[h] + (l[h + 1] ?? 0), 0); if (v > melhor.v) melhor = { h, v }; }
+    const dMelhor = porDia.indexOf(Math.max(...porDia));
+    porVendedor[id] = { at: corta(g.at), fat: corta(g.fat, 2), diaForte: tot ? DIAS_SEMANA[dMelhor] : null, horarioForte: melhor.h >= 0 ? { de: melhor.h, ate: melhor.h + 2 } : null,
+      percentNoPicoDaLoja: tot ? r2(noPico / tot * 100) : 0 };
+  }
+  const celPico = horas.length ? Array.from({ length: 7 }, (_, w) => horas.map((h) => ehPico(w, h) ? 1 : 0)) : [];
+  return { horas, ocorrencias: ocorr, loja: { at: corta(gl.at), fat: corta(gl.fat, 2) }, celulasPico: celPico, picos, porVendedor, semHora };
+}
+
 async function moduloVendedores(apiBase: string, lojasTokens: Record<string, string>, body: any) {
   // Periodo: datas exatas (desde/ate em aaaa-mm-dd) ou os ultimos N dias.
   const isoData = (x: unknown) => { const m = String(x ?? '').match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null; };
@@ -1195,6 +1245,12 @@ async function moduloVendedores(apiBase: string, lojasTokens: Record<string, str
     // primeira venda de cada cliente no periodo -> vendedor principal dessa venda
     const primeiraVenda = new Map<string, { data: number; vendedor: string }>();
     const parseData = (x: unknown) => { const m = String(x ?? '').match(/(\d{2})[-/](\d{2})[-/](\d{4})(?:\s+(\d{2}):(\d{2}))?/); return m ? Date.UTC(+m[3], +m[2] - 1, +m[1], +(m[4] ?? 0), +(m[5] ?? 0)) : 0; };
+    // ---- Horários de pico: dia da semana (0=dom) × hora, por loja e por vendedor ----
+    const novaGrade = () => ({ at: Array.from({ length: 7 }, () => new Array(24).fill(0)), fat: Array.from({ length: 7 }, () => new Array(24).fill(0)) });
+    const gradeLoja = novaGrade(), gradeVend = new Map<string, ReturnType<typeof novaGrade>>();
+    const diaHora = (x: unknown) => { const t = String(x ?? ''); let m = t.match(/(\d{2})[-/](\d{2})[-/](\d{4})\D+(\d{2}):\d{2}/); if (m) return { dow: new Date(Date.UTC(+m[3], +m[2] - 1, +m[1])).getUTCDay(), h: +m[4] };
+      m = t.match(/(\d{4})-(\d{2})-(\d{2})\D+(\d{2}):\d{2}/); return m ? { dow: new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).getUTCDay(), h: +m[4] } : null; };
+    let semHora = 0;
     for (const sd of saidas) {
       if (!ehVenda(sd)) continue;
       const idAt = String(sd.id ?? sd.numeroDocumento ?? Math.random());
@@ -1251,6 +1307,18 @@ async function moduloVendedores(apiBase: string, lojasTokens: Record<string, str
         }
       }
       for (const [vid, q] of porVend) if (q <= 1) acc.get(vid)!.atend1++;
+      if (algum) {
+        const dh = diaHora(sd.data ?? sd.dataSaida ?? sd.dataEmissao);
+        if (!dh) semHora++;
+        else {
+          let tot = 0; for (const v of valPorVend.values()) tot += v;
+          gradeLoja.at[dh.dow][dh.h]++; gradeLoja.fat[dh.dow][dh.h] += tot;
+          for (const [vid, v] of valPorVend) {
+            const g = gradeVend.get(vid) ?? novaGrade(); gradeVend.set(vid, g);
+            g.at[dh.dow][dh.h]++; g.fat[dh.dow][dh.h] += v;
+          }
+        }
+      }
     }
     for (const v0 of pendente1Barata) { const a0 = acc.get(v0); if (a0) a0.atend1Barata++; }
     // ---- Cadastros novos no periodo (so os criados nesta loja, quando a VarejOnline informa) ----
@@ -1338,10 +1406,11 @@ async function moduloVendedores(apiBase: string, lojasTokens: Record<string, str
     const inativos = vendedoresTodos.filter((v) => v.ativo === false);
     const vendedores = vendedoresTodos.filter((v) => v.ativo !== false);
     const pctLoja = loja.pecas ? loja.pecasBaratas / loja.pecas * 100 : 0;
+    const horarios = montarHorariosPico(gradeLoja, gradeVend, vendedoresTodos, dIni!, dFim!, semHora);
     const referenciaDia = { faturamento: r2(refFatDia), atendimentos: r2(refAtendDia) };
     const nomeVend = (id: string) => id === 'sem_venda' ? 'Sem venda no período' : id === 'sem' ? 'Sem vendedor informado' : (repInfo.get(id)?.nome ?? `Vendedor ${id}`);
     return {
-      nomeLoja, referenciaDia,
+      nomeLoja, referenciaDia, horarios,
       cadastros: {
         erro: erroCadastros, novos: cadLoja.novos, completos: cadLoja.completos,
         percentCompletos: cadLoja.novos ? r2(cadLoja.completos / cadLoja.novos * 100) : null,
