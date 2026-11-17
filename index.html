@@ -4722,14 +4722,18 @@ async function abrirEnvio(id, ped) {
 // DESEMPENHO DE VENDEDORES
 // =====================================================================
 const PERFIS = {
-  destaque: { txt: 'Destaque', cls: 'tag-ok', dica: 'PA e ticket acima da média da loja' },
-  na_media: { txt: 'Na média', cls: 'chip', dica: 'Próximo da média da loja' },
+  destaque: { txt: 'Destaque', cls: 'tag-ok', dica: 'PA e ticket acima da média da loja E venda por dia trabalhado igual ou acima da média da loja' },
+  puxa_vendas: { txt: 'Puxa as vendas', cls: 'tag-ok', dica: 'Vende bem mais por dia trabalhado que a média da loja, com PA e ticket na média' },
+  atende_bem_pouco_volume: { txt: 'Atende bem, vende pouco', cls: 'chip', dica: 'PA e ticket acima da média, mas a venda por dia trabalhado fica abaixo da média da loja: precisa atender mais clientes' },
+  volume_ticket_baixo: { txt: 'Muito volume, ticket baixo', cls: 'tag-alto', dica: 'Vende muito por dia, mas com PA ou ticket abaixo da média: dá para aumentar o valor de cada atendimento' },
+  pouca_venda_dia: { txt: 'Pouca venda por dia', cls: 'tag-alto', dica: 'PA e ticket na média, mas a venda por dia trabalhado fica bem abaixo da média da loja' },
+  na_media: { txt: 'Na média', cls: 'chip', dica: 'PA, ticket e venda por dia próximos da loja' },
   atencao: { txt: 'Atenção', cls: 'tag-alto', dica: 'PA ou ticket abaixo da média da loja' },
   tirador_pedido: { txt: 'Tirador de pedido', cls: 'tag-risco', dica: 'PA < 80% e ticket < 85% da média da loja, e ≥ 50% dos atendimentos com 1 peça' },
   sem_volume: { txt: 'Pouco volume', cls: 'chip', dica: 'Menos de 15 atendimentos no período — não classificado' },
   sem_vendedor: { txt: 'Sem vendedor', cls: 'tag-alto', dica: 'Venda sem vendedor informado no item' },
 };
-const tagPerfil = p => { const x = PERFIS[p] || { txt: p, cls: 'chip', dica: '' }; return `<span class="${x.cls}" title="${esc(x.dica)}" style="font-size:11px; padding:2px 8px; border-radius:20px">${x.txt}</span>`; };
+const tagPerfil = (p, leitura) => { const x = PERFIS[p] || { txt: p, cls: 'chip', dica: '' }; return `<span class="${x.cls}" title="${esc(x.dica + (leitura ? '\n\n' + leitura : ''))}" style="font-size:11px; padding:2px 8px; border-radius:20px; white-space:nowrap">${x.txt}</span>`; };
 
 // Período padrão: do dia 1º do mês até hoje — o mesmo período das metas (o usuário pode trocar as datas).
 (function () {
@@ -4833,12 +4837,14 @@ function renderVendedores(d, box) {
     const vs = l.vendedores.filter(v => v.id !== 'sem' && v.atendimentos > 0).sort((a, b) => b.pecasPorAtendimento - a.pecasPorAtendimento);
     const esc0 = Math.max(L.pecasPorAtendimento * 1.6, ...vs.map(v => v.pecasPorAtendimento), 0.1);
     $('ven_loja_barras').innerHTML = vs.length ? `<div style="font-size:12px; color:var(--muted); margin-bottom:8px">Peças por atendimento — linha = média da loja (${fmtNum(L.pecasPorAtendimento)})</div><div class="barras">${vs.map(v => {
-      const cor = v.perfil === 'tirador_pedido' ? 'var(--danger)' : v.perfil === 'destaque' ? 'var(--good)' : v.perfil === 'atencao' ? 'var(--warn)' : 'var(--line-strong)';
+      const cor = v.perfil === 'tirador_pedido' ? 'var(--danger)' : ['destaque', 'puxa_vendas'].includes(v.perfil) ? 'var(--good)' : ['atencao', 'volume_ticket_baixo', 'pouca_venda_dia'].includes(v.perfil) ? 'var(--warn)' : 'var(--line-strong)';
       return `<div class="barra-linha" title="${esc(v.nome)}: PA ${fmtNum(v.pecasPorAtendimento)} · ticket ${fmtMoeda(v.ticketMedio)} · ${v.atendimentos} atendimentos">
         <span class="prod-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(v.nome)}</span>
         <div class="barra-trilho"><div class="barra-fill" style="width:${(v.pecasPorAtendimento / esc0 * 100).toFixed(1)}%; background:${cor}"></div><div class="barra-ref" style="left:${(L.pecasPorAtendimento / esc0 * 100).toFixed(1)}%"></div></div>
         <span class="v">${fmtNum(v.pecasPorAtendimento)}</span></div>`; }).join('')}</div>` : '';
-    $('ven_loja_tabela').innerHTML = `<div style="overflow-x:auto">${tabelaVendedores(l.vendedores, p, false)}</div>`;
+    const RD = l.referenciaDia;
+    $('ven_loja_tabela').innerHTML = `<div style="overflow-x:auto">${tabelaVendedores(l.vendedores, p, false)}</div>
+      <div class="sub" style="font-size:11.5px; margin-top:8px; max-width:none">O perfil olha <strong>como</strong> a pessoa vende (PA e ticket, comparados com a loja) e <strong>quanto</strong> vende (<strong>venda por dia</strong> = faturamento ÷ dias com venda${RD?.faturamento ? `; média da loja: ${fmtMoeda(RD.faturamento)} e ${fmtNum(RD.atendimentos)} atendimentos por vendedor por dia` : ''}). Assim, quem tem PA e ticket altos mas atende poucos clientes não aparece como destaque, e quem trabalhou menos dias (folga, meio período, férias, gerente com outras tarefas) não é prejudicado pelo total. Passe o mouse no perfil para ver a leitura de cada um.</div>`;
     desenharMetasVendedores(l, p);
     $('ven_loja_baratas').innerHTML = tabelaPecasBaratas(l.pecasBaratas, L, p, `ven_bar_${l.nomeLoja}`);
     ligarPecasBaratas($('ven_loja_baratas'));
@@ -4987,11 +4993,13 @@ function ligarPecasBaratas(box) {
 function tabelaVendedores(vs, p, comLoja) {
   if (!vs.length) return '<div class="empty">Nenhuma venda no período.</div>';
   const clsId = v => v.id === 'sem' ? '' : v.percentClienteIdentificado >= p.metaIdentificacao ? 'heat-bom' : v.percentClienteIdentificado < p.metaIdentificacao * 0.6 ? 'heat-ruim' : 'heat-medio';
-  return `<table><thead><tr><th>Vendedor</th>${comLoja ? '<th>Loja</th>' : ''}<th>Perfil</th><th>Faturamento</th><th>% da loja</th><th>Atendimentos</th><th>PA</th><th>Ticket médio</th><th>Cliente identificado</th><th>Cadastros completos / novos</th><th>Preço médio/peça</th><th>Peças &lt; ${fmtMoeda(p.precoLimite)}</th><th title="Atendimentos em que o cliente levou só 1 peça, e ela custava menos que o limite">Atend. só 1 peça &lt; ${fmtMoeda(p.precoLimite)}</th><th>Atend. de 1 peça</th><th>Desconto</th></tr></thead><tbody>
+  return `<table><thead><tr><th>Vendedor</th>${comLoja ? '<th>Loja</th>' : ''}<th>Perfil</th><th>Faturamento</th><th>% da loja</th><th>Atendimentos</th><th title="Dias em que o vendedor teve pelo menos uma venda no período">Dias com venda</th><th title="Faturamento ÷ dias com venda. Compara de forma justa quem trabalhou menos dias.">Venda por dia</th><th>PA</th><th>Ticket médio</th><th>Cliente identificado</th><th>Cadastros completos / novos</th><th>Preço médio/peça</th><th>Peças &lt; ${fmtMoeda(p.precoLimite)}</th><th title="Atendimentos em que o cliente levou só 1 peça, e ela custava menos que o limite">Atend. só 1 peça &lt; ${fmtMoeda(p.precoLimite)}</th><th>Atend. de 1 peça</th><th>Desconto</th></tr></thead><tbody>
   ${vs.map(v => `<tr>
     <td class="prod-name">${esc(v.nome)}${v.perfilSistema && v.perfilSistema !== 'VENDEDOR' ? `<br><span style="font-size:10px; color:var(--muted)">${esc(v.perfilSistema)}</span>` : ''}${v.ativo === false ? '<br><span style="font-size:10px; color:var(--muted)">inativo</span>' : ''}</td>
     ${comLoja ? `<td class="prod-name">${esc(v.loja)}</td>` : ''}
-    <td>${tagPerfil(v.perfil)}</td><td>${fmtMoeda(v.faturamento)}</td><td>${fmtPct(v.participacao, 1)}</td><td>${fmtNum(v.atendimentos)}</td>
+    <td>${tagPerfil(v.perfil, v.leitura)}</td><td>${fmtMoeda(v.faturamento)}</td><td>${fmtPct(v.participacao, 1)}</td><td>${fmtNum(v.atendimentos)}</td>
+    <td>${v.diasComVenda != null ? fmtNum(v.diasComVenda) : '—'}</td>
+    <td class="${v.indiceVendaDia == null ? '' : v.indiceVendaDia >= 1.15 ? 'heat-bom' : v.indiceVendaDia < 0.75 ? 'heat-ruim' : ''}" title="${v.indiceVendaDia != null ? fmtNum(Math.round(v.indiceVendaDia * 100)) + '% da média da loja' : ''}">${v.faturamentoPorDia != null ? `${fmtMoeda(v.faturamentoPorDia)}<br><span style="font-size:11px; color:var(--muted)">${fmtNum(v.atendimentosPorDia)} atend./dia</span>` : '—'}</td>
     <td class="${v.indicePA == null ? '' : v.indicePA >= 1.1 ? 'heat-bom' : v.indicePA < 0.8 ? 'heat-ruim' : ''}" title="${v.indicePA != null ? fmtNum(v.indicePA * 100) + '% da média da loja' : ''}">${fmtNum(v.pecasPorAtendimento)}</td>
     <td class="${v.indiceTicket == null ? '' : v.indiceTicket >= 1.05 ? 'heat-bom' : v.indiceTicket < 0.85 ? 'heat-ruim' : ''}">${fmtMoeda(v.ticketMedio)}</td>
     <td class="${clsId(v)}" title="${v.atendimentosComCliente} de ${v.atendimentos} atendimentos">${fmtPct(v.percentClienteIdentificado, 0)}</td>

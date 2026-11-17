@@ -1285,12 +1285,7 @@ async function moduloVendedores(apiBase: string, lojasTokens: Record<string, str
       // Perfil indicativo (comparado com a propria loja). Precisa de volume minimo para nao julgar por poucos atendimentos.
       let perfil = 'sem_volume';
       if (a.id === 'sem') perfil = 'sem_vendedor';
-      else if (at >= 15 && idxPA != null && idxTicket != null) {
-        if (idxPA < 0.8 && idxTicket < 0.85 && pct1 >= 50) perfil = 'tirador_pedido';
-        else if (idxPA >= 1.1 && idxTicket >= 1.05) perfil = 'destaque';
-        else if (idxPA < 0.9 || idxTicket < 0.9) perfil = 'atencao';
-        else perfil = 'na_media';
-      }
+      else if (at >= 15 && idxPA != null && idxTicket != null) perfil = 'classificar'; // decidido abaixo, junto com o volume por dia
       return {
         id: a.id, nome: a.id === 'sem' ? 'Sem vendedor informado' : (r?.nome ?? `Vendedor ${a.id}`),
         perfilSistema: r?.perfilVendedor ?? null, ativo: r?.ativo ?? null,
@@ -1308,15 +1303,45 @@ async function moduloVendedores(apiBase: string, lojasTokens: Record<string, str
         cadastrosNovos: cadPorVend.get(a.id)?.novos ?? 0,
         cadastrosCompletos: cadPorVend.get(a.id)?.completos ?? 0,
         cadastrosFaltando: cadPorVend.get(a.id)?.falta ?? {},
+        faturamentoPorDia: a.dias.size ? r2(a.fat / a.dias.size) : 0, atendimentosPorDia: a.dias.size ? r2(at / a.dias.size) : 0, pct1,
       };
     }).sort((x, y) => y.faturamento - x.faturamento);
+    // ---- Perfil: COMO vende (PA e ticket) + QUANTO vende (venda por dia trabalhado) ----
+    // Venda por dia = faturamento ÷ dias com venda: compara de forma justa quem trabalhou menos dias (folga, meio período, férias).
+    // Referência = média da loja por vendedor por dia (soma do faturamento ÷ soma dos dias trabalhados dos vendedores com volume).
+    const classificaveis = vendedoresTodos.filter((v: any) => v.perfil === 'classificar');
+    const diasTot = classificaveis.reduce((t: number, v: any) => t + v.diasComVenda, 0);
+    const refFatDia = diasTot ? classificaveis.reduce((t: number, v: any) => t + v.faturamento, 0) / diasTot : 0;
+    const refAtendDia = diasTot ? classificaveis.reduce((t: number, v: any) => t + v.atendimentos, 0) / diasTot : 0;
+    for (const v of vendedoresTodos as any[]) {
+      v.indiceVendaDia = refFatDia && v.diasComVenda ? r2(v.faturamentoPorDia / refFatDia) : null;
+      v.indiceAtendDia = refAtendDia && v.diasComVenda ? r2(v.atendimentosPorDia / refAtendDia) : null;
+      if (v.perfil === 'classificar') {
+        const iPA = v.indicePA, iT = v.indiceTicket, iV = v.indiceVendaDia ?? 1;
+        const qualidadeAlta = iPA >= 1.1 && iT >= 1.05, qualidadeBaixa = iPA < 0.9 || iT < 0.9;
+        if (iPA < 0.8 && iT < 0.85 && v.pct1 >= 50) v.perfil = 'tirador_pedido';
+        else if (qualidadeAlta && iV >= 1) v.perfil = 'destaque';
+        else if (qualidadeAlta) v.perfil = 'atende_bem_pouco_volume';
+        else if (!qualidadeBaixa && iV >= 1.15) v.perfil = 'puxa_vendas';
+        else if (qualidadeBaixa && iV >= 1.15) v.perfil = 'volume_ticket_baixo';
+        else if (qualidadeBaixa) v.perfil = 'atencao';
+        else if (iV < 0.75) v.perfil = 'pouca_venda_dia';
+        else v.perfil = 'na_media';
+      }
+      // leitura em uma frase (aparece ao passar o mouse no perfil)
+      if (v.diasComVenda && v.id !== 'sem') v.leitura = `Vendeu em ${v.diasComVenda} dia(s): R$ ${v.faturamentoPorDia.toFixed(2).replace('.', ',')} e ${String(v.atendimentosPorDia).replace('.', ',')} atendimentos por dia`
+        + (refFatDia ? ` (média da loja por vendedor: R$ ${refFatDia.toFixed(2).replace('.', ',')} e ${String(r2(refAtendDia)).replace('.', ',')} atendimentos/dia)` : '')
+        + `. PA ${String(v.pecasPorAtendimento).replace('.', ',')} e ticket R$ ${v.ticketMedio.toFixed(2).replace('.', ',')} (loja: ${String(r2(paLoja)).replace('.', ',')} e R$ ${ticketLoja.toFixed(2).replace('.', ',')}).`;
+      delete v.pct1;
+    }
     // só vendedores ativos no cadastro da VarejOnline (os totais da loja continuam com todas as vendas)
     const inativos = vendedoresTodos.filter((v) => v.ativo === false);
     const vendedores = vendedoresTodos.filter((v) => v.ativo !== false);
     const pctLoja = loja.pecas ? loja.pecasBaratas / loja.pecas * 100 : 0;
+    const referenciaDia = { faturamento: r2(refFatDia), atendimentos: r2(refAtendDia) };
     const nomeVend = (id: string) => id === 'sem_venda' ? 'Sem venda no período' : id === 'sem' ? 'Sem vendedor informado' : (repInfo.get(id)?.nome ?? `Vendedor ${id}`);
     return {
-      nomeLoja,
+      nomeLoja, referenciaDia,
       cadastros: {
         erro: erroCadastros, novos: cadLoja.novos, completos: cadLoja.completos,
         percentCompletos: cadLoja.novos ? r2(cadLoja.completos / cadLoja.novos * 100) : null,

@@ -191,3 +191,10 @@ Brasília, Goiânia e Ribeirão têm 2 unidades usando o mesmo token da VarejOnl
 - Aquecimento diário (`aquecer-cache.yml`, passo `{"vinculosRede":true}`) atualiza a lista de cada loja, continuando de onde parou.
 - O atalho "abrir no Vínculos" (tela de pedido) usa a lista fixa; se o produto ainda não estiver nela, lê as vendas na hora.
 - Usa a tabela `painel_cache` (SQL 20261117000001); não precisa de SQL novo.
+
+## Equipe: perfil com volume por dia trabalhado (nov/2026)
+
+- Antes, o perfil olhava só PA e ticket: quem atendia metade dos clientes podia sair "Destaque".
+- Agora cada vendedor tem **Dias com venda** e **Venda por dia** (faturamento ÷ dias com venda, + atendimentos por dia). A referência é a **média da loja por vendedor por dia** (soma do faturamento ÷ soma dos dias trabalhados dos vendedores com 15+ atendimentos). Dividir por dias evita prejudicar quem trabalhou menos dias (folga, meio período, férias, gerente).
+- Perfis (15+ atendimentos): Tirador de pedido (igual antes) · **Destaque** = PA ≥ 110% e ticket ≥ 105% da loja **e** venda/dia ≥ 100% da média · **Atende bem, vende pouco** = PA e ticket altos com venda/dia abaixo · **Puxa as vendas** = PA e ticket na média e venda/dia ≥ 115% · **Muito volume, ticket baixo** = PA ou ticket < 90% com venda/dia ≥ 115% · Atenção = PA ou ticket < 90% · **Pouca venda por dia** = PA e ticket na média e venda/dia < 75% · Na média.
+- Cada vendedor ganha uma leitura em uma frase (`leitura`, no título do perfil) e a loja devolve `referenciaDia`.
