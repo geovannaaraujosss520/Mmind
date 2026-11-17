@@ -180,10 +180,6 @@ Brasília, Goiânia e Ribeirão têm 2 unidades usando o mesmo token da VarejOnl
 - Franqueadora: botão **Comparar as lojas** (`clientes`/`contatosRede`): chamados em 30 dias por loja + retorno de 90 dias (gravado em `clientes_indicadores` quando a loja abre Clientes e no aquecimento diário).
 - Servidor: `moduloClientes` ações `registrarContato` / `desfazerContato` / `contatosRede`; tabela `contatos_clientes`.
 
-## Estoque parado (nov/2026)
+## Deploy das funções com versão fixa do Supabase CLI (nov/2026)
 
-- `modulo: 'produtos'` com loja agora considera parado tudo que tem estoque e não vende há **60+ dias**, em faixas: 60–89, 90–179, 180+ e sem venda em 12 meses (`faixas`). A tabela do Início continua com os de 90+.
-- **Ver todo o estoque parado** (`completo: true`): lista até 400 produtos, filtro por faixa e a coluna **Vende na rede** — outras lojas que venderam o mesmo código nos últimos 60 dias (candidatas a transferência). O franqueado vê quantas lojas e quantas peças; a franqueadora vê também os nomes.
-- Franqueadora com "Rede inteira": tabela do custo parado de cada loja (90+ e 180+) com **Ver lista**.
-- Guardado em `giro_produtos_rede` (código × loja, peças em 60 dias) e `estoque_parado_lojas` (resumo por loja) sempre que o estoque de uma loja é lido e no aquecimento diário (`aquecer-cache.yml`, passo `{"estoqueRede":true}`).
-- SQL: `supabase/migrations/20261117000002_contatos_estoque_parado.sql`.
+- `deploy-edge-functions.yml` usa `supabase/setup-cli@v1` com `version: 3.2.0` em vez de `latest`. Com `latest`, a ação consultava a API do GitHub para descobrir a versão e às vezes falhava por limite de consultas, o que exigia rodar o deploy de novo. Para atualizar, troque o número pela versão desejada.
