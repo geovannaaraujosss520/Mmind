@@ -1899,6 +1899,7 @@ async function moduloFotosProdutos(body: any, a: Acesso) {
 async function aquecerCaches(body: any) {
   if (body.hoje) return aquecerHoje();
   if (body.clientesRede) return aquecerClientesRede();
+  if (body.estoqueRede) return aquecerEstoqueRede();
   if (body.painel) { // recalcula o Início da rede e guarda (moduloPainel grava painel_cache)
     const t0 = Date.now();
     const r: any = await moduloPainel({ recalcular: true }, { tipo: 'senha', nome: 'aquecimento', papel: 'admin', lojas: [], todas: true } as Acesso);
@@ -2470,10 +2471,12 @@ async function moduloClientes(body: any, a: Acesso) {
   const t0Clientes = Date.now();
   const apiBase = Deno.env.get('VAREJONLINE_API_BASE');
   if (!apiBase) throw new Error('VAREJONLINE_API_BASE não configurado.');
+  if (body.acao === 'contatosRede') return contatosRede(a);
   const tokens = await getLojasTokens();
   const loja = String(body.loja ?? '') || (a.todas ? '' : a.lojas[0] ?? '');
   if (!loja || !tokens[loja]) throw new Error('Escolha uma loja.');
   exigirLoja(a, loja);
+  if (body.acao === 'registrarContato' || body.acao === 'desfazerContato') return registrarContato(body, loja, a);
   const chave = tokens[loja];
   const meses = Math.min(24, Math.max(6, Number(body.meses ?? 12)));
   const sumidoDias = Math.min(365, Math.max(30, Number(body.sumidoDias ?? 90)));
@@ -2482,7 +2485,7 @@ async function moduloClientes(body: any, a: Acesso) {
   const ini = new Date(hoje); ini.setMonth(ini.getMonth() - meses); ini.setDate(ini.getDate() + 1);
   const dias = (iso: string) => Math.round((Date.parse(hojeIso) - Date.parse(iso)) / 86400_000);
 
-  type Cli = { id: string; nome: string; documento: string; dias: Set<string>; vendas: number; fat: number; pecas: number; cats: Map<string, number>; modelos: Set<string>; prods: Set<string>; maxPeca: number; ultimoProduto: string; ultima: string; primeira: string; meses: Set<number> };
+  type Cli = { id: string; nome: string; documento: string; dias: Set<string>; vendas: number; fat: number; pecas: number; cats: Map<string, number>; modelos: Set<string>; prods: Set<string>; maxPeca: number; ultimoProduto: string; ultima: string; primeira: string; meses: Set<number>; fatDia: Map<string, number> };
   const clientes = new Map<string, Cli>();
   const vendasModelos: { cid: string | null; modelos: string[] }[] = [];
   const produtos = new Map<string, { modelo: string; codigo: string | null; qtd: number; qtd60: number; fat: number; ids: Set<string>; cat: string }>();
@@ -2521,7 +2524,8 @@ async function moduloClientes(body: any, a: Acesso) {
     vendasModelos.push({ cid, modelos: [...mods] });
     if (!cid) return;
     vendasIdent++; fatIdent += f;
-    const c = clientes.get(cid) ?? { id: cid, nome: String(t.nome ?? '').trim(), documento: String(t.documento ?? ''), dias: new Set<string>(), vendas: 0, fat: 0, pecas: 0, cats: new Map(), modelos: new Set<string>(), prods: new Set<string>(), maxPeca: 0, ultimoProduto: '', ultima: '', primeira: '9999', meses: new Set<number>() };
+    const c = clientes.get(cid) ?? { id: cid, nome: String(t.nome ?? '').trim(), documento: String(t.documento ?? ''), dias: new Set<string>(), vendas: 0, fat: 0, pecas: 0, cats: new Map(), modelos: new Set<string>(), prods: new Set<string>(), maxPeca: 0, ultimoProduto: '', ultima: '', primeira: '9999', meses: new Set<number>(), fatDia: new Map<string, number>() };
+    c.fatDia.set(dia, (c.fatDia.get(dia) ?? 0) + f);
     c.dias.add(dia); c.meses.add(mesIdx); c.vendas++; c.fat += f; c.pecas += q;
     for (const it of itens) {
       c.cats.set(it.cat, (c.cats.get(it.cat) ?? 0) + it.q); c.modelos.add(it.modelo); c.prods.add(it.pid);
@@ -2585,10 +2589,19 @@ async function moduloClientes(body: any, a: Acesso) {
   const contVolta = { em_dia: 0, hora: 0, atrasado: 0, sumido: 0 } as Record<string, number>;
   for (const c of lista) contVolta[statusVolta(dias(c.ultima), prazoDe(c))]++;
   const noPrazoPct = lista.length ? r2((contVolta.em_dia + contVolta.hora) / lista.length * 100) : null;
+  // ---- contatos feitos ("Hora de chamar" e outras listas): quem foi chamado e quem voltou depois ----
+  const contatosFeitos = await lerContatosLoja(loja);
+  const porId = new Map(lista.map((c) => [c.id, c]));
+  const contato = resumoContatos(contatosFeitos, porId, hojeIso);
   // referência da rede: guarda o indicador desta loja (só na régua padrão: 12 meses, sumido = 90 dias)
   const recompraLoja = lista.length ? r2(lista.filter((c) => c.dias.size >= 2).length / lista.length * 100) : null;
   if (meses === 12 && sumidoDias === 90 && mediana != null && lista.length >= 30) {
-    try { await sb().from('clientes_indicadores').upsert({ loja, prazo_dias: prazoLoja, no_prazo_pct: noPrazoPct, recompra_pct: recompraLoja, clientes: lista.length, atualizado_em: new Date().toISOString() }, { onConflict: 'loja' }); } catch { /* sem a tabela: segue sem referência */ }
+    try {
+      const linha: any = { loja, prazo_dias: prazoLoja, no_prazo_pct: noPrazoPct, recompra_pct: recompraLoja, clientes: lista.length, atualizado_em: new Date().toISOString() };
+      const extra = contatosFeitos ? { contatados_90: contato.contatados, voltaram_90: contato.voltaram, retorno_contato_pct: contato.retornoPct, fat_apos_contato: contato.faturamento } : {};
+      const r = await sb().from('clientes_indicadores').upsert({ ...linha, ...extra }, { onConflict: 'loja' });
+      if (r?.error && contatosFeitos) await sb().from('clientes_indicadores').upsert(linha, { onConflict: 'loja' }); // colunas novas ainda não criadas
+    } catch { /* sem a tabela: segue sem referência */ }
   }
   if (body.soIndicadores) return { loja, prazoDias: mediana != null ? prazoLoja : null, noPrazoPct, clientes: lista.length };
   const rede = await referenciaRedeClientes(loja, mediana != null ? prazoLoja : null);
@@ -2704,7 +2717,9 @@ async function moduloClientes(body: any, a: Acesso) {
   const contatos = new Map<string, any>([...cad.mapa].map(([id, r]) => [id, contatoDoCadastro(r)]));
   let todos: any[] | undefined;
   if (body.exportar) todos = [...lista].sort((x, y) => y.fat - x.fat).map((c) => ({ ...perfil(c), contato: contatos.get(c.id) ?? null }));
-  const comContato = (c: any) => ({ ...c, contato: contatos.get(c.id) ?? null });
+  const chamadoEm = new Map<string, string>();
+  for (const r of contatosFeitos ?? []) if (!chamadoEm.has(r.cliente_id)) chamadoEm.set(r.cliente_id, r.contatado_em); // lista vem da mais nova para a mais antiga
+  const comContato = (c: any) => ({ ...c, contato: contatos.get(c.id) ?? null, chamadoEm: chamadoEm.get(c.id) ?? null });
   const mesAtual = hojeIso.slice(5, 7), diaAtual = hojeIso.slice(8, 10);
   const aniversariantes = top200.concat(lista.filter((c) => dias(c.ultima) > sumidoDias))
     .filter((c, i, arr) => arr.findIndex((x) => x.id === c.id) === i)
@@ -2724,6 +2739,7 @@ async function moduloClientes(body: any, a: Acesso) {
       prazoIdealDias: prazoLoja, voltaEmDia: contVolta.em_dia, voltaHora: contVolta.hora, voltaAtrasado: contVolta.atrasado, voltaSumido: contVolta.sumido,
       noPrazoPct, situacaoPrazo: noPrazoPct == null ? null : noPrazoPct >= 50 ? 'perto' : noPrazoPct >= 30 ? 'atencao' : 'longe',
       horaDeChamar: contVolta.hora + contVolta.atrasado,
+      contatos: contatosFeitos ? contato : null,
       rede,
       fatRecorrentesPct: fatIdent ? r2(fatRec / fatIdent * 100) : null,
       ticketRecorrente: recorrentes.length ? r2(fatRec / recorrentes.reduce((s, c) => s + c.vendas, 0)) : null,
@@ -2743,6 +2759,83 @@ async function moduloClientes(body: any, a: Acesso) {
     contatosIncompletos: cad.faltando > 0, contatosFaltando: cad.faltando,
   };
 }
+// ---- Contatos com clientes (acompanhamento do "Hora de chamar") ----
+const diaBR = (ts: string) => new Date(Date.parse(ts) - 3 * 3600_000).toISOString().slice(0, 10);
+// Contatos da loja nos últimos 120 dias (mais novo primeiro). null = tabela ainda não criada.
+async function lerContatosLoja(loja: string): Promise<any[] | null> {
+  try {
+    const desde = new Date(Date.now() - 120 * 86400_000).toISOString();
+    const { data, error } = await sb().from('contatos_clientes').select('cliente_id, contatado_em').eq('loja', loja).gte('contatado_em', desde).order('contatado_em', { ascending: false }).limit(5000);
+    return error ? null : (data ?? []);
+  } catch { return null; }
+}
+// Para cada cliente chamado nos últimos 90 dias (conta o 1º contato da janela): voltou = comprou do dia do contato
+// até 30 dias depois. Quem foi chamado há menos de 30 dias e ainda não voltou fica "aguardando" (fora da taxa).
+function resumoContatos(contatos: any[] | null, porId: Map<string, any>, hojeIso: string) {
+  const vazio = { contatados: 0, voltaram: 0, aguardando: 0, retornoPct: null as number | null, faturamento: 0, ultimos30: 0, voltaramLista: [] as any[] };
+  if (!contatos) return vazio;
+  const lim90 = new Date(Date.parse(hojeIso) - 89 * 86400_000).toISOString().slice(0, 10);
+  const lim30 = new Date(Date.parse(hojeIso) - 29 * 86400_000).toISOString().slice(0, 10);
+  const primeiro = new Map<string, string>();
+  for (const r of contatos) { const d = diaBR(r.contatado_em); if (d >= lim90) primeiro.set(r.cliente_id, d); } // mais novo → mais antigo: fica o mais antigo
+  const ult30 = new Set(contatos.filter((r) => diaBR(r.contatado_em) >= lim30).map((r) => r.cliente_id));
+  let voltaram = 0, aguardando = 0, fat = 0; const lista: any[] = [];
+  for (const [id, d] of primeiro) {
+    const c = porId.get(id);
+    const fim = new Date(Date.parse(d) + 30 * 86400_000).toISOString().slice(0, 10);
+    const dias = c ? [...c.dias].filter((x: string) => x >= d && x <= fim).sort() : [];
+    if (dias.length) {
+      voltaram++; const v = dias.reduce((s: number, x: string) => s + (c.fatDia.get(x) ?? 0), 0); fat += v;
+      lista.push({ id, nome: c.nome || '(sem nome)', chamadoEm: d, voltouEm: dias[0], valor: r2(v) });
+    } else if (d >= lim30) aguardando++;
+  }
+  const base = primeiro.size - aguardando;
+  return { contatados: primeiro.size, voltaram, aguardando, retornoPct: base > 0 ? r2(voltaram / base * 100) : null, faturamento: r2(fat), ultimos30: ult30.size,
+    voltaramLista: lista.sort((x, y) => y.voltouEm.localeCompare(x.voltouEm)).slice(0, 30) };
+}
+async function registrarContato(body: any, loja: string, a: Acesso) {
+  const cid = String(body.clienteId ?? '').trim();
+  if (!cid) throw new Error('Cliente não informado.');
+  const t = await sb().from('contatos_clientes').select('id').limit(1);
+  if (t.error) throw new Error('Rode antes o SQL 20261117000002_contatos_estoque_parado.sql no Supabase.');
+  const hoje0 = new Date(Date.parse(diaBR(new Date().toISOString()) + 'T03:00:00Z')).toISOString(); // meia-noite de Brasília
+  if (body.acao === 'desfazerContato') { // apaga só o contato de hoje desse cliente (desfazer um clique errado)
+    const { error } = await sb().from('contatos_clientes').delete().eq('loja', loja).eq('cliente_id', cid).gte('contatado_em', hoje0);
+    if (error) throw new Error(error.message);
+    return { ok: true, chamadoEm: null };
+  }
+  const agora = new Date().toISOString();
+  // um registro por cliente por dia: clicar de novo no WhatsApp no mesmo dia não conta duas vezes
+  const { data: ja } = await sb().from('contatos_clientes').select('contatado_em').eq('loja', loja).eq('cliente_id', cid).gte('contatado_em', hoje0).limit(1);
+  if (ja?.length) return { ok: true, chamadoEm: ja[0].contatado_em, jaRegistrado: true };
+  const { error } = await sb().from('contatos_clientes').insert({ loja, cliente_id: cid, cliente_nome: String(body.clienteNome ?? '').slice(0, 120) || null, motivo: String(body.motivo ?? '').slice(0, 20) || null, usuario: a.nome, contatado_em: agora });
+  if (error) throw new Error(error.message);
+  return { ok: true, chamadoEm: agora };
+}
+// Franqueadora: contatos e retorno de cada loja (retorno vem do último cálculo da tela Clientes / aquecimento)
+async function contatosRede(a: Acesso) {
+  if (a.papel === 'franqueado') throw new Error('Disponível só para a franqueadora.');
+  const tokens = await getLojasTokens();
+  const permitidas = lojasDoAcesso(a, undefined);
+  const nomes = Object.keys(tokens).filter((n) => !permitidas || permitidas.includes(n)).sort();
+  const desde30 = new Date(Date.now() - 30 * 86400_000).toISOString();
+  const [cont, ind] = await Promise.all([
+    lerTudo('contatos_clientes', 'loja, cliente_id', 'id', (q: any) => q.gte('contatado_em', desde30)),
+    sb().from('clientes_indicadores').select('loja, contatados_90, voltaram_90, retorno_contato_pct, fat_apos_contato, atualizado_em'),
+  ]);
+  if (cont.error) throw new Error('Rode antes o SQL 20261117000002_contatos_estoque_parado.sql no Supabase.');
+  const c30 = new Map<string, Set<string>>();
+  for (const r of cont.data) { if (!c30.has(r.loja)) c30.set(r.loja, new Set()); c30.get(r.loja)!.add(r.cliente_id); }
+  const im = new Map((ind.data ?? []).map((r: any) => [r.loja, r]));
+  const lojas = nomes.map((n) => { const i: any = im.get(n) ?? {}; return {
+    loja: n, chamados30: c30.get(n)?.size ?? 0, contatados90: i.contatados_90 ?? null, voltaram90: i.voltaram_90 ?? null,
+    retornoPct: i.retorno_contato_pct != null ? Number(i.retorno_contato_pct) : null, faturamento: i.fat_apos_contato != null ? Number(i.fat_apos_contato) : null, atualizadoEm: i.atualizado_em ?? null }; });
+  const tc = lojas.reduce((s, l) => s + (l.contatados90 ?? 0), 0), tv = lojas.reduce((s, l) => s + (l.voltaram90 ?? 0), 0);
+  return { lojas: lojas.sort((x, y) => y.chamados30 - x.chamados30 || x.loja.localeCompare(y.loja)),
+    rede: { chamados30: lojas.reduce((s, l) => s + l.chamados30, 0), lojasQueChamaram: lojas.filter((l) => l.chamados30 > 0).length, contatados90: tc, voltaram90: tv,
+      faturamento: r2(lojas.reduce((s, l) => s + (l.faturamento ?? 0), 0)) } };
+}
+
 // Média da rede do prazo de volta (lojas atualizadas nos últimos 10 dias) e onde esta loja fica.
 async function referenciaRedeClientes(loja: string, prazoLoja: number | null) {
   try {
@@ -2810,7 +2903,7 @@ async function moduloProdutos(body: any, a: Acesso) {
   const ini = new Date(hoje); if (loja) { ini.setFullYear(ini.getFullYear() - 1); ini.setDate(ini.getDate() + 1); } else ini.setDate(ini.getDate() - 59);
 
   const modelos = new Map<string, { modelo: string; qtd: number; fat: number; qtdAnt: number; variacoes: Set<string>; lojas: Set<string>; ids: Set<string> }>();
-  const porProduto = new Map<string, { ultima: string; qtd: number; custo: number; fat: number }>();
+  const porProduto = new Map<string, { ultima: string; qtd: number; custo: number; fat: number; q60: number; codigo: string | null; desc: string }>();
   const entVenda = new Set<string>();
   const erros: { loja: string; erro: string }[] = [];
   let i = 0;
@@ -2826,8 +2919,8 @@ async function moduloProdutos(body: any, a: Acesso) {
             const q = Number(it.quantidade ?? 0); if (q <= 0) continue;
             const v = Number(it.valorTotal ?? 0), desc = String(it.produto?.descricao ?? ''), pid = String(it.produto?.id ?? desc);
             if (loja) {
-              const p = porProduto.get(pid) ?? { ultima: '', qtd: 0, custo: 0, fat: 0 };
-              if (dia > p.ultima) p.ultima = dia; p.qtd += q; p.custo += Number(it.valorCusto ?? 0); p.fat += v; porProduto.set(pid, p);
+              const p = porProduto.get(pid) ?? { ultima: '', qtd: 0, custo: 0, fat: 0, q60: 0, codigo: it.produto?.codigoSistema ?? null, desc };
+              if (dia > p.ultima) p.ultima = dia; p.qtd += q; p.custo += Number(it.valorCusto ?? 0); p.fat += v; if (dia >= d60) p.q60 += q; porProduto.set(pid, p);
             }
             if (dia < d60) continue;
             const mod = modeloDe(desc);
@@ -2866,8 +2959,10 @@ async function moduloProdutos(body: any, a: Acesso) {
   }));
 
   let oportunidades: any[] | null = null, totalParados = 0, pecasParadas = 0, valorParado = 0;
+  let paradosLista: any[] | null = null, faixas: any = null, paradoRede: any = null;
   if (estoque) {
-    const parados = [...estoque.entries()].filter(([id, e]) => e.qtd > 0 && !((porProduto.get(id)?.ultima ?? '') >= d90)).map(([id, e]) => {
+    // parados há 60+ dias (a tabela do Início mostra os de 90+; "Ver todos" mostra por faixa)
+    const parados = [...estoque.entries()].filter(([id, e]) => e.qtd > 0 && !((porProduto.get(id)?.ultima ?? '') >= d60)).map(([id, e]) => {
       const v = porProduto.get(id);
       const custoUnit = v && v.qtd ? v.custo / v.qtd : null, precoUnit = v && v.qtd ? v.fat / v.qtd : null;
       return {
@@ -2895,15 +2990,94 @@ async function moduloProdutos(body: any, a: Acesso) {
         if (p.valorVendaParado == null && c.preco > 0) { p.valorVendaParado = r2(c.preco * p.estoque); p.precoMedio = r2(c.preco); }
       }
     }
-    totalParados = parados.length; pecasParadas = r2(parados.reduce((s, p) => s + p.estoque, 0));
-    valorParado = r2(parados.reduce((s, p) => s + (p.valorParado ?? 0), 0));
+    const faixaDe = (p: any) => p.diasSemVender == null ? 'sem12m' : p.diasSemVender >= 180 ? '180' : p.diasSemVender >= 90 ? '90' : '60';
+    for (const p of parados) (p as any).faixa = faixaDe(p);
     // primeiro o que tem mais dinheiro parado (custo); sem custo conhecido, pela quantidade
-    oportunidades = parados.sort((x, y) => (y.valorParado ?? -1) - (x.valorParado ?? -1) || y.estoque - x.estoque).slice(0, 10);
+    parados.sort((x, y) => (y.valorParado ?? -1) - (x.valorParado ?? -1) || y.estoque - x.estoque);
+    const p90 = parados.filter((p: any) => p.faixa !== '60');
+    totalParados = p90.length; pecasParadas = r2(p90.reduce((s, p) => s + p.estoque, 0));
+    valorParado = r2(p90.reduce((s, p) => s + (p.valorParado ?? 0), 0));
+    oportunidades = p90.slice(0, 10);
+    faixas = Object.fromEntries(['60', '90', '180', 'sem12m'].map((f) => { const l = parados.filter((p: any) => p.faixa === f);
+      return [f, { produtos: l.length, pecas: r2(l.reduce((s, p) => s + p.estoque, 0)), valor: r2(l.reduce((s, p) => s + (p.valorParado ?? 0), 0)), valorVenda: r2(l.reduce((s, p) => s + (p.valorVendaParado ?? 0), 0)) }]; }));
+    // guarda (sem segurar a resposta): onde cada código vende (60 dias) e o resumo do parado desta loja
+    const grav = guardarGiroEParado(loja, porProduto, parados, faixas).catch(() => {}); (globalThis as any).EdgeRuntime?.waitUntil?.(grav);
+    if (body.soGuardar) await grav;
+    if (body.completo) {
+      paradosLista = parados.slice(0, 400);
+      await preencherOndeVende(loja, paradosLista, a.papel !== 'franqueado');
+    }
   }
+  if (!loja && !body.soGuardar) paradoRede = await lerParadoRede(nomes);
   return {
-    parametros: { loja: loja || null, lojas: nomes.length, hoje: hojeIso, de30: d30, sem90Desde: d90 },
-    top10, oportunidades, totalParados, pecasParadas, valorParado, erroEstoque, erros,
+    parametros: { loja: loja || null, lojas: nomes.length, hoje: hojeIso, de30: d30, sem90Desde: d90, sem60Desde: d60 },
+    top10, oportunidades, totalParados, pecasParadas, valorParado, faixas, parados: paradosLista, paradoRede, erroEstoque, erros,
   };
+}
+
+// ---- Estoque parado: giro de cada código na rede e resumo do parado por loja ----
+async function guardarGiroEParado(loja: string, porProduto: Map<string, any>, parados: any[], faixas: any) {
+  const giro = new Map<string, { qtd60: number; ultima: string; descricao: string }>();
+  for (const p of porProduto.values()) {
+    if (!p.codigo || p.q60 <= 0) continue;
+    const g = giro.get(p.codigo) ?? { qtd60: 0, ultima: '', descricao: p.desc };
+    g.qtd60 += p.q60; if (p.ultima > g.ultima) g.ultima = p.ultima; giro.set(p.codigo, g);
+  }
+  const agora = new Date().toISOString();
+  const t = await sb().from('giro_produtos_rede').delete().eq('loja', loja);
+  if (t.error) return; // sem a tabela
+  const linhas = [...giro.entries()].map(([codigo, g]) => ({ loja, codigo, descricao: g.descricao.slice(0, 200), qtd60: r2(g.qtd60), ultima_venda: g.ultima || null, atualizado_em: agora }));
+  for (let k = 0; k < linhas.length; k += 500) await sb().from('giro_produtos_rede').insert(linhas.slice(k, k + 500));
+  await sb().from('estoque_parado_lojas').upsert({ loja, produtos: parados.length, pecas: r2(parados.reduce((s, p) => s + p.estoque, 0)),
+    valor_custo: r2(parados.reduce((s, p) => s + (p.valorParado ?? 0), 0)), valor_venda: r2(parados.reduce((s, p) => s + (p.valorVendaParado ?? 0), 0)), faixas, atualizado_em: agora }, { onConflict: 'loja' });
+}
+// Para cada produto parado: até 3 outras lojas que venderam esse código nos últimos 60 dias (giro atualizado nos últimos 3 dias)
+// Franqueado vê só quantas lojas vendem e quantas peças; a franqueadora vê o nome das lojas (para combinar a transferência).
+async function preencherOndeVende(loja: string, lista: any[], mostrarLojas: boolean) {
+  const codigos = [...new Set(lista.map((p) => p.codigo).filter(Boolean))] as string[];
+  if (!codigos.length) return;
+  const desde = new Date(Date.now() - 3 * 86400_000).toISOString();
+  const m = new Map<string, { loja: string; qtd60: number }[]>();
+  try {
+    for (let k = 0; k < codigos.length; k += 150) {
+      const { data, error } = await sb().from('giro_produtos_rede').select('loja, codigo, qtd60').in('codigo', codigos.slice(k, k + 150)).neq('loja', loja).gte('atualizado_em', desde);
+      if (error) return;
+      for (const r of data ?? []) { if (!m.has(r.codigo)) m.set(r.codigo, []); m.get(r.codigo)!.push({ loja: r.loja, qtd60: Number(r.qtd60) }); }
+    }
+  } catch { return; }
+  for (const p of lista) {
+    const l = (m.get(p.codigo) ?? []).sort((x, y) => y.qtd60 - x.qtd60);
+    p.vendeEmLojas = l.length; p.vendidosRede60 = r2(l.reduce((s, x) => s + x.qtd60, 0));
+    p.ondeVende = mostrarLojas ? l.slice(0, 3) : null;
+  }
+}
+async function lerParadoRede(nomes: string[]) {
+  try {
+    const { data, error } = await sb().from('estoque_parado_lojas').select('loja, produtos, pecas, valor_custo, valor_venda, faixas, atualizado_em');
+    if (error) return null;
+    return (data ?? []).filter((r: any) => nomes.includes(r.loja)).map((r: any) => ({ loja: r.loja, produtos: r.produtos, pecas: Number(r.pecas), valor: Number(r.valor_custo), valorVenda: Number(r.valor_venda), faixas: r.faixas, atualizadoEm: r.atualizado_em }))
+      .sort((x: any, y: any) => y.valor - x.valor);
+  } catch { return null; }
+}
+// Aquecimento diário: lê o estoque e o giro de cada loja (para "onde vende" e o resumo da rede ficarem prontos)
+async function aquecerEstoqueRede() {
+  const t0 = Date.now(), prazo = t0 + 110_000;
+  const tokens = await getLojasTokens(), nomes = Object.keys(tokens);
+  const ontem = new Date(Date.now() - 20 * 3600_000).toISOString();
+  let feitas = new Set<string>();
+  try { const { data, error } = await sb().from('estoque_parado_lojas').select('loja').gte('atualizado_em', ontem); if (error) return { completo: true, erro: 'Rode o SQL 20261117000002_contatos_estoque_parado.sql' }; feitas = new Set((data ?? []).map((r: any) => r.loja)); } catch { /* sem tabela */ }
+  const fila = nomes.filter((n) => !feitas.has(n)), prontas: string[] = [], pendentes: string[] = [], erros: any[] = [];
+  const todas: Acesso = { tipo: 'senha', nome: 'aquecimento', papel: 'admin', lojas: [], todas: true };
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(2, fila.length) }, async () => {
+    while (i < fila.length) {
+      const nome = fila[i++];
+      if (Date.now() > prazo - 35_000) { pendentes.push(nome); continue; }
+      try { const r: any = await moduloProdutos({ loja: nome, soGuardar: true }, todas); if (r.erroEstoque || r.erros?.length) erros.push({ loja: nome, erro: r.erroEstoque || r.erros[0]?.erro }); else prontas.push(nome); }
+      catch (e) { erros.push({ loja: nome, erro: e instanceof Error ? e.message : String(e) }); }
+    }
+  }));
+  return { completo: !pendentes.length, prontas, pendentes, erros, jaEstavam: feitas.size, ms: Date.now() - t0 };
 }
 
 // Metas do mes por vendedor: listar { loja, ano, mes } / salvar { loja, ano, mes, metas:[{ vendedorId, vendedorNome, meta }] }

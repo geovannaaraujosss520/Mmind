@@ -299,6 +299,13 @@
   .cli-resumo p{ margin:6px 0; font-size:15px; line-height:1.5; }
   .cli-resumo-t{ font-size:13px; color:var(--muted); margin-bottom:4px; }
   dialog.acoes-dia{ border:none; border-radius:16px; padding:0; width:min(640px, calc(100vw - 32px)); max-height:calc(100vh - 48px); box-shadow:0 20px 60px rgba(40,15,5,.35); color:var(--text); background:var(--panel); }
+  dialog.acoes-dia.parado{ width:min(1000px, calc(100vw - 32px)); }
+  .parado-faixas{ display:flex; flex-wrap:wrap; gap:8px; padding:12px 22px 4px; }
+  .parado-faixas button{ text-align:left; padding:8px 12px; border-radius:10px; font-size:12.5px; line-height:1.35; }
+  .parado-faixas button strong{ display:block; font-size:15px; }
+  .parado-faixas button.on{ outline:2px solid var(--accent); }
+  .parado-corpo{ padding:6px 22px 18px; overflow:auto; max-height:calc(100vh - 290px); }
+  .parado-rede{ font-size:12px; }
   dialog.acoes-dia::backdrop{ background:rgba(30,15,8,.45); }
   .acoes-dia-topo{ display:flex; justify-content:space-between; gap:12px; padding:20px 22px 10px; border-bottom:1px solid var(--line); }
   .acoes-dia-topo h2{ margin:2px 0 4px; font-size:22px; color:var(--accent-deep); }
@@ -396,7 +403,14 @@
   .cli-card{ border:1px solid var(--line); border-radius:12px; padding:12px 14px; background:var(--panel); }
   .cli-card-topo{ display:flex; justify-content:space-between; gap:10px; align-items:flex-start; margin-bottom:6px; }
   .cli-nome{ font-weight:650; font-size:15px; }
-  .cli-botoes{ display:flex; gap:6px; flex-shrink:0; align-items:center; }
+  .cli-botoes{ display:flex; gap:6px; flex-shrink:0; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
+  .cli-chamei{ padding:4px 10px; font-size:12px; }
+  .cli-chamado{ font-size:11.5px; font-weight:600; color:var(--good); border:1px solid var(--good); border-radius:8px; padding:2px 8px; white-space:nowrap; }
+  .cli-chamado button{ background:none; border:0; padding:0 0 0 6px; color:var(--muted); font-size:11.5px; text-decoration:underline; cursor:pointer; font-weight:400; }
+  .cli-card.ja-chamado{ opacity:.72; }
+  .cli-acomp{ display:flex; flex-wrap:wrap; gap:8px 22px; padding:12px 14px; margin:0 0 12px; border:1px solid var(--line); border-radius:10px; font-size:13px; }
+  .cli-acomp > span > strong{ font-size:17px; display:block; }
+  .cli-acomp .cli-acomp-nota{ flex-basis:100%; font-size:12px; color:var(--muted); }
   .cli-botoes .cli-wa{ margin:0; padding:5px 12px; font-size:12.5px; background:#1d7a43; color:#fff; border-color:#1d7a43; }
   .cli-linha{ font-size:13px; margin-top:3px; }
   .cli-contato, .cli-dica-sug{ color:var(--muted); font-size:12px; }
@@ -1220,9 +1234,9 @@ function desenharProdutosInicio(d, antigo) {
         ${temLoja ? `<td class="num">${fmtNum(p.estoque)}${repor ? '<br><span class="chip fail" title="Estoque menor que metade do que vendeu em 30 dias">repor</span>' : ''}</td>` : `<td class="num">${fmtNum(p.lojas)}</td>`}</tr>`;
       }).join('')}</tbody></table>` : '<div class="empty">Sem vendas nos últimos 30 dias.</div>';
   let opo;
-  if (!temLoja) opo = '<div class="empty">Escolha uma loja em <strong>Ver</strong> para ver os produtos parados no estoque dela.</div>';
+  if (!temLoja) opo = paradoDaRede(d);
   else if (d.oportunidades == null) opo = `<div class="empty">Não foi possível ler o estoque agora${d.erroEstoque ? ': ' + esc(d.erroEstoque) : ''}.</div>`;
-  else if (!d.oportunidades.length) opo = '<div class="empty">Nenhum produto parado: tudo que tem estoque vendeu nos últimos 90 dias. 👏</div>';
+  else if (!d.oportunidades.length) opo = `<div class="empty">Nenhum produto parado: tudo que tem estoque vendeu nos últimos 90 dias. 👏${d.faixas?.['60']?.produtos ? `<br><button type="button" class="secondary" data-parado-todos style="margin-top:8px">Ver ${fmtNum(d.faixas['60'].produtos)} produtos sem venda há 60 a 89 dias</button>` : ''}</div>`;
   else opo = `<div class="ini-prod-resumo"><strong>${fmtNum(d.totalParados)} produtos</strong> com estoque e sem venda há 90 dias ou mais · ${fmtNum(d.pecasParadas)} peças${d.valorParado ? ` · <strong>${fmtMoeda(d.valorParado)}</strong> de custo parado` : ''}</div>
     <table class="no-tools ini-prod-tab"><thead><tr><th>Produto</th><th class="num">Estoque</th><th>Última venda</th><th class="num">Parado</th><th></th></tr></thead><tbody>
     ${d.oportunidades.map(p => `<tr><td class="prod-name">${esc(nome(p.produto))}${p.codigo ? `<br><span class="ini-prod-sub">${esc(p.codigo)}</span>` : ''}</td>
@@ -1231,7 +1245,8 @@ function desenharProdutosInicio(d, antigo) {
       <td class="num">${p.valorParado != null ? fmtMoeda(p.valorParado) : '—'}${p.valorVendaParado != null ? `<br><span class="ini-prod-sub">vale ${fmtMoeda(p.valorVendaParado)}</span>` : ''}</td>
       <td>${p.vendidos12m > 0 ? `<button type="button" class="secondary ini-oferecer" data-oferecer="${esc(p.produto)}" title="Ver clientes com perfil para essa peça">Para quem oferecer</button>` : ''}</td></tr>`).join('')}
     </tbody></table>
-    <div class="ini-prod-dica">Ideias para girar: vitrine e exposição na frente da loja, kit com um campeão do top 10, ou oferecer para clientes com o perfil.</div>`;
+    <div class="ini-prod-dica">Ideias para girar: vitrine e exposição na frente da loja, kit com um campeão do top 10, ou oferecer para clientes com o perfil.</div>
+    <div style="margin-top:8px"><button type="button" class="secondary" data-parado-todos>Ver todo o estoque parado${d.faixas?.['60']?.produtos ? ` (com os de 60 a 89 dias)` : ''}</button></div>`;
   corpo.innerHTML = `${antigo ? '<div class="ini-prod-sub" style="margin-bottom:6px"><span class="loader"></span> atualizando…</div>' : ''}
     ${(d.erros || []).length ? `<div class="ini-prod-sub" style="color:var(--warn); margin-bottom:6px">${d.erros.map(e => esc(e.loja + ': ' + e.erro)).join('<br>')}</div>` : ''}
     <div class="ini-prod-grade">
@@ -1239,6 +1254,72 @@ function desenharProdutosInicio(d, antigo) {
       <div style="min-width:0"><div class="ini-prod-tit">Oportunidades <span>parados há 90+ dias</span></div><div style="overflow-x:auto">${opo}</div></div>
     </div>`;
   corpo.querySelectorAll('[data-oferecer]').forEach(b => b.addEventListener('click', () => irParaOferecer(d.parametros.loja, b.dataset.oferecer)));
+  corpo.querySelector('[data-parado-todos]')?.addEventListener('click', () => abrirEstoqueParado(d.parametros.loja));
+  corpo.querySelectorAll('[data-parado-loja]').forEach(b => b.addEventListener('click', () => abrirEstoqueParado(b.dataset.paradoLoja)));
+}
+
+// ---- Estoque parado ----
+const _FAIXAS_PARADO = [['60', '60 a 89 dias'], ['90', '90 a 179 dias'], ['180', '180 dias ou mais'], ['sem12m', 'Sem venda em 12 meses']];
+const _somaFaixas = (f, ks, campo) => ks.reduce((s, k) => s + (Number(f?.[k]?.[campo]) || 0), 0);
+// Franqueadora com "Rede inteira": quanto cada loja tem parado (lido toda madrugada)
+function paradoDaRede(d) {
+  const L = d.paradoRede;
+  if (!L) return '<div class="empty">Escolha uma loja em <strong>Ver</strong> para ver os produtos parados no estoque dela.</div>';
+  if (!L.length) return '<div class="empty">O resumo do estoque parado das lojas fica pronto depois do aquecimento da madrugada. Enquanto isso, escolha uma loja em <strong>Ver</strong>.</div>';
+  const k90 = ['90', '180', 'sem12m'];
+  const tot = L.reduce((s, l) => s + _somaFaixas(l.faixas, k90, 'valor'), 0);
+  const atual = L.reduce((m, l) => l.atualizadoEm > m ? l.atualizadoEm : m, '');
+  return `<div class="ini-prod-resumo"><strong>${fmtMoeda(tot)}</strong> de custo parado há 90+ dias em ${fmtNum(L.length)} lojas${atual ? ` · leitura de ${esc(new Date(atual).toLocaleDateString('pt-BR'))}` : ''}</div>
+    <table class="no-tools ini-prod-tab"><thead><tr><th>Loja</th><th class="num">Produtos 90+</th><th class="num">Custo 90+</th><th class="num" title="Parte do custo parado há 180 dias ou mais (ou sem venda em 12 meses)">180+</th><th></th></tr></thead><tbody>
+    ${[...L].sort((x, y) => _somaFaixas(y.faixas, k90, 'valor') - _somaFaixas(x.faixas, k90, 'valor')).map(l => `<tr><td>${esc(l.loja)}</td>
+      <td class="num">${fmtNum(_somaFaixas(l.faixas, k90, 'produtos'))}</td><td class="num"><strong>${fmtMoeda(_somaFaixas(l.faixas, k90, 'valor'))}</strong></td>
+      <td class="num">${fmtMoeda(_somaFaixas(l.faixas, ['180', 'sem12m'], 'valor'))}</td>
+      <td><button type="button" class="secondary ini-oferecer" data-parado-loja="${esc(l.loja)}">Ver lista</button></td></tr>`).join('')}
+    </tbody></table>`;
+}
+let _paradoDados = null, _paradoFaixa = 'todas';
+async function abrirEstoqueParado(loja) {
+  let dlg = $('dlg_parado');
+  if (!dlg) { document.body.insertAdjacentHTML('beforeend', '<dialog class="acoes-dia parado" id="dlg_parado" aria-labelledby="dlg_parado_t"></dialog>'); dlg = $('dlg_parado'); dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); }); }
+  _paradoDados = null; _paradoFaixa = 'todas';
+  dlg.innerHTML = `<div class="acoes-dia-topo"><div><div class="acoes-dia-rot">${esc(loja)}</div><h2 id="dlg_parado_t">Estoque parado</h2><p><span class="loader"></span> Lendo o estoque e as vendas de 12 meses… (pode levar até 1 minuto)</p></div><button type="button" class="acoes-dia-x" aria-label="Fechar" onclick="this.closest('dialog').close()">×</button></div>`;
+  if (!dlg.open) dlg.showModal();
+  try {
+    const d = await chamarEdge({ modulo: 'produtos', loja, completo: true }, EDGE_COMPRAS_URL);
+    if (!d.parados) throw new Error(d.erroEstoque || (d.erros || [])[0]?.erro || 'estoque indisponível');
+    _paradoDados = d; desenharEstoqueParado();
+  } catch (e) { dlg.querySelector('p').textContent = `Não deu para ler o estoque agora: ${e.message}`; }
+}
+function desenharEstoqueParado() {
+  const d = _paradoDados, dlg = $('dlg_parado'); if (!d || !dlg) return;
+  const loja = d.parametros.loja, F = d.faixas || {};
+  const tot = { produtos: _somaFaixas(F, Object.keys(F), 'produtos'), valor: _somaFaixas(F, Object.keys(F), 'valor') };
+  const lista = d.parados.filter(p => _paradoFaixa === 'todas' || p.faixa === _paradoFaixa);
+  const temRede = d.parados.some(p => p.vendeEmLojas != null);
+  const nome = t => _cliTitulo(t);
+  const rede = p => {
+    if (p.vendeEmLojas == null) return '—';
+    if (!p.vendeEmLojas) return '<span class="ini-prod-sub">não vende em outra loja</span>';
+    const nomes = p.ondeVende ? p.ondeVende.map(x => `${esc(String(x.loja).replace(/^SSS\s+/i, ''))} (${fmtNum(x.qtd60)})`).join(', ') : '';
+    return `<strong>${p.vendeEmLojas} ${p.vendeEmLojas === 1 ? 'loja' : 'lojas'}</strong> · ${fmtNum(p.vendidosRede60)} peças em 60 dias${nomes ? `<br><span class="ini-prod-sub">${nomes}</span>` : ''}`;
+  };
+  dlg.innerHTML = `<div class="acoes-dia-topo"><div><div class="acoes-dia-rot">${esc(loja)}</div><h2 id="dlg_parado_t">Estoque parado</h2>
+      <p><strong>${fmtNum(tot.produtos)} produtos</strong> com estoque e sem venda há 60 dias ou mais · <strong>${fmtMoeda(tot.valor)}</strong> de custo parado.${temRede ? ' A coluna “Vende na rede” mostra onde a mesma peça (mesmo código) está vendendo — candidatas a transferência.' : ''}</p></div>
+      <button type="button" class="acoes-dia-x" aria-label="Fechar" onclick="this.closest('dialog').close()">×</button></div>
+    <div class="parado-faixas">
+      <button type="button" class="secondary ${_paradoFaixa === 'todas' ? 'on' : ''}" data-parado-faixa="todas"><strong>${fmtNum(tot.produtos)}</strong>Todos</button>
+      ${_FAIXAS_PARADO.map(([k, t]) => `<button type="button" class="secondary ${_paradoFaixa === k ? 'on' : ''}" data-parado-faixa="${k}"><strong>${fmtMoeda(F[k]?.valor || 0)}</strong>${t} · ${fmtNum(F[k]?.produtos || 0)} ${(F[k]?.produtos || 0) === 1 ? 'produto' : 'produtos'}</button>`).join('')}
+    </div>
+    <div class="parado-corpo">${lista.length ? `<table class="no-tools ini-prod-tab"><thead><tr><th>Produto</th><th class="num">Estoque</th><th>Última venda</th><th class="num">Parado</th><th>Vende na rede</th><th></th></tr></thead><tbody>
+      ${lista.map(p => `<tr><td class="prod-name">${esc(nome(p.produto))}${p.codigo ? `<br><span class="ini-prod-sub">${esc(p.codigo)}</span>` : ''}</td>
+        <td class="num"><strong>${fmtNum(p.estoque)}</strong></td>
+        <td style="font-size:12px">${p.ultimaVenda ? `há ${_cliMeses(p.diasSemVender)}<br><span class="ini-prod-sub">${_cliData(p.ultimaVenda)}</span>` : '<span class="ini-prod-sub">sem venda em 12 meses</span>'}</td>
+        <td class="num">${p.valorParado != null ? fmtMoeda(p.valorParado) : '—'}${p.valorVendaParado != null ? `<br><span class="ini-prod-sub">vale ${fmtMoeda(p.valorVendaParado)}</span>` : ''}</td>
+        <td class="parado-rede">${rede(p)}</td>
+        <td>${p.vendidos12m > 0 ? `<button type="button" class="secondary ini-oferecer" data-oferecer="${esc(p.produto)}">Para quem oferecer</button>` : ''}</td></tr>`).join('')}
+      </tbody></table>${d.parados.length >= 400 ? '<div class="ini-prod-sub" style="margin-top:6px">Mostrando os 400 com mais dinheiro parado.</div>' : ''}` : '<div class="empty">Nada parado nessa faixa. 👏</div>'}</div>`;
+  dlg.querySelectorAll('[data-parado-faixa]').forEach(b => b.addEventListener('click', () => { _paradoFaixa = b.dataset.paradoFaixa; desenharEstoqueParado(); }));
+  dlg.querySelectorAll('[data-oferecer]').forEach(b => b.addEventListener('click', () => { dlg.close(); irParaOferecer(loja, b.dataset.oferecer); }));
 }
 
 // abre Clientes > Oferecer uma peça já com a loja e o produto (modelo, sem a cor)
@@ -1756,11 +1837,14 @@ function _cliCartao(c, tipo, loja, extra) {
     ? `<strong>${c.hoje ? 'Faz aniversário hoje!' : `Aniversário ${k.aniversario}`}</strong>${c.jaPassou ? ' (já passou)' : ''} · última compra ${_cliQuando(c.diasSemComprar)}`
     : `Última compra <strong>${_cliQuando(c.diasSemComprar)}</strong> · ${c.visitas} ${c.visitas === 1 ? 'visita' : 'visitas'} · gastou ${fmtMoeda(c.total)}`;
   const gosta = (c.categorias || []).map(x => x.split(' ')[0].toLowerCase()).slice(0, 2).join(' e ');
-  return `<div class="cli-card" data-cli="${esc(c.id)}">
+  const chamado = _cliChamadoEm(c), dChamado = chamado ? _cliDiasDesde(chamado) : null;
+  return `<div class="cli-card${chamado && dChamado <= 7 ? ' ja-chamado' : ''}" data-cli="${esc(c.id)}">
     <div class="cli-card-topo">
       <div class="cli-nome">${esc(_nomeBonito(c.nome))}</div>
       <div class="cli-botoes">
-        ${k.whatsapp ? `<a class="cli-wa" href="https://wa.me/${k.whatsapp}?text=${msg}" target="_blank" rel="noopener">WhatsApp</a>` : ''}
+        ${chamado ? `<span class="cli-chamado" title="Contato registrado em ${esc(new Date(chamado).toLocaleString('pt-BR'))}">✓ Chamado ${dChamado === 0 ? 'hoje' : dChamado === 1 ? 'ontem' : `há ${_cliMeses(dChamado)}`}${dChamado === 0 ? `<button type="button" data-cli-desfazer="${esc(c.id)}">desfazer</button>` : ''}</span>`
+          : `<button type="button" class="secondary cli-chamei" data-cli-chamei="${esc(c.id)}" data-cli-tipo="${esc(tipo)}" data-cli-nome="${esc(c.nome)}" title="Marque quando chamar por telefone, Instagram ou na loja">Já chamei</button>`}
+        ${k.whatsapp ? `<a class="cli-wa" href="https://wa.me/${k.whatsapp}?text=${msg}" target="_blank" rel="noopener" data-cli-wa="${esc(c.id)}" data-cli-tipo="${esc(tipo)}" data-cli-nome="${esc(c.nome)}">WhatsApp</a>` : ''}
       </div>
     </div>
     <div class="cli-linha">${linha1}</div>
@@ -1771,9 +1855,29 @@ function _cliCartao(c, tipo, loja, extra) {
   </div>`;
 }
 
+// Contatos registrados nesta sessão (por cima do que veio do servidor; null = desfeito)
+const _cliChamados = {};
+const _cliChamadoEm = c => (c.id in _cliChamados) ? _cliChamados[c.id] : (c.chamadoEm || null);
+const _cliDiasDesde = iso => { const dia = t => new Date(t - 3 * 3600e3).toISOString().slice(0, 10); return Math.round((Date.parse(dia(Date.now())) - Date.parse(dia(Date.parse(iso)))) / 864e5); };
+async function _cliRegistrar(id, nome, tipo, desfazer) {
+  const loja = _cliDados?.parametros?.loja; if (!loja || !id) return;
+  const antes = (id in _cliChamados) ? _cliChamados[id] : undefined;
+  _cliChamados[id] = desfazer ? null : new Date().toISOString();
+  desenharClientes();
+  try {
+    const r = await chamarEdge({ modulo: 'clientes', acao: desfazer ? 'desfazerContato' : 'registrarContato', loja, clienteId: id, clienteNome: nome, motivo: tipo }, EDGE_COMPRAS_URL);
+    _cliChamados[id] = r.chamadoEm || null;
+  } catch (e) {
+    if (antes === undefined) delete _cliChamados[id]; else _cliChamados[id] = antes;
+    alert(`Não deu para ${desfazer ? 'desfazer' : 'registrar'} o contato: ${e.message}`);
+  }
+  desenharClientes();
+}
 function _cliLista(lista, tipo, loja, extra, vazio) {
   if (!lista.length) return `<div class="empty">${vazio}</div>`;
-  const ord = lista;
+  // na "Hora de chamar", quem já foi chamado nos últimos 7 dias desce para o fim (a lista fica com quem falta chamar)
+  const recente = c => { const t = _cliChamadoEm(c); return t && _cliDiasDesde(t) <= 7 ? 1 : 0; };
+  const ord = tipo === 'hora' ? lista.map((c, i) => [c, i]).sort((x, y) => recente(x[0]) - recente(y[0]) || x[1] - y[1]).map(x => x[0]) : lista;
   const n = _cliMostrar[tipo] || 10;
   return `<div class="cli-cards">${ord.slice(0, n).map(c => _cliCartao(c, tipo, loja, extra)).join('')}</div>
     ${ord.length > n ? `<div style="text-align:center; margin-top:12px"><button type="button" class="secondary" data-cli-mais="${tipo}">Mostrar mais ${Math.min(10, ord.length - n)}${ord.length - n > 10 ? ` (faltam ${ord.length - n})` : ''}</button></div>` : ''}`;
@@ -1960,6 +2064,39 @@ function comparaRedePrazo(R) {
   </div>`;
 }
 
+// Acompanhamento: quem foi chamado e quem voltou depois (últimos 90 dias; volta = comprou até 30 dias depois do contato)
+function acompanhamentoContatos(R) {
+  const C = R.contatos;
+  if (C === undefined) return '';
+  if (C === null) return '<div class="cli-acomp"><span class="cli-acomp-nota">O acompanhamento dos contatos começa assim que o SQL de contatos for rodado no Supabase.</span></div>';
+  const rede = _papelAtual !== 'franqueado' ? `<button type="button" class="secondary" id="cli_contatos_rede" style="margin-left:auto">Comparar as lojas</button>` : '';
+  if (!C.contatados) return `<div class="cli-acomp"><span>Ainda não há contatos registrados nos últimos 90 dias. Chame pelo WhatsApp ou marque <strong style="display:inline; font-size:inherit">Já chamei</strong>: em 30 dias aparece aqui quantos voltaram.</span>${rede}<div id="cli_contatos_rede_box" style="flex-basis:100%"></div></div>`;
+  const voltaram = (C.voltaramLista || []).slice(0, 5);
+  return `<div class="cli-acomp">
+    <span><strong>${fmtNum(C.contatados)}</strong>chamados em 90 dias</span>
+    <span><strong>${fmtNum(C.voltaram)}</strong>voltaram e compraram</span>
+    <span><strong>${C.retornoPct != null ? fmtNum(Math.round(C.retornoPct)) + '%' : '—'}</strong>de retorno</span>
+    <span><strong>${fmtMoeda(C.faturamento)}</strong>vendidos para eles</span>
+    ${C.aguardando ? `<span><strong>${fmtNum(C.aguardando)}</strong>aguardando (chamados há menos de 30 dias)</span>` : ''}
+    ${rede}
+    ${voltaram.length ? `<span class="cli-acomp-nota">Voltaram depois do contato: ${voltaram.map(v => `${esc(_nomeBonito(String(v.nome).split(' ')[0]))} (${fmtMoeda(v.valor)})`).join(', ')}${C.voltaram > voltaram.length ? '…' : ''}</span>` : ''}
+    <span class="cli-acomp-nota">Conta como retorno quem comprou até 30 dias depois do contato. Quem foi chamado há menos de 30 dias e ainda não voltou fica fora da porcentagem.</span>
+    <div id="cli_contatos_rede_box" style="flex-basis:100%"></div>
+  </div>`;
+}
+async function carregarContatosRede() {
+  const box = $('cli_contatos_rede_box'); if (!box) return;
+  box.innerHTML = '<span class="loader"></span> Lendo os contatos das lojas…';
+  try {
+    const r = await chamarEdge({ modulo: 'clientes', acao: 'contatosRede' }, EDGE_COMPRAS_URL);
+    const R = r.rede;
+    box.innerHTML = `<div class="sub" style="max-width:none; margin:6px 0">Nos últimos 30 dias, <strong>${fmtNum(R.lojasQueChamaram)} de ${fmtNum(r.lojas.length)} lojas</strong> registraram contatos (${fmtNum(R.chamados30)} clientes). Retorno e valor: últimos 90 dias, atualizados quando a loja abre Clientes e todo dia de madrugada.</div>
+      <div style="overflow-x:auto"><table class="no-tools"><thead><tr><th>Loja</th><th class="num">Chamados (30 dias)</th><th class="num">Chamados (90 dias)</th><th class="num">Voltaram</th><th class="num">Retorno</th><th class="num">Vendido para eles</th></tr></thead><tbody>
+      ${r.lojas.map(l => `<tr><td>${esc(l.loja)}</td><td class="num">${l.chamados30 ? `<strong>${fmtNum(l.chamados30)}</strong>` : '<span style="color:var(--warn)">0</span>'}</td><td class="num">${l.contatados90 != null ? fmtNum(l.contatados90) : '—'}</td><td class="num">${l.voltaram90 != null ? fmtNum(l.voltaram90) : '—'}</td><td class="num">${l.retornoPct != null ? fmtNum(Math.round(l.retornoPct)) + '%' : '—'}</td><td class="num">${l.faturamento ? fmtMoeda(l.faturamento) : '—'}</td></tr>`).join('')}
+      </tbody></table></div>`;
+  } catch (e) { box.innerHTML = `<div class="empty">Não deu para ler os contatos da rede: ${esc(e.message)}</div>`; }
+}
+
 function desenharClientes() {
   const d = _cliDados, box = $('resultado-clientes'); if (!d) return;
   const R = d.resumo, P = d.parametros, loja = P.loja;
@@ -1992,7 +2129,7 @@ function desenharClientes() {
   if (_cliAba === 'aniversario') conteudo = `<div class="cli-intro">Clientes que fazem aniversário em ${nomeMes} (entre os que mais compram e os que sumiram — aniversário é um ótimo motivo para chamar).</div>${_cliLista([...(d.aniversariantes || [])].sort((x, y) => (x.jaPassou - y.jaPassou) || String(x.contato?.aniversario).localeCompare(String(y.contato?.aniversario))), 'aniversario', loja, null, 'Nenhum aniversariante encontrado neste mês (a data precisa estar no cadastro do cliente).')}`;
   if (_cliAba === 'vip') conteudo = `<div class="cli-intro">Quem mais comprou com você no período. Trate como VIP: avise primeiro das novidades.</div>${_cliLista(d.vip, 'vip', loja, null, 'Sem clientes identificados no período.')}`;
   if (_cliAba === 'local') conteudo = conteudoOndeMoram(loja, P.meses);
-  if (_cliAba === 'hora') conteudo = `<div class="cli-intro">Clientes que chegaram (ou passaram há pouco) da data em que costumam voltar. É o melhor momento para chamar: a vontade de comprar ainda está viva. Primeiro quem está na hora, depois quem passou do prazo.</div>${_cliLista(d.horaDeChamar || [], 'hora', loja, null, 'Ninguém na hora de voltar agora. 🎉')}`;
+  if (_cliAba === 'hora') conteudo = `${acompanhamentoContatos(R)}<div class="cli-intro">Clientes que chegaram (ou passaram há pouco) da data em que costumam voltar. É o melhor momento para chamar: a vontade de comprar ainda está viva. Primeiro quem está na hora, depois quem passou do prazo. Ao clicar em WhatsApp o contato fica registrado; se chamou de outro jeito, use <strong>Já chamei</strong>.</div>${_cliLista(d.horaDeChamar || [], 'hora', loja, null, 'Ninguém na hora de voltar agora. 🎉')}`;
   if (_cliAba === 'acao') conteudo = conteudoAcaoComercial(d, loja);
   if (_cliAba === 'oferecer') {
     const o = d.oferecer;
@@ -2016,6 +2153,10 @@ function desenharClientes() {
     <details class="panel cli-detalhes"><summary>Ver números detalhados</summary>${detalhesClientes(d)}</details>`;
 
   box.querySelectorAll('[data-cli-aba]').forEach(b => b.addEventListener('click', () => { _cliAba = b.dataset.cliAba; desenharClientes(); }));
+  box.querySelectorAll('[data-cli-wa]').forEach(a => a.addEventListener('click', () => { if (!_cliChamadoEm({ id: a.dataset.cliWa }) || _cliDiasDesde(_cliChamadoEm({ id: a.dataset.cliWa })) > 0) setTimeout(() => _cliRegistrar(a.dataset.cliWa, a.dataset.cliNome, a.dataset.cliTipo), 0); }));
+  box.querySelectorAll('[data-cli-chamei]').forEach(b => b.addEventListener('click', () => _cliRegistrar(b.dataset.cliChamei, b.dataset.cliNome, b.dataset.cliTipo)));
+  box.querySelectorAll('[data-cli-desfazer]').forEach(b => b.addEventListener('click', () => _cliRegistrar(b.dataset.cliDesfazer, '', '', true)));
+  $('cli_contatos_rede')?.addEventListener('click', carregarContatosRede);
   box.querySelectorAll('[data-cli-mais]').forEach(b => b.addEventListener('click', () => { _cliMostrar[b.dataset.cliMais] = (_cliMostrar[b.dataset.cliMais] || 10) + 10; desenharClientes(); }));
   box.querySelectorAll('[data-cli-prod]').forEach(b => b.addEventListener('click', () => rodarClientes(b.dataset.cliProd)));
   box.querySelectorAll('[data-cli-ir-aba]').forEach(b => b.addEventListener('click', () => { _cliAba = b.dataset.cliIrAba; desenharClientes(); $('cli_oferecer')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }));
