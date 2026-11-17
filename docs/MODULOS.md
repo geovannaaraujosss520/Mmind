@@ -163,3 +163,11 @@ Brasília, Goiânia e Ribeirão têm 2 unidades usando o mesmo token da VarejOnl
 - O "em andamento" de cada produto (Compra Recorrente, Pedido Central, Início) soma: pedidos da Central que não estão em situação final nem cancelados (alterados nos últimos 120 dias) **+ pedidos aprovados no Insight e ainda não lançados na Central** (status aprovado, enviando ou erro no envio, últimos 15 dias), pelo produto da loja de cada item.
 - Quantidade sugerida = demanda do período + segurança − estoque − em andamento. Aparecem na lista de pedidos do produto como "Insight …, aprovado no Insight, ainda não lançado".
 - Trava extra na aprovação: mesmo fornecedor e loja aprovado nas últimas 72 h pede confirmação.
+
+## Estabilidade do servidor — Início pré-calculado e novas tentativas (nov/2026)
+
+- **Por que oscilava:** cada abertura do Início recalculava as 29 lojas numa única chamada. As funções do Supabase têm limite de 2 s de CPU por chamada (em todos os planos); quando passava, a resposta voltava sem cabeçalhos (erro 546) e o navegador mostrava "Sem resposta do servidor".
+- **Início pronto:** o aquecimento de 15 em 15 minutos (`aquecer-hoje.yml`, passo `{"painel":true}`) calcula o painel de todas as lojas e grava em `painel_cache` (chave `rede`). O `modulo: 'painel'` lê esse resultado se for de hoje e tiver menos de 20 min; filtra as lojas do usuário, remove dados de acesso para franqueado, relê na hora os pedidos aprovados no Insight e refaz os totais (`montarRedePainel`). O botão Atualizar manda `recalcular: true` e calcula na hora. Salvar meta apaga o resultado guardado.
+- **Novas tentativas:** `chamarEdge` repete sozinho as leituras (sem `acao` ou com listar/buscar/…; nunca `lojaEditar`/`sincronizarCentral`) até 2 vezes (1,5 s e 4 s) em falha de rede ou HTTP 502/503/504/546. Gravações não são repetidas.
+- **Erro mais suave:** se o Início já mostra dados e a atualização falha, aparece só um aviso discreto em vez do painel vermelho.
+- SQL: `supabase/migrations/20261117000001_painel_cache.sql`.

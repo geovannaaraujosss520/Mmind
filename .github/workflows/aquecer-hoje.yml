@@ -12,7 +12,7 @@ on:
 jobs:
   aquecer-hoje:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Ler ontem e hoje
         env:
@@ -22,3 +22,18 @@ jobs:
           if [ -z "$AQUECER_CHAVE" ]; then echo "::warning::Secret AQUECER_CHAVE não configurado — nada a fazer."; exit 0; fi
           r=$(curl -sS -m 150 -X POST "$URL" -H "Content-Type: application/json" -H "x-aquecer-chave: $AQUECER_CHAVE" -d '{"hoje":true}' || echo '{}')
           echo "$(echo "$r" | jq -c '{completo, prontas: (.prontas|length?), pendentes, erros, ms, error}' 2>/dev/null || echo "$r" | head -c 300)"
+      - name: Montar o Início da rede
+        # Calcula o painel de todas as lojas e guarda pronto (tabela painel_cache). Quem abre o Início lê o resultado,
+        # sem recalcular 29 lojas a cada abertura (que estourava o limite de CPU do Supabase).
+        env:
+          AQUECER_CHAVE: ${{ secrets.AQUECER_CHAVE }}
+          URL: https://cyxerqtlkhubrkcjqcmx.supabase.co/functions/v1/sss-compras
+        run: |
+          if [ -z "$AQUECER_CHAVE" ]; then exit 0; fi
+          for i in 1 2; do
+            r=$(curl -sS -m 150 -X POST "$URL" -H "Content-Type: application/json" -H "x-aquecer-chave: $AQUECER_CHAVE" -d '{"painel":true}' || echo '{}')
+            echo "Tentativa $i: $(echo "$r" | jq -c '{ok, lojas, comErro, ms, error}' 2>/dev/null || echo "$r" | head -c 300)"
+            if [ "$(echo "$r" | jq -r '.ok' 2>/dev/null)" = "true" ]; then exit 0; fi
+            sleep 10
+          done
+          echo "::warning::Início não foi montado agora (o painel calcula na hora até a próxima rodada)."

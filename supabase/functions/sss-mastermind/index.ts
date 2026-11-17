@@ -773,6 +773,8 @@ async function moduloMetas(body: any) {
       if (!error) return { ok: true, avisoDomingo: "Meta salva. Para guardar a opção de domingo, rode o SQL da coluna considerar_domingo no Supabase." };
     }
     if (error) throw new Error(`Erro ao salvar meta: ${error.message}`);
+    // a meta mudou: o Início guardado fica velho — apaga para recalcular na próxima abertura
+    try { await supabase.from("painel_cache").delete().eq("chave", "rede"); } catch (_) { /* sem a tabela */ }
     return { ok: true };
   }
 
