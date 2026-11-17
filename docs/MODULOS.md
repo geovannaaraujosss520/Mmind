@@ -171,3 +171,19 @@ Brasília, Goiânia e Ribeirão têm 2 unidades usando o mesmo token da VarejOnl
 - **Novas tentativas:** `chamarEdge` repete sozinho as leituras (sem `acao` ou com listar/buscar/…; nunca `lojaEditar`/`sincronizarCentral`) até 2 vezes (1,5 s e 4 s) em falha de rede ou HTTP 502/503/504/546. Gravações não são repetidas.
 - **Erro mais suave:** se o Início já mostra dados e a atualização falha, aparece só um aviso discreto em vez do painel vermelho.
 - SQL: `supabase/migrations/20261117000001_painel_cache.sql`.
+
+## Acompanhamento do "Hora de chamar" (nov/2026)
+
+- Cada cartão de cliente tem **WhatsApp** (ao clicar, o contato fica registrado) e **Já chamei** (para telefone, Instagram ou loja). Depois aparece "✓ Chamado hoje / há X dias"; no mesmo dia dá para **desfazer**. Um registro por cliente por dia.
+- Na "Hora de chamar", quem foi chamado nos últimos 7 dias desce para o fim da lista.
+- Quadro de acompanhamento (90 dias): chamados, quantos voltaram e compraram (até 30 dias depois do contato), % de retorno (sem contar quem foi chamado há menos de 30 dias e ainda não voltou), valor vendido para eles e os nomes de quem voltou.
+- Franqueadora: botão **Comparar as lojas** (`clientes`/`contatosRede`): chamados em 30 dias por loja + retorno de 90 dias (gravado em `clientes_indicadores` quando a loja abre Clientes e no aquecimento diário).
+- Servidor: `moduloClientes` ações `registrarContato` / `desfazerContato` / `contatosRede`; tabela `contatos_clientes`.
+
+## Estoque parado (nov/2026)
+
+- `modulo: 'produtos'` com loja agora considera parado tudo que tem estoque e não vende há **60+ dias**, em faixas: 60–89, 90–179, 180+ e sem venda em 12 meses (`faixas`). A tabela do Início continua com os de 90+.
+- **Ver todo o estoque parado** (`completo: true`): lista até 400 produtos, filtro por faixa e a coluna **Vende na rede** — outras lojas que venderam o mesmo código nos últimos 60 dias (candidatas a transferência). O franqueado vê quantas lojas e quantas peças; a franqueadora vê também os nomes.
+- Franqueadora com "Rede inteira": tabela do custo parado de cada loja (90+ e 180+) com **Ver lista**.
+- Guardado em `giro_produtos_rede` (código × loja, peças em 60 dias) e `estoque_parado_lojas` (resumo por loja) sempre que o estoque de uma loja é lido e no aquecimento diário (`aquecer-cache.yml`, passo `{"estoqueRede":true}`).
+- SQL: `supabase/migrations/20261117000002_contatos_estoque_parado.sql`.
