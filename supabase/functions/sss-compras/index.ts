@@ -1899,6 +1899,7 @@ async function moduloFotosProdutos(body: any, a: Acesso) {
 async function aquecerCaches(body: any) {
   if (body.hoje) return aquecerHoje();
   if (body.clientesRede) return aquecerClientesRede();
+  if (body.vinculosRede) return aquecerVinculosRede();
   if (body.painel) { // recalcula o Início da rede e guarda (moduloPainel grava painel_cache)
     const t0 = Date.now();
     const r: any = await moduloPainel({ recalcular: true }, { tipo: 'senha', nome: 'aquecimento', papel: 'admin', lojas: [], todas: true } as Acesso);
@@ -3073,7 +3074,33 @@ async function moduloVinculos(body: any, apiBase?: string, lojasTokens?: Record<
         a.qtd += Number(it.quantidade ?? 0); agg.set(k, a);
       }
     });
-    return { loja: lj, dias, produtos: [...agg.values()].map((a) => [a.produtoId, a.descricao, a.codigoSistema, r2(a.qtd / dias)]) };
+    const produtos = [...agg.values()].map((a) => [a.produtoId, a.descricao, a.codigoSistema, r2(a.qtd / dias)]);
+    // guarda na lista fixa da loja (sem segurar a resposta): quem vendeu uma vez fica na lista mesmo se parar de vender
+    const g = guardarListaVinculosLoja(lj, produtos).catch(() => {}); (globalThis as any).EdgeRuntime?.waitUntil?.(g);
+    if (body.aguardarLista) await g;
+    return { loja: lj, dias, produtos };
+  }
+  // Lista fixa (já guardada): abre a tela na hora, sem ler as vendas das lojas de novo
+  if (acao === 'listaFixa') {
+    const { data, error } = await sb().from('painel_cache').select('chave, dados, atualizado_em').like('chave', 'vinc_loja:%');
+    if (error) throw new Error('Rode antes o SQL 20261117000001_painel_cache.sql no Supabase.');
+    const escolha = String(body.loja ?? '__REDE__');
+    const linhasCache = (data ?? []).filter((r: any) => escolha === '__REDE__' || r.dados?.loja === escolha);
+    const porProduto = new Map<string, any>();
+    for (const r of linhasCache) for (const [produtoId, descricao, codigoSistema, venda, visto] of r.dados?.produtos ?? []) {
+      const k = codigoSistema ? 'C:' + String(codigoSistema).trim().toUpperCase().replace(/\s+/g, '') : `I:${r.dados.loja}:${produtoId}`;
+      const x = porProduto.get(k) ?? { produtoId, descricao, codigoSistema, vendaMediaDiaria: 0, lojas: 0, vistoEm: '' };
+      x.vendaMediaDiaria += Number(venda) || 0; if (Number(venda) > 0) x.lojas++; if (visto > x.vistoEm) x.vistoEm = visto;
+      porProduto.set(k, x);
+    }
+    const produtos = [...porProduto.values()].map((x) => ({ ...x, vendaMediaDiaria: r2(x.vendaMediaDiaria) }));
+    const atualizados = linhasCache.map((r: any) => r.atualizado_em).sort();
+    const base = { lojasNaLista: linhasCache.length, atualizadoDe: atualizados[0] ?? null, atualizadoAte: atualizados[atualizados.length - 1] ?? null, lojasLista: linhasCache.map((r: any) => r.dados?.loja).filter(Boolean) };
+    if (!produtos.length) return { ...base, linhas: [], vazia: true };
+    const r: any = await moduloVinculos({ acao: 'listar', loja: escolha === '__REDE__' ? 'TODA A REDE' : escolha, produtos });
+    const visto = new Map(produtos.map((p) => [String(p.produtoId), { lojas: p.lojas, vistoEm: p.vistoEm }]));
+    for (const l of r.linhas) { const v = visto.get(String(l.produtoId)); l.lojasQueVendem = v?.lojas ?? null; l.vistoEm = v?.vistoEm ?? null; }
+    return { ...r, ...base };
   }
   const loja = String(body.loja ?? '').trim();
   const s = sb();
@@ -3210,6 +3237,39 @@ async function moduloVinculos(body: any, apiBase?: string, lojasTokens?: Record<
   throw new Error('Acao invalida: use listar, buscar, salvar, salvarLote, ignorar ou remover.');
 }
 let vincTabelaOk = false;
+
+// Lista fixa de produtos de cada loja (painel_cache, chave vinc_loja:<loja>): junta a leitura nova com a guardada.
+// [produtoId, descricao, codigoSistema, vendaMediaDiaria, vistoEm]. Sai da lista só quem não vende há mais de 1 ano.
+async function guardarListaVinculosLoja(loja: string, produtos: any[][]) {
+  const chave = `vinc_loja:${loja}`, hoje = new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10);
+  const corte = new Date(Date.now() - 365 * 86400_000).toISOString().slice(0, 10);
+  const { data, error } = await sb().from('painel_cache').select('dados').eq('chave', chave).maybeSingle();
+  if (error) return; // sem a tabela
+  const m = new Map<string, any[]>();
+  for (const p of data?.dados?.produtos ?? []) if (p[4] >= corte) m.set(String(p[0]), [p[0], p[1], p[2], 0, p[4]]); // não apareceu agora: venda 0
+  for (const [id, desc, cod, venda] of produtos) m.set(String(id), [id, desc, cod, venda, hoje]);
+  await sb().from('painel_cache').upsert({ chave, dados: { loja, produtos: [...m.values()] }, atualizado_em: new Date().toISOString() }, { onConflict: 'chave' });
+}
+// Aquecimento diário: lê as vendas de 90 dias de cada loja e atualiza a lista fixa (continua de onde parou)
+async function aquecerVinculosRede() {
+  const t0 = Date.now(), prazo = t0 + 110_000;
+  const apiBase = Deno.env.get('VAREJONLINE_API_BASE')!, tokens = await getLojasTokens(), nomes = Object.keys(tokens);
+  const ontem = new Date(Date.now() - 20 * 3600_000).toISOString();
+  const { data, error } = await sb().from('painel_cache').select('chave').like('chave', 'vinc_loja:%').gte('atualizado_em', ontem);
+  if (error) return { completo: true, erro: 'Rode o SQL 20261117000001_painel_cache.sql' };
+  const feitas = new Set((data ?? []).map((r: any) => String(r.chave).slice('vinc_loja:'.length)));
+  const fila = nomes.filter((n) => !feitas.has(n)), prontas: string[] = [], pendentes: string[] = [], erros: any[] = [];
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(3, fila.length) }, async () => {
+    while (i < fila.length) {
+      const nome = fila[i++];
+      if (Date.now() > prazo - 30_000) { pendentes.push(nome); continue; }
+      try { await moduloVinculos({ acao: 'produtosVendidos', loja: nome, dias: 90, aguardarLista: true }, apiBase, tokens); prontas.push(nome); }
+      catch (e) { erros.push({ loja: nome, erro: e instanceof Error ? e.message : String(e) }); }
+    }
+  }));
+  return { completo: !pendentes.length, prontas, pendentes, erros, jaEstavam: feitas.size, ms: Date.now() - t0 };
+}
 
 // Diagnostico (somente leitura): mostra quais campos a API da Central devolve, mascarando dados pessoais.
 const SENSIVEL = /email|telefone|fone|celular|cpf|cnpj|documento|rg\b|endereco|logradouro|cep|senha|token|key/i;

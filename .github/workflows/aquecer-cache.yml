@@ -12,7 +12,7 @@ on:
 jobs:
   aquecer:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 100
     steps:
       - name: Aquecer (repete até completar)
         env:
@@ -40,3 +40,16 @@ jobs:
             sleep 5
           done
           echo "::warning::Nem todas as lojas foram calculadas (ficam para a próxima vez)."
+      - name: Lista fixa de produtos da tela Vínculos
+        env:
+          AQUECER_CHAVE: ${{ secrets.AQUECER_CHAVE }}
+          URL: https://cyxerqtlkhubrkcjqcmx.supabase.co/functions/v1/sss-compras
+        run: |
+          if [ -z "$AQUECER_CHAVE" ]; then exit 0; fi
+          for i in $(seq 1 15); do
+            r=$(curl -sS -m 160 -X POST "$URL" -H "Content-Type: application/json" -H "x-aquecer-chave: $AQUECER_CHAVE" -d '{"vinculosRede":true}' || echo '{}')
+            echo "Rodada $i: $(echo "$r" | jq -c '{completo, prontas: (.prontas|length?), pendentes: (.pendentes|length?), erros, ms, erro, error}' 2>/dev/null || echo "$r" | head -c 300)"
+            if [ "$(echo "$r" | jq -r '.completo' 2>/dev/null)" = "true" ]; then echo "Completo."; exit 0; fi
+            sleep 5
+          done
+          echo "::warning::Nem todas as lojas foram lidas (ficam para a próxima vez)."
