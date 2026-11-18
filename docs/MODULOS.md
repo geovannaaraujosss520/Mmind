@@ -203,3 +203,13 @@ Brasília, Goiânia e Ribeirão têm 2 unidades usando o mesmo token da VarejOnl
 
 - `moduloVendedores` monta, por loja e por vendedor, a grade dia da semana × hora (atendimentos e faturamento) a partir da data/hora de cada venda (`horarios`): horas com venda, número de cada dia da semana no período, os 3 blocos de 2 horas mais fortes da loja (média por dia) com quem mais vende em cada um, e para cada vendedor o dia e o horário mais fortes e a % das vendas feita nos horários fortes da loja (quintil de cima).
 - Tela Equipe (loja): seção **Horários de pico** com mapa de calor (média por dia de cada dia da semana; Loja inteira ou um vendedor; Faturamento ou Atendimentos), cartões dos 3 picos e tabela por vendedor.
+
+## Fornecedores — painel da franqueadora (nov/2026)
+
+- Menu **Rede → Fornecedores** (escondido para franqueado). Servidor: `modulo: 'fornecedores'` (papel admin/equipe).
+  - `acao: 'compras'` (uma chamada): pedidos da Central do período (até 180 dias atrás; sem cancelados), por fornecedor × loja × código.
+  - `acao: 'vendasLoja'` (uma por loja, 3 em paralelo): vendas do início do período até "Vendas até" (hoje ou fim do período), ligadas ao fornecedor pela mesma regra da tela Vínculos (`casarProduto`: vínculo salvo → código → descrição) + faturamento total da loja, venda sem fornecedor identificado e marcada "fora da Central".
+  - `acao: 'frete'` / `'salvarFrete'`: frete médio por fornecedor (% do pedido), guardado em `painel_cache` chave `frete_fornecedores`.
+- Por fornecedor: comprado (R$, peças, pedidos, lojas, último pedido), vendido (R$, peças), **giro** (peças vendidas ÷ compradas), **% do faturamento** das lojas analisadas, margem (venda − custo VarejOnline), frete %, **retorno** = venda ÷ (compra + frete) e leitura: Compensa (giro ≥ 70% e retorno ≥ 2×), Revisar (giro < 40% ou retorno < 1,5×), Atenção (entre os dois); "compra recente" quando o último pedido tem menos de 30 dias.
+- Detalhe (clique na linha): por loja (comprou, vendeu, giro, % do faturamento da loja) e por produto da Central (40 mais comprados), mais a lista de produtos comprados sem nenhuma venda.
+- Resumo mostra a **cobertura**: quanto do faturamento ficou ligado a algum fornecedor (depende dos vínculos).
