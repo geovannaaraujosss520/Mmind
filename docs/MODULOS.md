@@ -208,7 +208,7 @@ Brasília, Goiânia e Ribeirão têm 2 unidades usando o mesmo token da VarejOnl
 
 - Menu **Rede → Fornecedores** (escondido para franqueado). Servidor: `modulo: 'fornecedores'` (papel admin/equipe).
   - `acao: 'compras'` (uma chamada): pedidos da Central do período (até 180 dias atrás; sem cancelados), por fornecedor × loja × código.
-  - `acao: 'vendasLoja'` (uma por loja, 3 em paralelo): vendas do início do período até "Vendas até" (hoje ou fim do período), ligadas ao fornecedor pela mesma regra da tela Vínculos (`casarProduto`: vínculo salvo → código → descrição) + faturamento total da loja, venda sem fornecedor identificado e marcada "fora da Central".
+  - `acao: 'vendasLoja'` (por loja, em trechos de até 31 dias; o painel divide o trecho ao meio se der 546): vendas somadas por produto + faturamento, peças e custo da loja. `acao: 'mapearLoja'`: liga os produtos ao item/fornecedor da Central pela regra da tela Vínculos (`casarProduto`). O painel junta tudo por fornecedor.
   - `acao: 'frete'` / `'salvarFrete'`: frete médio por fornecedor (% do pedido), guardado em `painel_cache` chave `frete_fornecedores`.
 - Por fornecedor: comprado (R$, peças, pedidos, lojas, último pedido), vendido (R$, peças), **giro** (peças vendidas ÷ compradas), **% do faturamento** das lojas analisadas, margem (venda − custo VarejOnline), frete %, **retorno** = venda ÷ (compra + frete) e leitura: Compensa (giro ≥ 70% e retorno ≥ 2×), Revisar (giro < 40% ou retorno < 1,5×), Atenção (entre os dois); "compra recente" quando o último pedido tem menos de 30 dias.
 - Detalhe (clique na linha): por loja (comprou, vendeu, giro, % do faturamento da loja) e por produto da Central (40 mais comprados), mais a lista de produtos comprados sem nenhuma venda.
