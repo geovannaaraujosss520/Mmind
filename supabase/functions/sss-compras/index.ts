@@ -356,13 +356,13 @@ async function moduloFornecedores(body: any, a: Acesso) {
     const ini = new Date(desde + 'T12:00:00Z'), fim = new Date(vendasAte + 'T12:00:00Z');
     if (fim < ini) throw new Error('O fim das vendas é antes do início do período.');
     const agg = new Map<string, any>();
-    let faturamento = 0, pecasLoja = 0;
+    let faturamento = 0, pecasLoja = 0, custoLoja = 0;
     await buscarSaidasParalelo(apiBase, tokens[loja], ini, fim, (sd) => {
       if (!ehVenda(sd)) return;
       for (const it of sd.mercadorias ?? []) {
         const pr = it.produto; if (!pr) continue;
         const q = Number(it.quantidade ?? 0), v = Number(it.valorTotal ?? 0), c = Number(it.valorCusto ?? 0);
-        faturamento += v; pecasLoja += q;
+        faturamento += v; pecasLoja += q; custoLoja += c;
         const k = String(pr.id);
         const x = agg.get(k) ?? { produtoId: pr.id, descricao: pr.descricao, codigoSistema: pr.codigoSistema ?? null, codigoInterno: pr.codigoInterno ?? null, qtd: 0, fat: 0, custo: 0 };
         x.qtd += q; x.fat += v; x.custo += c; agg.set(k, x);
@@ -388,7 +388,7 @@ async function moduloFornecedores(body: any, a: Acesso) {
       f.pecas = r2(f.pecas); f.faturamento = r2(f.faturamento); f.custo = r2(f.custo);
       f.itens = Object.values(f.itens).map((i: any) => ({ ...i, pecas: r2(i.pecas), faturamento: r2(i.faturamento) }));
     }
-    return { loja, desde, vendasAte, faturamento: r2(faturamento), pecas: r2(pecasLoja), porFornecedor: porForn,
+    return { loja, desde, vendasAte, faturamento: r2(faturamento), pecas: r2(pecasLoja), custo: r2(custoLoja), porFornecedor: porForn,
       semFornecedor: { ...sem, pecas: r2(sem.pecas), faturamento: r2(sem.faturamento) }, foraDaCentral: { ...ignorado, pecas: r2(ignorado.pecas), faturamento: r2(ignorado.faturamento) } };
   }
   throw new Error('Ação desconhecida no painel de fornecedores.');

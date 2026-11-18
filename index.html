@@ -939,7 +939,8 @@
         <p><strong>Giro:</strong> peças vendidas ÷ peças compradas. Pode passar de 100% quando a loja vende estoque comprado antes do período. Compra feita há poucos dias ainda não teve tempo de girar.</p>
         <p><strong>% do faturamento:</strong> venda dos produtos do fornecedor ÷ faturamento total das lojas analisadas no mesmo intervalo.</p>
         <p><strong>Frete:</strong> a Central não informa o valor do frete. Informe o frete médio de cada fornecedor (% do valor do pedido) e o painel calcula o <strong>retorno</strong> = venda ÷ (compra + frete). Fica salvo para as próximas análises.</p>
-        <p><strong>Leitura:</strong> <em>Compensa</em> = giro ≥ 70% e retorno ≥ 2× · <em>Revisar</em> = giro abaixo de 40% ou retorno abaixo de 1,5× · <em>Atenção</em> = entre os dois.</p>
+        <p><strong>Peso na venda e Esforço × retorno:</strong> quanto o fornecedor ocupa das <em>peças vendidas</em> (o esforço: cada peça é um atendimento, embalagem e tempo de vendedor) comparado com quanto ele devolve do <em>faturamento</em> e do <em>lucro bruto</em> das lojas. Ex.: 25% das peças vendidas para 12% do faturamento = a loja faz força vendendo peça barata. <em>Vende barato</em> = parte do faturamento abaixo de 75% da parte das peças · <em>Não sustenta</em> = além disso, lucro bruto por peça abaixo de 60% da média · <em>Puxa o ticket</em> = parte do faturamento acima de 125% da parte das peças.</p>
+        <p><strong>Leitura:</strong> <em>Revisar</em> = não sustenta, ou giro abaixo de 40%, ou retorno abaixo de 1,5× · <em>Compensa</em> = giro ≥ 70% e retorno ≥ 2× · <em>Atenção</em> = o resto.</p>
       </div></details>
     </header>
     <div class="panel">
@@ -5172,7 +5173,7 @@ function montarFornecedores(compras, vendas, frete, insumo, P) {
       x.vendido.pecas += s.pecas; x.vendido.faturamento += s.faturamento; x.vendido.custo += s.custo;
       for (const [via, val] of Object.entries(s.porVia || {})) x.porVia[via] = (x.porVia[via] || 0) + val;
       const L = x.porLoja[v.loja] ?? (x.porLoja[v.loja] = { compraValor: 0, compraPecas: 0, pedidos: 0, ultima: null, vendaPecas: 0, vendaFat: 0, fatLoja: 0 });
-      L.vendaPecas += s.pecas; L.vendaFat += s.faturamento;
+      L.vendaPecas += s.pecas; L.vendaFat += s.faturamento; L.vendaCusto = (L.vendaCusto || 0) + s.custo;
       for (const it of s.itens) {
         const k = it.codigo.toUpperCase().replace(/\s+/g, '');
         const I = x.itens.get(k) ?? (x.itens.set(k, { codigo: it.codigo, descricao: it.descricao, compraPecas: 0, compraValor: 0, vendaPecas: 0, vendaFat: 0 }), x.itens.get(k));
@@ -5180,13 +5181,16 @@ function montarFornecedores(compras, vendas, frete, insumo, P) {
       }
     }
   }
-  const fatLoja = Object.fromEntries(okV.map(v => [v.loja, v.faturamento]));
+  const porLojaV = Object.fromEntries(okV.map(v => [v.loja, v]));
+  // totais das lojas analisadas: base do "peso" de cada fornecedor (faturamento, peças e lucro bruto)
+  const T = { fat, pecas: okV.reduce((t, v) => t + (v.pecas || 0), 0), custo: okV.reduce((t, v) => t + (v.custo || 0), 0) };
+  T.lucro = T.fat - T.custo; T.precoPeca = T.pecas ? T.fat / T.pecas : 0; T.lucroPeca = T.pecas ? T.lucro / T.pecas : 0;
   for (const x of F.values()) {
-    for (const [loja, L] of Object.entries(x.porLoja)) L.fatLoja = fatLoja[loja] || 0;
+    for (const [loja, L] of Object.entries(x.porLoja)) { const V = porLojaV[loja]; L.fatLoja = V?.faturamento || 0; L.pecasLoja = V?.pecas || 0; }
     x.frete = frete[x.id] ?? null; x.insumo = insumo.has(x.id);
-    calcularLeituraFornecedor(x, fat, P);
+    calcularLeituraFornecedor(x, T, P);
   }
-  const D = { P, fornecedores: [...F.values()], faturamento: fat, semFornecedor: semForn, foraDaCentral: foraCentral, lojas: okV.length, erros, frete,
+  const D = { P, T, fornecedores: [...F.values()], faturamento: fat, semFornecedor: semForn, foraDaCentral: foraCentral, lojas: okV.length, erros, frete,
     centralIncompleta: compras.centralIncompleta, aviso: compras.aviso, foraDoPainel: compras.pedidosForaDoPainel || 0 };
   totaisFornecedores(D);
   return D;
@@ -5198,10 +5202,22 @@ function totaisFornecedores(D) { // insumos (embalagem, material de loja) ficam 
   D.pedidos = rev.reduce((t, x) => t + x.comprado.pedidos, 0);
   D.totInsumo = D.fornecedores.filter(x => x.insumo).reduce((t, x) => t + x.comprado.valor, 0);
 }
-function calcularLeituraFornecedor(x, fatTotal, P) {
+// Esforço × retorno: o fornecedor ocupa X% das peças vendidas (o esforço de venda) e devolve Y% do faturamento
+// e Z% do lucro bruto. Índice = % do faturamento ÷ % das peças (= preço médio da peça ÷ preço médio da loja).
+// Abaixo de 0,75: a loja faz força vendendo muita peça barata que pouco sustenta a operação.
+function calcularLeituraFornecedor(x, T, P) {
   const c = x.comprado, v = x.vendido;
   x.giro = c.pecas > 0 ? v.pecas / c.pecas : null;
-  x.pctFat = fatTotal ? v.faturamento / fatTotal * 100 : 0;
+  x.pctFat = T.fat ? v.faturamento / T.fat * 100 : 0;
+  x.pctPecas = T.pecas ? v.pecas / T.pecas * 100 : 0;
+  x.lucro = v.faturamento - v.custo;
+  x.pctLucro = T.lucro > 0 ? x.lucro / T.lucro * 100 : 0;
+  x.precoPeca = v.pecas ? v.faturamento / v.pecas : null;
+  x.lucroPeca = v.pecas ? x.lucro / v.pecas : null;
+  x.idxEsforco = x.pctPecas > 0 ? x.pctFat / x.pctPecas : null;
+  x.esforco = x.idxEsforco == null || v.pecas < 20 ? null : x.idxEsforco < 0.75 ? 'barato' : x.idxEsforco > 1.25 ? 'ticket' : 'equilibrado';
+  const lucroBaixo = x.lucroPeca != null && T.lucroPeca > 0 && x.lucroPeca < 0.6 * T.lucroPeca;
+  x.naoSustenta = x.esforco === 'barato' && lucroBaixo;
   x.margem = v.faturamento ? (v.faturamento - v.custo) / v.faturamento * 100 : null;
   x.custoComFrete = c.valor * (1 + (x.frete || 0) / 100);
   x.retorno = x.custoComFrete > 0 ? v.faturamento / x.custoComFrete : null;
@@ -5209,8 +5225,8 @@ function calcularLeituraFornecedor(x, fatTotal, P) {
   x.compraRecente = diasDesdeUltima != null && diasDesdeUltima < 30 && c.valor > 0;
   if (x.insumo) x.leitura = 'insumo';
   else if (!c.pedidos) x.leitura = v.faturamento ? 'estoque' : 'nada';
+  else if (x.naoSustenta || x.giro < 0.4 || x.retorno < 1.5) x.leitura = 'revisar';
   else if (x.giro >= 0.7 && x.retorno >= 2) x.leitura = 'compensa';
-  else if (x.giro < 0.4 || x.retorno < 1.5) x.leitura = 'revisar';
   else x.leitura = 'atencao';
   const motivos = [];
   if (x.insumo) motivos.push('marcado como fornecedor de insumo (embalagem, material de loja): não entra na análise de venda');
@@ -5218,6 +5234,8 @@ function calcularLeituraFornecedor(x, fatTotal, P) {
     motivos.push(`vendeu ${fmtNum(Math.round(v.pecas))} de ${fmtNum(Math.round(c.pecas))} peças compradas (${fmtPct((x.giro || 0) * 100, 0)})`);
     motivos.push(`cada R$ 1 gasto${x.frete != null ? ' (com frete)' : ''} voltou R$ ${(x.retorno || 0).toFixed(2).replace('.', ',')} em venda`);
     if (x.frete == null) motivos.push('frete não informado');
+    if (x.esforco) motivos.push(`ocupa ${fmtPct(x.pctPecas, 1)} das peças vendidas e devolve ${fmtPct(x.pctFat, 1)} do faturamento e ${fmtPct(x.pctLucro, 1)} do lucro bruto`
+      + (x.naoSustenta ? ' — muita peça barata, pouco lucro: não sustenta a operação' : x.esforco === 'barato' ? ' — vende barato' : x.esforco === 'ticket' ? ' — puxa o ticket' : ''));
     if (x.compraRecente) motivos.push('tem compra recente, o giro ainda pode subir');
   } else motivos.push('sem pedido na Central no período; as vendas são de estoque comprado antes');
   x.motivo = motivos.join(' · ');
@@ -5232,12 +5250,16 @@ function renderFornecedores() {
   let lista = D.fornecedores.filter(x => !x.insumo && (_fornMostrarSemCompra || x.comprado.pedidos));
   const insumos = D.fornecedores.filter(x => x.insumo && x.comprado.pedidos).sort((a, b) => b.comprado.valor - a.comprado.valor);
   const ord = { valor: (a, b) => b.comprado.valor - a.comprado.valor, venda: (a, b) => b.vendido.faturamento - a.vendido.faturamento,
-    giro: (a, b) => (a.giro ?? 9) - (b.giro ?? 9), retorno: (a, b) => (a.retorno ?? 99) - (b.retorno ?? 99) };
+    giro: (a, b) => (a.giro ?? 9) - (b.giro ?? 9), retorno: (a, b) => (a.retorno ?? 99) - (b.retorno ?? 99),
+    peso: (a, b) => b.pctFat - a.pctFat, esforco: (a, b) => (a.idxEsforco ?? 99) - (b.idxEsforco ?? 99) };
   lista.sort(ord[_fornOrdem] || ord.valor);
   const semCompra = D.fornecedores.filter(x => !x.comprado.pedidos && x.vendido.faturamento).length;
   const cobertura = D.faturamento ? (D.faturamento - D.semFornecedor - D.foraDaCentral) / D.faturamento * 100 : 0;
   const cont = { compensa: 0, atencao: 0, revisar: 0 }; for (const x of D.fornecedores) if (cont[x.leitura] != null) cont[x.leitura]++;
   const semVendaSuspeito = lista.filter(x => x.comprado.pedidos && !x.vendido.faturamento).length;
+  const T = D.T;
+  const forca = lista.filter(x => x.esforco === 'barato' && x.pctPecas >= 1).sort((a, b) => (b.pctPecas - b.pctFat) - (a.pctPecas - a.pctFat)).slice(0, 5);
+  const esfTag = x => !x.esforco ? '<span style="color:var(--muted)">—</span>' : x.naoSustenta ? '<span class="tag-risco">Não sustenta</span>' : x.esforco === 'barato' ? '<span class="tag-alto">Vende barato</span>' : x.esforco === 'ticket' ? '<span class="tag-ok">Puxa o ticket</span>' : '<span class="chip">Equilibrado</span>';
   const th = (k, t, title) => `<th class="num" ${title ? `title="${esc(title)}"` : ''}><button type="button" class="link-ord" data-forn-ord="${k}" style="all:unset; cursor:pointer; ${_fornOrdem === k ? 'text-decoration:underline' : ''}">${t}</button></th>`;
   const linha = x => {
     const L = LEITURA_FORN[x.leitura];
@@ -5247,8 +5269,8 @@ function renderFornecedores() {
       <td class="num">${x.comprado.valor ? `<strong>${fmtMoeda(x.comprado.valor)}</strong><span class="sub2">${fmtNum(Math.round(x.comprado.pecas))} peças</span>` : '—'}</td>
       <td class="num">${x.vendido.faturamento ? `<strong>${fmtMoeda(x.vendido.faturamento)}</strong><span class="sub2">${fmtNum(Math.round(x.vendido.pecas))} peças</span>` : '<span style="color:var(--danger)">sem venda</span>'}</td>
       <td class="num ${x.giro == null ? '' : x.giro >= 0.7 ? 'heat-bom' : x.giro < 0.4 ? 'heat-ruim' : 'heat-medio'}">${x.giro != null ? fmtPct(x.giro * 100, 0) : '—'}</td>
-      <td class="num">${fmtPct(x.pctFat, x.pctFat < 1 ? 2 : 1)}</td>
-      <td class="num">${x.margem != null ? fmtPct(x.margem, 0) : '—'}</td>
+      <td class="num" title="${esc(`${fmtPct(x.pctFat, 1)} do faturamento · ${fmtPct(x.pctPecas, 1)} das peças vendidas · ${fmtPct(x.pctLucro, 1)} do lucro bruto das lojas analisadas`)}"><strong>${fmtPct(x.pctFat, x.pctFat < 1 ? 2 : 1)}</strong><span class="sub2">${fmtPct(x.pctPecas, x.pctPecas < 1 ? 2 : 1)} das peças · ${fmtPct(x.pctLucro, x.pctLucro < 1 ? 2 : 1)} do lucro</span></td>
+      <td title="${esc(x.precoPeca != null ? `Preço médio da peça ${fmtMoeda(x.precoPeca)} (lojas: ${fmtMoeda(T.precoPeca)}) · lucro bruto por peça ${fmtMoeda(x.lucroPeca)} (lojas: ${fmtMoeda(T.lucroPeca)}) · margem ${fmtPct(x.margem, 0)}` : '')}">${esfTag(x)}<span class="sub2">${x.precoPeca != null ? `${fmtMoeda(x.precoPeca)}/pç · lucro ${fmtMoeda(x.lucroPeca)}/pç` : ''}</span></td>
       <td class="num" onclick="event.stopPropagation()"><input class="forn-frete" type="number" min="0" max="100" step="0.5" placeholder="—" value="${x.frete ?? ''}" data-forn-frete="${esc(x.id)}" aria-label="Frete de ${esc(x.nome)} em % do pedido"></td>
       <td class="num ${x.retorno == null ? '' : x.retorno >= 2 ? 'heat-bom' : x.retorno < 1.5 ? 'heat-ruim' : 'heat-medio'}">${x.retorno != null ? x.retorno.toFixed(2).replace('.', ',') + '×' : '—'}</td>
       <td title="${esc(x.motivo)}"><span class="${L[0]}">${L[1]}</span>${x.compraRecente ? '<span class="sub2">compra recente</span>' : ''}</td>
@@ -5262,16 +5284,22 @@ function renderFornecedores() {
       <span><strong>${fmtMoeda(D.totVendido)}</strong>vendido desses fornecedores até ${dt(P.vendasAte)}</span>
       <span><strong>${fmtPct(D.faturamento ? D.totVendido / D.faturamento * 100 : 0, 1)}</strong>do faturamento de ${fmtNum(D.lojas)} loja(s) (${fmtMoeda(D.faturamento)})</span>
       <span><strong>${fmtNum(cont.compensa)} · ${fmtNum(cont.atencao)} · ${fmtNum(cont.revisar)}</strong>compensa · atenção · revisar</span>
+      <span title="Preço médio da peça e lucro bruto por peça de todas as lojas analisadas: a régua do Esforço × retorno"><strong>${fmtMoeda(T.precoPeca)}</strong>preço médio da peça · lucro bruto ${fmtMoeda(T.lucroPeca)}/pç</span>
       <span title="Parte do faturamento cujos produtos foram ligados a um fornecedor da Central (vínculo, código ou descrição). O resto: ${fmtMoeda(D.semFornecedor)} sem fornecedor identificado e ${fmtMoeda(D.foraDaCentral)} marcado como fora da Central."><strong>${fmtPct(cobertura, 0)}</strong>do faturamento ligado a um fornecedor</span>
     </div>
+    ${forca.length ? `<div class="panel" style="border-color:var(--warn); padding:12px 16px; margin-bottom:14px; font-size:13px">
+      <div style="font-weight:650; margin-bottom:6px">Onde as lojas fazem força para pouco retorno</div>
+      <div style="color:var(--muted); font-size:12px; margin-bottom:8px">Fornecedores que ocupam bem mais peças vendidas do que trazem de faturamento — muita venda de peça barata. Cada peça custa o mesmo atendimento, embalagem e tempo de vendedor.</div>
+      ${forca.map(x => `<div style="padding:3px 0"><strong>${esc(x.nome)}</strong> — ${fmtPct(x.pctPecas, 1)} das peças vendidas, ${fmtPct(x.pctFat, 1)} do faturamento e ${fmtPct(x.pctLucro, 1)} do lucro · ${fmtMoeda(x.precoPeca)}/pç (média ${fmtMoeda(T.precoPeca)})${x.naoSustenta ? ' · <span class="tag-risco">Não sustenta</span>' : ''}</div>`).join('')}
+    </div>` : ''}
     <div class="tbl-tools" style="margin-bottom:8px">
       <label style="display:inline-flex; gap:6px; align-items:center; font-size:12.5px; width:auto; margin:0"><input type="checkbox" id="forn_sem_compra" style="width:auto; margin:0" ${_fornMostrarSemCompra ? 'checked' : ''}> Mostrar também fornecedores sem compra no período (${fmtNum(semCompra)})</label>
       <span style="font-size:12px; color:var(--muted)">Clique num fornecedor para ver por loja e por produto. Ordenar: clique no título da coluna.</span>
     </div>
     <div style="overflow-x:auto"><table class="no-tools forn-tab"><thead><tr>
       <th>Fornecedor</th>${th('valor', 'Comprado', 'Valor dos pedidos da Central no período')}${th('venda', 'Vendido', 'Venda dos produtos do fornecedor, do início do período até "Vendas até"')}
-      ${th('giro', 'Giro', 'Peças vendidas ÷ peças compradas (do pior para o melhor ao ordenar)')}<th class="num" title="Venda do fornecedor ÷ faturamento total das lojas analisadas">% do fatur.</th>
-      <th class="num" title="(Venda − custo da VarejOnline) ÷ venda">Margem</th><th class="num" title="Frete médio do fornecedor em % do valor do pedido (fica salvo)">Frete %</th>
+      ${th('giro', 'Giro', 'Peças vendidas ÷ peças compradas (do pior para o melhor ao ordenar)')}${th('peso', 'Peso na venda', 'Venda do fornecedor ÷ faturamento total das lojas analisadas; embaixo, a parte das peças vendidas e do lucro bruto')}
+      ${th('esforco', 'Esforço × retorno', 'Compara a parte das peças vendidas com a parte do faturamento: "Vende barato" = muita peça para pouco faturamento; "Não sustenta" = além disso, lucro por peça bem abaixo da média (do pior para o melhor ao ordenar)')}<th class="num" title="Frete médio do fornecedor em % do valor do pedido (fica salvo)">Frete %</th>
       ${th('retorno', 'Retorno', 'Venda ÷ (compra + frete): quanto cada R$ 1 gasto voltou em venda (do pior para o melhor ao ordenar)')}<th>Leitura</th>
     </tr></thead><tbody>${lista.map(linha).join('') || '<tr><td colspan="9" class="empty">Nenhum pedido na Central nesse período.</td></tr>'}
     ${insumos.length ? `<tr><td colspan="9" style="padding-top:18px; font-weight:650; font-size:13px; white-space:normal">Insumos — ${fmtMoeda(D.totInsumo)} comprados (embalagem, material de loja; fora dos totais de revenda)</td></tr>${insumos.map(linha).join('')}` : ''}</tbody></table></div>
@@ -5288,7 +5316,7 @@ async function salvarInsumoFornecedor(fid, marcado, inp) {
   inp.disabled = true;
   try {
     await chamarEdge({ modulo: 'fornecedores', acao: 'salvarInsumo', fornecedorId: fid, insumo: marcado }, EDGE_COMPRAS_URL);
-    x.insumo = marcado; calcularLeituraFornecedor(x, _fornDados.faturamento, _fornDados.P); totaisFornecedores(_fornDados); renderFornecedores();
+    x.insumo = marcado; calcularLeituraFornecedor(x, _fornDados.T, _fornDados.P); totaisFornecedores(_fornDados); renderFornecedores();
   } catch (e) { inp.disabled = false; inp.checked = !marcado; alert(`Não deu para salvar: ${e.message}`); }
 }
 async function salvarFreteFornecedor(fid, valor, inp) {
@@ -5297,11 +5325,11 @@ async function salvarFreteFornecedor(fid, valor, inp) {
   inp.disabled = true;
   try {
     await chamarEdge({ modulo: 'fornecedores', acao: 'salvarFrete', fornecedorId: fid, percentual: pct }, EDGE_COMPRAS_URL);
-    x.frete = pct; calcularLeituraFornecedor(x, _fornDados.faturamento, _fornDados.P); renderFornecedores();
+    x.frete = pct; calcularLeituraFornecedor(x, _fornDados.T, _fornDados.P); renderFornecedores();
   } catch (e) { inp.disabled = false; alert(`Não deu para salvar o frete: ${e.message}`); }
 }
 function detalheFornecedor(x) {
-  const lojas = Object.entries(x.porLoja).map(([loja, L]) => ({ loja, ...L, giro: L.compraPecas ? L.vendaPecas / L.compraPecas : null, pct: L.fatLoja ? L.vendaFat / L.fatLoja * 100 : 0 }))
+  const lojas = Object.entries(x.porLoja).map(([loja, L]) => ({ loja, ...L, giro: L.compraPecas ? L.vendaPecas / L.compraPecas : null, pct: L.fatLoja ? L.vendaFat / L.fatLoja * 100 : 0, pctPc: L.pecasLoja ? L.vendaPecas / L.pecasLoja * 100 : 0 }))
     .sort((a, b) => b.compraValor - a.compraValor || b.vendaFat - a.vendaFat);
   const itens = [...x.itens.values()].map(i => ({ ...i, giro: i.compraPecas ? i.vendaPecas / i.compraPecas : null }));
   const parados = itens.filter(i => i.compraPecas > 0 && i.vendaPecas === 0).sort((a, b) => b.compraValor - a.compraValor);
@@ -5321,7 +5349,7 @@ function detalheFornecedor(x) {
         ${lojas.map(l => `<tr><td>${esc(l.loja.replace(/^SSS\s+/i, ''))}</td><td class="num">${l.compraValor ? `${fmtMoeda(l.compraValor)}<span class="sub2">${fmtNum(Math.round(l.compraPecas))} pç · ${dt2(l.ultima)}</span>` : '—'}</td>
           <td class="num">${l.vendaFat ? `${fmtMoeda(l.vendaFat)}<span class="sub2">${fmtNum(Math.round(l.vendaPecas))} pç</span>` : '—'}</td>
           <td class="num ${giroCls(l.giro)}">${l.giro != null ? fmtPct(l.giro * 100, 0) : '—'}</td>
-          <td><span class="forn-barra" style="width:${Math.max(2, l.pct / maxPct * 70)}px"></span>${fmtPct(l.pct, l.pct < 1 ? 2 : 1)}</td></tr>`).join('')}
+          <td><span class="forn-barra" style="width:${Math.max(2, l.pct / maxPct * 70)}px"></span>${fmtPct(l.pct, l.pct < 1 ? 2 : 1)}<span class="sub2">${fmtPct(l.pctPc, l.pctPc < 1 ? 2 : 1)} das peças${l.pctPc > 0 && l.pct / l.pctPc < 0.75 ? ' · <span style="color:var(--warn)">vende barato</span>' : ''}</span></td></tr>`).join('')}
         </tbody></table></div>
       <div><div style="font-weight:650; font-size:13px; margin-bottom:6px">Por produto (código da Central)${itens.length > 40 ? ` — 40 de ${fmtNum(itens.length)}, pelos mais comprados` : ''}</div>
         <table class="no-tools forn-tab"><thead><tr><th>Produto</th><th class="num">Comprou</th><th class="num">Vendeu</th><th class="num">Giro</th></tr></thead><tbody>

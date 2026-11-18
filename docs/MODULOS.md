@@ -214,3 +214,5 @@ Brasília, Goiânia e Ribeirão têm 2 unidades usando o mesmo token da VarejOnl
 - Detalhe (clique na linha): por loja (comprou, vendeu, giro, % do faturamento da loja) e por produto da Central (40 mais comprados), mais a lista de produtos comprados sem nenhuma venda.
 - Resumo mostra a **cobertura**: quanto do faturamento ficou ligado a algum fornecedor (depende dos vínculos).
 - **Fornecedor de insumo** (embalagem, material de loja): marcado no detalhe (`salvarInsumo`, `painel_cache` chave `fornecedores_insumo`); vai para um grupo separado e sai dos totais e da leitura de revenda.
+
+- **Esforço × retorno** (nov/2026): `vendasLoja` devolve também peças e custo totais da loja. Por fornecedor: % das peças vendidas, % do faturamento, % do lucro bruto (venda − custo VarejOnline), preço médio e lucro bruto por peça contra a média das lojas. Índice = % do faturamento ÷ % das peças: < 0,75 "Vende barato"; > 1,25 "Puxa o ticket"; "Não sustenta" = vende barato e lucro por peça < 60% da média (entra em Revisar). Quadro "Onde as lojas fazem força para pouco retorno" com os 5 maiores casos; no detalhe por loja, % das peças da loja.
