@@ -5126,13 +5126,14 @@ async function rodarFornecedores() {
     ]);
     const nomes = filtro ? filtro.split(',').map(x => x.trim()).filter(Boolean) : await lojasConfiguradas();
     let feitas = 0;
-    const vendas = await emParalelo(nomes, 3, async (loja) => {
+    const brutas = await emParalelo(nomes, 4, async (loja) => {
       let r;
       try { r = await vendasFornecedorLoja(loja, desde, vendasAte || new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10)); }
       catch (e) { r = { loja, erro: e.message }; }
       feitas++; st.textContent = `Lendo as vendas das lojas… ${feitas}/${nomes.length}`;
       return r;
     });
+    const vendas = await ligarVendasAosFornecedores(brutas, msg => { st.textContent = msg; });
     _fornDados = montarFornecedores(compras, vendas, fr.frete || {}, new Set(fr.insumo || []), { desde, ate, vendasAte: vendasAte || new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10), filtroLojas: filtro ? nomes : null });
     _fornAberto = null;
     renderFornecedores();
@@ -5140,8 +5141,7 @@ async function rodarFornecedores() {
   } catch (e) { erro.innerHTML = `<div class="panel err">${esc(e.message)}</div>`; st.textContent = ''; }
   finally { $('forn_rodar').disabled = false; }
 }
-// Vendas de uma loja por fornecedor: lê as vendas em trechos de até 31 dias (cada chamada fica leve para o Supabase),
-// junta por produto e depois pede a ligação produto → fornecedor da Central numa chamada separada.
+// Vendas de uma loja somadas por produto, lidas em trechos de até 31 dias (cada chamada fica leve para o Supabase).
 async function vendasFornecedorLoja(loja, de, ate) {
   const dia = 864e5, iso = t => new Date(t).toISOString().slice(0, 10);
   const trechos = []; for (let t = Date.parse(de + 'T12:00:00Z'), fim = Date.parse(ate + 'T12:00:00Z'); t <= fim; t += 31 * dia) trechos.push([iso(t), iso(Math.min(t + 30 * dia, fim))]);
@@ -5162,25 +5162,43 @@ async function vendasFornecedorLoja(loja, de, ate) {
       x.q += q; x.v += v; x.c += c;
     }
   }
-  const lista = [...prod.values()], mapa = {};
-  for (let k = 0; k < lista.length; k += 5000) {
-    const r = await chamarEdge({ modulo: 'fornecedores', acao: 'mapearLoja', loja, produtos: lista.slice(k, k + 5000).map(x => [x.id, x.desc, x.cs, x.ci]) }, EDGE_COMPRAS_URL);
-    Object.assign(mapa, r.mapa);
+  return { loja, faturamento, pecas, custo, produtos: [...prod.values()] };
+}
+
+
+// Liga os produtos vendidos de TODAS as lojas ao fornecedor da Central de uma vez (por código do produto;
+// a mesma peça em várias lojas é consultada uma vez só) e monta, para cada loja, a venda por fornecedor.
+async function ligarVendasAosFornecedores(vendas, onStatus) {
+  const chave = (loja, x) => x.cs ? 'C:' + String(x.cs).trim().toUpperCase().replace(/\s+/g, '') : `I:${loja}:${x.id}`;
+  const unicos = new Map();
+  for (const v of vendas) if (!v.erro) for (const x of v.produtos) { const k = chave(v.loja, x); if (!unicos.has(k)) unicos.set(k, [x.id, x.desc, x.cs, x.ci]); }
+  const lista = [...unicos.entries()], mapa = new Map();
+  const mapear = async (parte) => {
+    try { return (await chamarEdge({ modulo: 'fornecedores', acao: 'mapearLoja', loja: '', produtos: parte.map(e => e[1]) }, EDGE_COMPRAS_URL)).mapa; }
+    catch (e) { if (parte.length < 200 || !/546|limite|não respondeu/i.test(e.message)) throw e; const m = Math.ceil(parte.length / 2); return { ...await mapear(parte.slice(0, m)), ...await mapear(parte.slice(m)) }; }
+  };
+  for (let k = 0; k < lista.length; k += 2500) {
+    onStatus && onStatus(`Ligando os produtos aos fornecedores… ${Math.min(k + 2500, lista.length)}/${lista.length}`);
+    const parte = lista.slice(k, k + 2500), r = await mapear(parte);
+    for (const [kk, p] of parte) mapa.set(kk, r[p[0]] ?? null);
   }
-  const porFornecedor = {}, sem = { pecas: 0, faturamento: 0, produtos: 0 }, fora = { pecas: 0, faturamento: 0, produtos: 0 };
-  for (const x of lista) {
-    const m = mapa[x.id];
-    if (m === 'ignorado') { fora.pecas += x.q; fora.faturamento += x.v; fora.produtos++; continue; }
-    if (!m) { sem.pecas += x.q; sem.faturamento += x.v; sem.produtos++; continue; }
-    const [fid, nome, codigo, descItem, via] = m;
-    const f = porFornecedor[fid] ?? (porFornecedor[fid] = { nome, pecas: 0, faturamento: 0, custo: 0, produtos: 0, porVia: {}, itensM: new Map() });
-    f.pecas += x.q; f.faturamento += x.v; f.custo += x.c; f.produtos++; f.porVia[via] = (f.porVia[via] || 0) + x.v;
-    const k = String(codigo).toUpperCase().replace(/\s+/g, '');
-    const it = f.itensM.get(k) ?? (f.itensM.set(k, { codigo, descricao: descItem || x.desc, pecas: 0, faturamento: 0 }), f.itensM.get(k));
-    it.pecas += x.q; it.faturamento += x.v;
-  }
-  for (const f of Object.values(porFornecedor)) { f.itens = [...f.itensM.values()]; delete f.itensM; }
-  return { loja, faturamento, pecas, custo, porFornecedor, semFornecedor: sem, foraDaCentral: fora };
+  return vendas.map(v => {
+    if (v.erro) return v;
+    const porFornecedor = {}, sem = { pecas: 0, faturamento: 0, produtos: 0 }, fora = { pecas: 0, faturamento: 0, produtos: 0 };
+    for (const x of v.produtos) {
+      const m = mapa.get(chave(v.loja, x));
+      if (m === 'ignorado') { fora.pecas += x.q; fora.faturamento += x.v; fora.produtos++; continue; }
+      if (!m) { sem.pecas += x.q; sem.faturamento += x.v; sem.produtos++; continue; }
+      const [fid, nome, codigo, descItem, via] = m;
+      const f = porFornecedor[fid] ?? (porFornecedor[fid] = { nome, pecas: 0, faturamento: 0, custo: 0, produtos: 0, porVia: {}, itensM: new Map() });
+      f.pecas += x.q; f.faturamento += x.v; f.custo += x.c; f.produtos++; f.porVia[via] = (f.porVia[via] || 0) + x.v;
+      const k = String(codigo).toUpperCase().replace(/\s+/g, '');
+      const it = f.itensM.get(k) ?? (f.itensM.set(k, { codigo, descricao: descItem || x.desc, pecas: 0, faturamento: 0 }), f.itensM.get(k));
+      it.pecas += x.q; it.faturamento += x.v;
+    }
+    for (const f of Object.values(porFornecedor)) { f.itens = [...f.itensM.values()]; delete f.itensM; }
+    return { loja: v.loja, faturamento: v.faturamento, pecas: v.pecas, custo: v.custo, porFornecedor, semFornecedor: sem, foraDaCentral: fora };
+  });
 }
 
 function montarFornecedores(compras, vendas, frete, insumo, P) {
