@@ -273,7 +273,7 @@ async function sincronizarCentralDiasInterno(nDias: number, orcamentoMs: number)
 //                       a mesma regra da tela Vínculos) + faturamento total da loja
 //   acao 'frete' / 'salvarFrete' — frete estimado (% do valor do pedido) de cada fornecedor
 // =====================================================================
-const CHAVE_FRETE = 'frete_fornecedores';
+const CHAVE_FRETE = 'frete_fornecedores', CHAVE_INSUMO = 'fornecedores_insumo';
 async function moduloFornecedores(body: any, a: Acesso) {
   const acao = String(body.acao ?? '');
   const isoOk = (x: unknown) => /^\d{4}-\d{2}-\d{2}$/.test(String(x ?? ''));
@@ -282,11 +282,24 @@ async function moduloFornecedores(body: any, a: Acesso) {
   const ate = isoOk(body.ate) ? String(body.ate) : hojeIso;
   if (desde > ate) throw new Error('A data inicial é depois da data final.');
 
+  if (acao === 'salvarInsumo') { // fornecedor de insumo (embalagem, material de loja): não entra na análise de venda
+    const fid = String(body.fornecedorId ?? '').trim(); if (!fid) throw new Error('Fornecedor não informado.');
+    const { data, error } = await sb().from('painel_cache').select('dados').eq('chave', CHAVE_INSUMO).maybeSingle();
+    if (error) throw new Error('Rode antes o SQL 20261117000001_painel_cache.sql no Supabase.');
+    const lista = new Set<string>(Array.isArray(data?.dados) ? data.dados : []);
+    if (body.insumo) lista.add(fid); else lista.delete(fid);
+    const r = await sb().from('painel_cache').upsert({ chave: CHAVE_INSUMO, dados: [...lista], atualizado_em: new Date().toISOString() }, { onConflict: 'chave' });
+    if (r.error) throw new Error(r.error.message);
+    return { ok: true, insumo: [...lista] };
+  }
   if (acao === 'frete' || acao === 'salvarFrete') {
     const { data, error } = await sb().from('painel_cache').select('dados').eq('chave', CHAVE_FRETE).maybeSingle();
     if (error) throw new Error('Rode antes o SQL 20261117000001_painel_cache.sql no Supabase.');
     const atual: Record<string, number> = data?.dados ?? {};
-    if (acao === 'frete') return { frete: atual };
+    if (acao === 'frete') {
+      const ins = await sb().from('painel_cache').select('dados').eq('chave', CHAVE_INSUMO).maybeSingle();
+      return { frete: atual, insumo: Array.isArray(ins.data?.dados) ? ins.data.dados : [] };
+    }
     const fid = String(body.fornecedorId ?? '').trim();
     if (!fid) throw new Error('Fornecedor não informado.');
     const v = body.percentual === null || body.percentual === '' ? null : Number(body.percentual);
