@@ -5128,7 +5128,7 @@ async function rodarFornecedores() {
     let feitas = 0;
     const vendas = await emParalelo(nomes, 3, async (loja) => {
       let r;
-      try { r = await chamarEdge({ modulo: 'fornecedores', acao: 'vendasLoja', loja, desde, vendasAte }, EDGE_COMPRAS_URL); }
+      try { r = await vendasFornecedorLoja(loja, desde, vendasAte || new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10)); }
       catch (e) { r = { loja, erro: e.message }; }
       feitas++; st.textContent = `Lendo as vendas das lojas… ${feitas}/${nomes.length}`;
       return r;
@@ -5140,6 +5140,49 @@ async function rodarFornecedores() {
   } catch (e) { erro.innerHTML = `<div class="panel err">${esc(e.message)}</div>`; st.textContent = ''; }
   finally { $('forn_rodar').disabled = false; }
 }
+// Vendas de uma loja por fornecedor: lê as vendas em trechos de até 31 dias (cada chamada fica leve para o Supabase),
+// junta por produto e depois pede a ligação produto → fornecedor da Central numa chamada separada.
+async function vendasFornecedorLoja(loja, de, ate) {
+  const dia = 864e5, iso = t => new Date(t).toISOString().slice(0, 10);
+  const trechos = []; for (let t = Date.parse(de + 'T12:00:00Z'), fim = Date.parse(ate + 'T12:00:00Z'); t <= fim; t += 31 * dia) trechos.push([iso(t), iso(Math.min(t + 30 * dia, fim))]);
+  const prod = new Map(); let faturamento = 0, pecas = 0, custo = 0;
+  const lerTrecho = async (a, b) => {
+    try { return [await chamarEdge({ modulo: 'fornecedores', acao: 'vendasLoja', loja, de: a, ateVendas: b }, EDGE_COMPRAS_URL)]; }
+    catch (e) { // passou do limite: divide o trecho ao meio (até 4 dias)
+      const ta = Date.parse(a + 'T12:00:00Z'), tb = Date.parse(b + 'T12:00:00Z');
+      if (!/546|limite|não respondeu/i.test(e.message) || (tb - ta) / dia < 4) throw e;
+      const meio = ta + Math.floor((tb - ta) / dia / 2) * dia;
+      return [...await lerTrecho(a, iso(meio)), ...await lerTrecho(iso(meio + dia), b)];
+    }
+  };
+  for (const [a, b] of trechos) for (const r of await lerTrecho(a, b)) {
+    faturamento += r.faturamento; pecas += r.pecas; custo += r.custo;
+    for (const [id, desc, cs, ci, q, v, c] of r.produtos) {
+      const x = prod.get(id) ?? (prod.set(id, { id, desc, cs, ci, q: 0, v: 0, c: 0 }), prod.get(id));
+      x.q += q; x.v += v; x.c += c;
+    }
+  }
+  const lista = [...prod.values()], mapa = {};
+  for (let k = 0; k < lista.length; k += 5000) {
+    const r = await chamarEdge({ modulo: 'fornecedores', acao: 'mapearLoja', loja, produtos: lista.slice(k, k + 5000).map(x => [x.id, x.desc, x.cs, x.ci]) }, EDGE_COMPRAS_URL);
+    Object.assign(mapa, r.mapa);
+  }
+  const porFornecedor = {}, sem = { pecas: 0, faturamento: 0, produtos: 0 }, fora = { pecas: 0, faturamento: 0, produtos: 0 };
+  for (const x of lista) {
+    const m = mapa[x.id];
+    if (m === 'ignorado') { fora.pecas += x.q; fora.faturamento += x.v; fora.produtos++; continue; }
+    if (!m) { sem.pecas += x.q; sem.faturamento += x.v; sem.produtos++; continue; }
+    const [fid, nome, codigo, descItem, via] = m;
+    const f = porFornecedor[fid] ?? (porFornecedor[fid] = { nome, pecas: 0, faturamento: 0, custo: 0, produtos: 0, porVia: {}, itensM: new Map() });
+    f.pecas += x.q; f.faturamento += x.v; f.custo += x.c; f.produtos++; f.porVia[via] = (f.porVia[via] || 0) + x.v;
+    const k = String(codigo).toUpperCase().replace(/\s+/g, '');
+    const it = f.itensM.get(k) ?? (f.itensM.set(k, { codigo, descricao: descItem || x.desc, pecas: 0, faturamento: 0 }), f.itensM.get(k));
+    it.pecas += x.q; it.faturamento += x.v;
+  }
+  for (const f of Object.values(porFornecedor)) { f.itens = [...f.itensM.values()]; delete f.itensM; }
+  return { loja, faturamento, pecas, custo, porFornecedor, semFornecedor: sem, foraDaCentral: fora };
+}
+
 function montarFornecedores(compras, vendas, frete, insumo, P) {
   const okV = vendas.filter(v => !v.erro), erros = vendas.filter(v => v.erro);
   const lojasAnalisadas = new Set(okV.map(v => v.loja));

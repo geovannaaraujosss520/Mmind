@@ -347,49 +347,47 @@ async function moduloFornecedores(body: any, a: Acesso) {
     return { desde, ate, fornecedores: lista, centralIncompleta: !!(base.falhas || base.pendentes || base.erro), aviso: base.erro ?? null, pedidosForaDoPainel: foraDoPainel };
   }
 
+  // Vendas de uma loja num trecho de datas (o painel pede em trechos de até 31 dias para não passar do limite de CPU),
+  // somadas por produto: [produtoId, descricao, codigoSistema, codigoInterno, qtd, faturamento, custo]
   if (acao === 'vendasLoja') {
     const loja = String(body.loja ?? '');
     const tokens = await getLojasTokens();
     if (!tokens[loja]) throw new Error('Loja inválida.');
-    const apiBase = Deno.env.get('VAREJONLINE_API_BASE')!;
-    const vendasAte = isoOk(body.vendasAte) ? String(body.vendasAte) : hojeIso;
-    const ini = new Date(desde + 'T12:00:00Z'), fim = new Date(vendasAte + 'T12:00:00Z');
-    if (fim < ini) throw new Error('O fim das vendas é antes do início do período.');
-    const agg = new Map<string, any>();
+    const de = isoOk(body.de) ? String(body.de) : desde, atePer = isoOk(body.ateVendas) ? String(body.ateVendas) : hojeIso;
+    const ini = new Date(de + 'T12:00:00Z'), fim = new Date(atePer + 'T12:00:00Z');
+    if (fim < ini) throw new Error('O fim das vendas é antes do início.');
+    if ((fim.getTime() - ini.getTime()) / 86400_000 > 62) throw new Error('Peça as vendas em trechos de até 62 dias.');
+    const agg = new Map<string, any[]>();
     let faturamento = 0, pecasLoja = 0, custoLoja = 0;
-    await buscarSaidasParalelo(apiBase, tokens[loja], ini, fim, (sd) => {
+    await buscarSaidasParalelo(Deno.env.get('VAREJONLINE_API_BASE')!, tokens[loja], ini, fim, (sd) => {
       if (!ehVenda(sd)) return;
       for (const it of sd.mercadorias ?? []) {
         const pr = it.produto; if (!pr) continue;
         const q = Number(it.quantidade ?? 0), v = Number(it.valorTotal ?? 0), c = Number(it.valorCusto ?? 0);
         faturamento += v; pecasLoja += q; custoLoja += c;
         const k = String(pr.id);
-        const x = agg.get(k) ?? { produtoId: pr.id, descricao: pr.descricao, codigoSistema: pr.codigoSistema ?? null, codigoInterno: pr.codigoInterno ?? null, qtd: 0, fat: 0, custo: 0 };
-        x.qtd += q; x.fat += v; x.custo += c; agg.set(k, x);
+        let x = agg.get(k); if (!x) { x = [pr.id, pr.descricao ?? '', pr.codigoSistema ?? null, pr.codigoInterno ?? null, 0, 0, 0]; agg.set(k, x); }
+        x[4] += q; x[5] += v; x[6] += c;
       }
     });
+    return { loja, de, ate: atePer, faturamento: r2(faturamento), pecas: r2(pecasLoja), custo: r2(custoLoja),
+      produtos: [...agg.values()].map((x) => [x[0], x[1], x[2], x[3], r2(x[4]), r2(x[5]), r2(x[6])]) };
+  }
+  // Liga os produtos vendidos de uma loja ao item/fornecedor da Central (mesma regra da tela Vínculos)
+  // entrada: produtos [[produtoId, descricao, codigoSistema, codigoInterno]]; saída: produtoId → [fornecedorId, nome, códigoCentral, descrição, via] | 'ignorado' | null
+  if (acao === 'mapearLoja') {
+    const loja = String(body.loja ?? '');
+    const lista: any[] = Array.isArray(body.produtos) ? body.produtos.slice(0, 6000) : [];
     const { idx } = await catalogoIndexado();
     const vinc = await carregarVinculosLoja(loja);
-    const porForn: Record<string, any> = {};
-    const sem = { pecas: 0, faturamento: 0, produtos: 0 }, ignorado = { pecas: 0, faturamento: 0, produtos: 0 };
-    for (const x of agg.values()) {
-      const m = casarProduto(x, idx, vinc);
-      if (m.via === 'ignorado') { ignorado.pecas += x.qtd; ignorado.faturamento += x.fat; ignorado.produtos++; continue; }
+    const mapa: Record<string, any> = {};
+    for (const [produtoId, descricao, codigoSistema, codigoInterno] of lista) {
+      const m = casarProduto({ produtoId, descricao, codigoSistema, codigoInterno }, idx, vinc);
+      if (m.via === 'ignorado') { mapa[produtoId] = 'ignorado'; continue; }
       const it = m.item;
-      if (!it?.fornecedorId) { sem.pecas += x.qtd; sem.faturamento += x.fat; sem.produtos++; continue; }
-      const f = porForn[it.fornecedorId] ?? (porForn[it.fornecedorId] = { nome: it.fornecedorNome ?? '', pecas: 0, faturamento: 0, custo: 0, produtos: 0, porVia: {} as Record<string, number>, itens: {} as Record<string, any> });
-      f.pecas += x.qtd; f.faturamento += x.fat; f.custo += x.custo; f.produtos++;
-      const via = m.via.startsWith('vínculo') ? 'vinculo' : m.via; f.porVia[via] = r2((f.porVia[via] ?? 0) + x.fat);
-      const c = codNorm(it.codigo);
-      const ii = f.itens[c] ?? (f.itens[c] = { codigo: String(it.codigo).trim(), descricao: it.descricao ?? x.descricao, pecas: 0, faturamento: 0 });
-      ii.pecas += x.qtd; ii.faturamento += x.fat;
+      mapa[produtoId] = it?.fornecedorId ? [it.fornecedorId, it.fornecedorNome ?? '', String(it.codigo ?? '').trim(), it.descricao ?? '', m.via.startsWith('vínculo') ? 'vinculo' : m.via] : null;
     }
-    for (const f of Object.values(porForn) as any[]) {
-      f.pecas = r2(f.pecas); f.faturamento = r2(f.faturamento); f.custo = r2(f.custo);
-      f.itens = Object.values(f.itens).map((i: any) => ({ ...i, pecas: r2(i.pecas), faturamento: r2(i.faturamento) }));
-    }
-    return { loja, desde, vendasAte, faturamento: r2(faturamento), pecas: r2(pecasLoja), custo: r2(custoLoja), porFornecedor: porForn,
-      semFornecedor: { ...sem, pecas: r2(sem.pecas), faturamento: r2(sem.faturamento) }, foraDaCentral: { ...ignorado, pecas: r2(ignorado.pecas), faturamento: r2(ignorado.faturamento) } };
+    return { loja, mapa };
   }
   throw new Error('Ação desconhecida no painel de fornecedores.');
 }
@@ -3676,7 +3674,7 @@ Deno.serve(async (req) => {
     if (modulo === 'sincronizarCentral') return resp(await moduloSincronizarCentral(body));
     if (modulo === 'fornecedores') {
       equipe(); // painel da franqueadora
-      if (body.acao === 'vendasLoja') exigirLoja(a, body.loja);
+      if (body.acao === 'vendasLoja' || body.acao === 'mapearLoja') exigirLoja(a, body.loja);
       return resp(await moduloFornecedores(body, a));
     }
     if (modulo === 'lojaEditar') { exigirPapel(a, 'admin'); return resp(await moduloLojaEditar(body)); }
