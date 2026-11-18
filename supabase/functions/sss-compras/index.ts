@@ -265,6 +265,122 @@ async function sincronizarCentralDiasInterno(nDias: number, orcamentoMs: number)
   return { lista, falhas, pendentes, semCache, erro: avisos.length ? avisos.join('; ') : undefined };
 }
 
+// =====================================================================
+// PAINEL DO FORNECEDOR (franqueadora): o que as lojas compraram de cada fornecedor na Central num período,
+// quanto venderam desses produtos, quanto isso pesa no faturamento e se compensa (com frete).
+//   acao 'compras'    — uma chamada: pedidos da Central do período, por fornecedor × loja × código
+//   acao 'vendasLoja' — uma chamada por loja: vendas do período ligadas ao fornecedor (vínculo / código / descrição,
+//                       a mesma regra da tela Vínculos) + faturamento total da loja
+//   acao 'frete' / 'salvarFrete' — frete estimado (% do valor do pedido) de cada fornecedor
+// =====================================================================
+const CHAVE_FRETE = 'frete_fornecedores';
+async function moduloFornecedores(body: any, a: Acesso) {
+  const acao = String(body.acao ?? '');
+  const isoOk = (x: unknown) => /^\d{4}-\d{2}-\d{2}$/.test(String(x ?? ''));
+  const hojeIso = new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10);
+  const desde = isoOk(body.desde) ? String(body.desde) : new Date(Date.now() - 90 * 86400_000).toISOString().slice(0, 10);
+  const ate = isoOk(body.ate) ? String(body.ate) : hojeIso;
+  if (desde > ate) throw new Error('A data inicial é depois da data final.');
+
+  if (acao === 'frete' || acao === 'salvarFrete') {
+    const { data, error } = await sb().from('painel_cache').select('dados').eq('chave', CHAVE_FRETE).maybeSingle();
+    if (error) throw new Error('Rode antes o SQL 20261117000001_painel_cache.sql no Supabase.');
+    const atual: Record<string, number> = data?.dados ?? {};
+    if (acao === 'frete') return { frete: atual };
+    const fid = String(body.fornecedorId ?? '').trim();
+    if (!fid) throw new Error('Fornecedor não informado.');
+    const v = body.percentual === null || body.percentual === '' ? null : Number(body.percentual);
+    if (v != null && (!Number.isFinite(v) || v < 0 || v > 100)) throw new Error('Frete deve ser um percentual entre 0 e 100.');
+    if (v == null) delete atual[fid]; else atual[fid] = Math.round(v * 100) / 100;
+    const r = await sb().from('painel_cache').upsert({ chave: CHAVE_FRETE, dados: atual, atualizado_em: new Date().toISOString() }, { onConflict: 'chave' });
+    if (r.error) throw new Error(r.error.message);
+    return { ok: true, frete: atual };
+  }
+
+  if (acao === 'compras') {
+    const diasAtras = Math.ceil((Date.now() - Date.parse(desde + 'T12:00:00Z')) / 86400_000) + 1;
+    if (diasAtras > 180) throw new Error('O histórico da Central guardado no painel vai até 180 dias atrás. Escolha uma data inicial mais recente.');
+    const base = await buscarPedidosCentral(Math.max(1, diasAtras));
+    const tokens = await getLojasTokens();
+    const permitidas = lojasDoAcesso(a, undefined);
+    const nomePainel = new Map(Object.keys(tokens).map((n) => [normLoja(n), n]));
+    const forn = new Map<string, any>();
+    let foraDoPainel = 0;
+    for (const p of base.lista) {
+      const t = Date.parse(String(p.dataCriacao ?? '')); if (!Number.isFinite(t)) continue;
+      const dia = diaBR(new Date(t).toISOString());
+      if ( dia < desde || dia > ate) continue;
+      const fid = String(p.fornecedor?.id ?? ''); if (!fid) continue;
+      const loja = nomePainel.get(lojaDoPedido(p));
+      if (!loja) { foraDoPainel++; continue; }
+      if (permitidas && !permitidas.includes(loja)) continue;
+      const f = forn.get(fid) ?? { id: fid, nome: p.fornecedor?.nome ?? fid, pedidos: 0, cancelados: 0, valor: 0, pecas: 0, primeira: dia, ultima: dia, lojas: {} as Record<string, any>, itens: {} as Record<string, any> };
+      forn.set(fid, f);
+      if (ehCancelado(p)) { f.cancelados++; continue; }
+      f.pedidos++; if (dia < f.primeira) f.primeira = dia; if (dia > f.ultima) f.ultima = dia;
+      const L = f.lojas[loja] ?? (f.lojas[loja] = { pedidos: 0, valor: 0, pecas: 0, ultima: dia });
+      L.pedidos++; if (dia > L.ultima) L.ultima = dia;
+      for (const i of p.itensPedido ?? []) {
+        const q = Number(i.quantidadeProdutos ?? 0), v = q * Number(i.valorUnitario ?? 0);
+        f.valor += v; f.pecas += q; L.valor += v; L.pecas += q;
+        const c = codNorm(i.codigo); if (!c) continue;
+        const it = f.itens[c] ?? (f.itens[c] = { codigo: String(i.codigo).trim(), descricao: i.descricaoProduto ?? '', pecas: 0, valor: 0, lojas: {} as Record<string, number> });
+        it.pecas += q; it.valor += v; it.lojas[loja] = (it.lojas[loja] ?? 0) + q;
+      }
+    }
+    const lista = [...forn.values()].map((f) => ({ ...f, valor: r2(f.valor), pecas: r2(f.pecas),
+      lojas: Object.fromEntries(Object.entries(f.lojas).map(([k, v]: any) => [k, { ...v, valor: r2(v.valor), pecas: r2(v.pecas) }])),
+      itens: Object.values(f.itens).map((it: any) => ({ ...it, valor: r2(it.valor), pecas: r2(it.pecas) })) }));
+    return { desde, ate, fornecedores: lista, centralIncompleta: !!(base.falhas || base.pendentes || base.erro), aviso: base.erro ?? null, pedidosForaDoPainel: foraDoPainel };
+  }
+
+  if (acao === 'vendasLoja') {
+    const loja = String(body.loja ?? '');
+    const tokens = await getLojasTokens();
+    if (!tokens[loja]) throw new Error('Loja inválida.');
+    const apiBase = Deno.env.get('VAREJONLINE_API_BASE')!;
+    const vendasAte = isoOk(body.vendasAte) ? String(body.vendasAte) : hojeIso;
+    const ini = new Date(desde + 'T12:00:00Z'), fim = new Date(vendasAte + 'T12:00:00Z');
+    if (fim < ini) throw new Error('O fim das vendas é antes do início do período.');
+    const agg = new Map<string, any>();
+    let faturamento = 0, pecasLoja = 0;
+    await buscarSaidasParalelo(apiBase, tokens[loja], ini, fim, (sd) => {
+      if (!ehVenda(sd)) return;
+      for (const it of sd.mercadorias ?? []) {
+        const pr = it.produto; if (!pr) continue;
+        const q = Number(it.quantidade ?? 0), v = Number(it.valorTotal ?? 0), c = Number(it.valorCusto ?? 0);
+        faturamento += v; pecasLoja += q;
+        const k = String(pr.id);
+        const x = agg.get(k) ?? { produtoId: pr.id, descricao: pr.descricao, codigoSistema: pr.codigoSistema ?? null, codigoInterno: pr.codigoInterno ?? null, qtd: 0, fat: 0, custo: 0 };
+        x.qtd += q; x.fat += v; x.custo += c; agg.set(k, x);
+      }
+    });
+    const { idx } = await catalogoIndexado();
+    const vinc = await carregarVinculosLoja(loja);
+    const porForn: Record<string, any> = {};
+    const sem = { pecas: 0, faturamento: 0, produtos: 0 }, ignorado = { pecas: 0, faturamento: 0, produtos: 0 };
+    for (const x of agg.values()) {
+      const m = casarProduto(x, idx, vinc);
+      if (m.via === 'ignorado') { ignorado.pecas += x.qtd; ignorado.faturamento += x.fat; ignorado.produtos++; continue; }
+      const it = m.item;
+      if (!it?.fornecedorId) { sem.pecas += x.qtd; sem.faturamento += x.fat; sem.produtos++; continue; }
+      const f = porForn[it.fornecedorId] ?? (porForn[it.fornecedorId] = { nome: it.fornecedorNome ?? '', pecas: 0, faturamento: 0, custo: 0, produtos: 0, porVia: {} as Record<string, number>, itens: {} as Record<string, any> });
+      f.pecas += x.qtd; f.faturamento += x.fat; f.custo += x.custo; f.produtos++;
+      const via = m.via.startsWith('vínculo') ? 'vinculo' : m.via; f.porVia[via] = r2((f.porVia[via] ?? 0) + x.fat);
+      const c = codNorm(it.codigo);
+      const ii = f.itens[c] ?? (f.itens[c] = { codigo: String(it.codigo).trim(), descricao: it.descricao ?? x.descricao, pecas: 0, faturamento: 0 });
+      ii.pecas += x.qtd; ii.faturamento += x.fat;
+    }
+    for (const f of Object.values(porForn) as any[]) {
+      f.pecas = r2(f.pecas); f.faturamento = r2(f.faturamento); f.custo = r2(f.custo);
+      f.itens = Object.values(f.itens).map((i: any) => ({ ...i, pecas: r2(i.pecas), faturamento: r2(i.faturamento) }));
+    }
+    return { loja, desde, vendasAte, faturamento: r2(faturamento), pecas: r2(pecasLoja), porFornecedor: porForn,
+      semFornecedor: { ...sem, pecas: r2(sem.pecas), faturamento: r2(sem.faturamento) }, foraDaCentral: { ...ignorado, pecas: r2(ignorado.pecas), faturamento: r2(ignorado.faturamento) } };
+  }
+  throw new Error('Ação desconhecida no painel de fornecedores.');
+}
+
 async function moduloSincronizarCentral(body: any) {
   const dias = Math.min(180, Math.max(1, Number(body.dias ?? 180)));
   const r = await sincronizarCentralDias(dias, 100000);
@@ -3545,6 +3661,11 @@ Deno.serve(async (req) => {
     if (modulo === 'fotosProdutos') return resp(await moduloFotosProdutos(body, a));
     if (modulo === 'metasVendedores') return resp(await moduloMetasVendedores(body, a));
     if (modulo === 'sincronizarCentral') return resp(await moduloSincronizarCentral(body));
+    if (modulo === 'fornecedores') {
+      equipe(); // painel da franqueadora
+      if (body.acao === 'vendasLoja') exigirLoja(a, body.loja);
+      return resp(await moduloFornecedores(body, a));
+    }
     if (modulo === 'lojaEditar') { exigirPapel(a, 'admin'); return resp(await moduloLojaEditar(body)); }
     if (modulo === 'compatibilidade') { equipe(); return resp(await moduloCompatibilidade(Deno.env.get('VAREJONLINE_API_BASE')!, await getLojasTokens(), body)); }
     if (modulo === 'vendedores') { body.lojas = lojasDoAcesso(a, body.lojas); return resp(await moduloVendedores(Deno.env.get('VAREJONLINE_API_BASE')!, await getLojasTokens(), body)); }

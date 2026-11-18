@@ -111,6 +111,19 @@
   .prod-name{ font-family:'Inter', sans-serif; font-weight:500; white-space:normal; min-width:140px; }
   .rank{ display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background: var(--panel-2); color: var(--accent-2); font-size:11px; font-weight:700; margin-right:8px; }
   .tag-risco{ display:inline-block; padding:2px 8px; border-radius:20px; font-size:11px; background: var(--danger-tint); color: var(--danger); font-family: var(--mono); }
+  .forn-resumo{ display:flex; flex-wrap:wrap; gap:10px 28px; padding:14px 16px; border:1px solid var(--line); border-radius:10px; margin:0 0 14px; font-size:12.5px; color:var(--muted); }
+  .forn-resumo strong{ display:block; font-size:19px; color:var(--text); font-variant-numeric:tabular-nums; }
+  table.forn-tab td, table.forn-tab th{ white-space:nowrap; }
+  table.forn-tab td.num{ font-variant-numeric:tabular-nums; }
+  table.forn-tab tr.forn-linha{ cursor:pointer; }
+  table.forn-tab tr.forn-linha.aberta td{ background:var(--panel-2); }
+  table.forn-tab .sub2{ display:block; font-size:11px; color:var(--muted); }
+  .forn-frete{ width:64px; padding:4px 6px; font-size:12px; text-align:right; }
+  .forn-detalhe{ padding:14px 16px 18px; background:var(--panel); border:1px solid var(--line-strong); border-radius:10px; margin:6px 0 14px; white-space:normal; }
+  .forn-detalhe h3{ font-size:15px; margin:0 0 4px; }
+  .forn-detalhe .grade2{ display:grid; grid-template-columns:repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap:18px; margin-top:12px; }
+  .forn-detalhe .grade2 > div{ overflow-x:auto; }
+  .forn-barra{ display:inline-block; height:6px; border-radius:3px; background:var(--accent); vertical-align:middle; margin-right:6px; }
   .tag-ok{ display:inline-block; padding:2px 8px; border-radius:20px; font-size:11px; background: var(--good-tint); color: var(--good); font-family: var(--mono); }
   .tag-alto{ display:inline-block; padding:2px 8px; border-radius:20px; font-size:11px; background: var(--warn-tint); color: var(--warn); font-family: var(--mono); }
   .err{ background: var(--danger-tint); border:1px solid var(--danger); color:var(--accent-deep); padding:14px 16px; border-radius:8px; font-size:13px; font-family: var(--mono); white-space:pre-wrap; }
@@ -594,6 +607,7 @@
     <button type="button" class="nav-grupo-titulo">Rede <span class="seta">▾</span></button>
     <div class="nav-menu">
       <div class="nav-item" data-view="benchmark"><span class="dot"></span> Benchmark entre lojas</div>
+      <div class="nav-item" data-view="fornecedores"><span class="dot"></span> Fornecedores</div>
     </div>
   </div>
   <div class="nav-grupo" data-grupo="admin">
@@ -915,6 +929,35 @@
   </div>
 
   <!-- ===================== BENCHMARK ===================== -->
+  <div class="view" id="view-fornecedores">
+    <header class="view-header">
+      <h1>Fornecedores</h1>
+      <div class="sub">O que as lojas compraram de cada fornecedor na Central, quanto disso virou venda e quanto pesa no faturamento.</div>
+      <details class="como-funciona"><summary>Como funciona</summary><div>
+        <p><strong>Comprado:</strong> pedidos da Central feitos no período (sem os cancelados), por fornecedor e loja. Valor = quantidade × preço do pedido.</p>
+        <p><strong>Vendido:</strong> vendas das lojas (VarejOnline) do início do período até a data escolhida em "Vendas até", dos produtos ligados ao fornecedor pela mesma regra da tela Vínculos (vínculo salvo; senão código; senão descrição). Produto sem ligação entra em "sem fornecedor identificado" — quanto mais vínculos, mais precisa a análise.</p>
+        <p><strong>Giro:</strong> peças vendidas ÷ peças compradas. Pode passar de 100% quando a loja vende estoque comprado antes do período. Compra feita há poucos dias ainda não teve tempo de girar.</p>
+        <p><strong>% do faturamento:</strong> venda dos produtos do fornecedor ÷ faturamento total das lojas analisadas no mesmo intervalo.</p>
+        <p><strong>Frete:</strong> a Central não informa o valor do frete. Informe o frete médio de cada fornecedor (% do valor do pedido) e o painel calcula o <strong>retorno</strong> = venda ÷ (compra + frete). Fica salvo para as próximas análises.</p>
+        <p><strong>Leitura:</strong> <em>Compensa</em> = giro ≥ 70% e retorno ≥ 2× · <em>Revisar</em> = giro abaixo de 40% ou retorno abaixo de 1,5× · <em>Atenção</em> = entre os dois.</p>
+      </div></details>
+    </header>
+    <div class="panel">
+      <div class="grid">
+        <div><label>Compras de</label><input id="forn_desde" type="date"></div>
+        <div><label>Compras até</label><input id="forn_ate" type="date"></div>
+        <div><label>Vendas até</label><select id="forn_vendas_ate"><option value="hoje">Hoje (dá tempo de girar)</option><option value="fim">Fim do período de compras</option></select></div>
+        <div><label>Lojas (vazio = todas)</label><input id="forn_lojas" placeholder="ex: SSS NATAL, SSS BAURU"></div>
+      </div>
+      <div class="actions">
+        <button id="forn_rodar">Analisar fornecedores</button>
+        <span class="status" id="status-fornecedores"></span>
+      </div>
+    </div>
+    <div id="erro-fornecedores"></div>
+    <div id="resultado-fornecedores"></div>
+  </div>
+
   <div class="view" id="view-benchmark">
     <header class="view-header">
       <h1>Comparativo entre lojas</h1>
@@ -5052,6 +5095,222 @@ function desenharPicos(l) {
 }
 const DIAS_NOME = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 
+// =====================================================================
+// FORNECEDORES (franqueadora): compra na Central × venda × % do faturamento × frete
+// =====================================================================
+let _fornDados = null, _fornAberto = null, _fornOrdem = 'valor', _fornMostrarSemCompra = false;
+(function iniciarFornecedores() {
+  const hoje = new Date(Date.now() - 3 * 3600e3), iso = d => d.toISOString().slice(0, 10);
+  const ini = new Date(hoje); ini.setDate(ini.getDate() - 89);
+  $('forn_desde').value = iso(ini); $('forn_ate').value = iso(hoje);
+  $('forn_rodar').addEventListener('click', rodarFornecedores);
+})();
+async function rodarFornecedores() {
+  const st = $('status-fornecedores'), erro = $('erro-fornecedores'), box = $('resultado-fornecedores');
+  erro.innerHTML = '';
+  const desde = $('forn_desde').value, ate = $('forn_ate').value;
+  if (!desde || !ate || desde > ate) { erro.innerHTML = '<div class="panel err">Escolha um período válido (data inicial antes da final).</div>'; return; }
+  const diasAtras = Math.ceil((Date.now() - Date.parse(desde + 'T12:00:00Z')) / 864e5) + 1;
+  if (diasAtras > 180) { erro.innerHTML = '<div class="panel err">O histórico da Central guardado no painel vai até 180 dias atrás. Escolha uma data inicial mais recente.</div>'; return; }
+  const vendasAte = $('forn_vendas_ate').value === 'fim' ? ate : null;
+  const filtro = $('forn_lojas').value.trim();
+  $('forn_rodar').disabled = true; box.innerHTML = '';
+  try {
+    st.textContent = 'Atualizando os pedidos da Central…';
+    try { await sincronizarCentralPainel(Math.max(diasAtras, 30), msg => { st.textContent = msg; }); } catch (e) { /* segue com o que houver */ }
+    st.textContent = 'Lendo as compras da Central…';
+    const [compras, fr] = await Promise.all([
+      chamarEdge({ modulo: 'fornecedores', acao: 'compras', desde, ate }, EDGE_COMPRAS_URL),
+      chamarEdge({ modulo: 'fornecedores', acao: 'frete' }, EDGE_COMPRAS_URL).catch(() => ({ frete: {} })),
+    ]);
+    const nomes = filtro ? filtro.split(',').map(x => x.trim()).filter(Boolean) : await lojasConfiguradas();
+    let feitas = 0;
+    const vendas = await emParalelo(nomes, 3, async (loja) => {
+      let r;
+      try { r = await chamarEdge({ modulo: 'fornecedores', acao: 'vendasLoja', loja, desde, vendasAte }, EDGE_COMPRAS_URL); }
+      catch (e) { r = { loja, erro: e.message }; }
+      feitas++; st.textContent = `Lendo as vendas das lojas… ${feitas}/${nomes.length}`;
+      return r;
+    });
+    _fornDados = montarFornecedores(compras, vendas, fr.frete || {}, { desde, ate, vendasAte: vendasAte || new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10), filtroLojas: filtro ? nomes : null });
+    _fornAberto = null;
+    renderFornecedores();
+    st.textContent = `Atualizado às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+  } catch (e) { erro.innerHTML = `<div class="panel err">${esc(e.message)}</div>`; st.textContent = ''; }
+  finally { $('forn_rodar').disabled = false; }
+}
+function montarFornecedores(compras, vendas, frete, P) {
+  const okV = vendas.filter(v => !v.erro), erros = vendas.filter(v => v.erro);
+  const lojasAnalisadas = new Set(okV.map(v => v.loja));
+  const fat = okV.reduce((t, v) => t + v.faturamento, 0);
+  const F = new Map();
+  const novo = (id, nome) => ({ id, nome, comprado: { valor: 0, pecas: 0, pedidos: 0, cancelados: 0, ultima: null, lojas: 0 }, vendido: { pecas: 0, faturamento: 0, custo: 0 }, porLoja: {}, itens: new Map(), porVia: {} });
+  for (const f of compras.fornecedores) {
+    const x = novo(f.id, f.nome);
+    // com filtro de lojas, a compra considera só as lojas analisadas
+    for (const [loja, L] of Object.entries(f.lojas)) {
+      if (P.filtroLojas && !lojasAnalisadas.has(loja)) continue;
+      x.comprado.valor += L.valor; x.comprado.pecas += L.pecas; x.comprado.pedidos += L.pedidos; x.comprado.lojas++;
+      if (!x.comprado.ultima || L.ultima > x.comprado.ultima) x.comprado.ultima = L.ultima;
+      x.porLoja[loja] = { compraValor: L.valor, compraPecas: L.pecas, pedidos: L.pedidos, ultima: L.ultima, vendaPecas: 0, vendaFat: 0, fatLoja: 0 };
+    }
+    x.comprado.cancelados = f.cancelados;
+    for (const it of f.itens) {
+      let pecas = 0, valor = 0;
+      for (const [loja, q] of Object.entries(it.lojas)) if (!P.filtroLojas || lojasAnalisadas.has(loja)) pecas += q;
+      valor = it.pecas ? it.valor * pecas / it.pecas : 0;
+      if (pecas) x.itens.set(it.codigo.toUpperCase().replace(/\s+/g, ''), { codigo: it.codigo, descricao: it.descricao, compraPecas: pecas, compraValor: valor, vendaPecas: 0, vendaFat: 0 });
+    }
+    if (x.comprado.pedidos || x.comprado.cancelados) F.set(f.id, x);
+  }
+  let semForn = 0, foraCentral = 0;
+  for (const v of okV) {
+    semForn += v.semFornecedor.faturamento; foraCentral += v.foraDaCentral.faturamento;
+    for (const [fid, s] of Object.entries(v.porFornecedor)) {
+      const x = F.get(fid) ?? (F.set(fid, novo(fid, s.nome)), F.get(fid));
+      if (!x.nome) x.nome = s.nome;
+      x.vendido.pecas += s.pecas; x.vendido.faturamento += s.faturamento; x.vendido.custo += s.custo;
+      for (const [via, val] of Object.entries(s.porVia || {})) x.porVia[via] = (x.porVia[via] || 0) + val;
+      const L = x.porLoja[v.loja] ?? (x.porLoja[v.loja] = { compraValor: 0, compraPecas: 0, pedidos: 0, ultima: null, vendaPecas: 0, vendaFat: 0, fatLoja: 0 });
+      L.vendaPecas += s.pecas; L.vendaFat += s.faturamento;
+      for (const it of s.itens) {
+        const k = it.codigo.toUpperCase().replace(/\s+/g, '');
+        const I = x.itens.get(k) ?? (x.itens.set(k, { codigo: it.codigo, descricao: it.descricao, compraPecas: 0, compraValor: 0, vendaPecas: 0, vendaFat: 0 }), x.itens.get(k));
+        I.vendaPecas += it.pecas; I.vendaFat += it.faturamento;
+      }
+    }
+  }
+  const fatLoja = Object.fromEntries(okV.map(v => [v.loja, v.faturamento]));
+  for (const x of F.values()) {
+    for (const [loja, L] of Object.entries(x.porLoja)) L.fatLoja = fatLoja[loja] || 0;
+    x.frete = frete[x.id] ?? null;
+    calcularLeituraFornecedor(x, fat, P);
+  }
+  const totComprado = [...F.values()].reduce((t, x) => t + x.comprado.valor, 0);
+  const totVendido = [...F.values()].reduce((t, x) => t + x.vendido.faturamento, 0);
+  return { P, fornecedores: [...F.values()], faturamento: fat, totComprado, totVendido, semFornecedor: semForn, foraDaCentral: foraCentral, lojas: okV.length, erros, frete,
+    pedidos: [...F.values()].reduce((t, x) => t + x.comprado.pedidos, 0), centralIncompleta: compras.centralIncompleta, aviso: compras.aviso };
+}
+function calcularLeituraFornecedor(x, fatTotal, P) {
+  const c = x.comprado, v = x.vendido;
+  x.giro = c.pecas > 0 ? v.pecas / c.pecas : null;
+  x.pctFat = fatTotal ? v.faturamento / fatTotal * 100 : 0;
+  x.margem = v.faturamento ? (v.faturamento - v.custo) / v.faturamento * 100 : null;
+  x.custoComFrete = c.valor * (1 + (x.frete || 0) / 100);
+  x.retorno = x.custoComFrete > 0 ? v.faturamento / x.custoComFrete : null;
+  const diasDesdeUltima = c.ultima ? (Date.parse(P.vendasAte) - Date.parse(c.ultima)) / 864e5 : null;
+  x.compraRecente = diasDesdeUltima != null && diasDesdeUltima < 30 && c.valor > 0;
+  if (!c.pedidos) x.leitura = v.faturamento ? 'estoque' : 'nada';
+  else if (x.giro >= 0.7 && x.retorno >= 2) x.leitura = 'compensa';
+  else if (x.giro < 0.4 || x.retorno < 1.5) x.leitura = 'revisar';
+  else x.leitura = 'atencao';
+  const motivos = [];
+  if (c.pedidos) {
+    motivos.push(`vendeu ${fmtNum(Math.round(v.pecas))} de ${fmtNum(Math.round(c.pecas))} peças compradas (${fmtPct((x.giro || 0) * 100, 0)})`);
+    motivos.push(`cada R$ 1 gasto${x.frete != null ? ' (com frete)' : ''} voltou R$ ${(x.retorno || 0).toFixed(2).replace('.', ',')} em venda`);
+    if (x.frete == null) motivos.push('frete não informado');
+    if (x.compraRecente) motivos.push('tem compra recente, o giro ainda pode subir');
+  } else motivos.push('sem pedido na Central no período; as vendas são de estoque comprado antes');
+  x.motivo = motivos.join(' · ');
+}
+const LEITURA_FORN = {
+  compensa: ['tag-ok', 'Compensa'], atencao: ['tag-alto', 'Atenção'], revisar: ['tag-risco', 'Revisar'],
+  estoque: ['chip', 'Sem compra no período'], nada: ['chip', '—'],
+};
+function renderFornecedores() {
+  const D = _fornDados, box = $('resultado-fornecedores'); if (!D) return;
+  const P = D.P, dt = d => d ? _cliData(d) : '—';
+  let lista = D.fornecedores.filter(x => _fornMostrarSemCompra || x.comprado.pedidos);
+  const ord = { valor: (a, b) => b.comprado.valor - a.comprado.valor, venda: (a, b) => b.vendido.faturamento - a.vendido.faturamento,
+    giro: (a, b) => (a.giro ?? 9) - (b.giro ?? 9), retorno: (a, b) => (a.retorno ?? 99) - (b.retorno ?? 99) };
+  lista.sort(ord[_fornOrdem] || ord.valor);
+  const semCompra = D.fornecedores.filter(x => !x.comprado.pedidos && x.vendido.faturamento).length;
+  const cobertura = D.faturamento ? (D.faturamento - D.semFornecedor - D.foraDaCentral) / D.faturamento * 100 : 0;
+  const cont = { compensa: 0, atencao: 0, revisar: 0 }; for (const x of D.fornecedores) if (cont[x.leitura] != null) cont[x.leitura]++;
+  const th = (k, t, title) => `<th class="num" ${title ? `title="${esc(title)}"` : ''}><button type="button" class="link-ord" data-forn-ord="${k}" style="all:unset; cursor:pointer; ${_fornOrdem === k ? 'text-decoration:underline' : ''}">${t}</button></th>`;
+  const linha = x => {
+    const L = LEITURA_FORN[x.leitura];
+    const aberto = _fornAberto === x.id;
+    return `<tr class="forn-linha ${aberto ? 'aberta' : ''}" data-forn="${esc(x.id)}">
+      <td class="prod-name" style="white-space:normal; min-width:180px"><strong>${esc(x.nome || x.id)}</strong><span class="sub2">${x.comprado.pedidos ? `${fmtNum(x.comprado.pedidos)} pedido(s) · ${fmtNum(x.comprado.lojas)} loja(s) · último ${dt(x.comprado.ultima)}` : 'sem pedido no período'}</span></td>
+      <td class="num">${x.comprado.valor ? `<strong>${fmtMoeda(x.comprado.valor)}</strong><span class="sub2">${fmtNum(Math.round(x.comprado.pecas))} peças</span>` : '—'}</td>
+      <td class="num">${x.vendido.faturamento ? `<strong>${fmtMoeda(x.vendido.faturamento)}</strong><span class="sub2">${fmtNum(Math.round(x.vendido.pecas))} peças</span>` : '<span style="color:var(--danger)">sem venda</span>'}</td>
+      <td class="num ${x.giro == null ? '' : x.giro >= 0.7 ? 'heat-bom' : x.giro < 0.4 ? 'heat-ruim' : 'heat-medio'}">${x.giro != null ? fmtPct(x.giro * 100, 0) : '—'}</td>
+      <td class="num">${fmtPct(x.pctFat, x.pctFat < 1 ? 2 : 1)}</td>
+      <td class="num">${x.margem != null ? fmtPct(x.margem, 0) : '—'}</td>
+      <td class="num" onclick="event.stopPropagation()"><input class="forn-frete" type="number" min="0" max="100" step="0.5" placeholder="—" value="${x.frete ?? ''}" data-forn-frete="${esc(x.id)}" aria-label="Frete de ${esc(x.nome)} em % do pedido"></td>
+      <td class="num ${x.retorno == null ? '' : x.retorno >= 2 ? 'heat-bom' : x.retorno < 1.5 ? 'heat-ruim' : 'heat-medio'}">${x.retorno != null ? x.retorno.toFixed(2).replace('.', ',') + '×' : '—'}</td>
+      <td title="${esc(x.motivo)}"><span class="${L[0]}">${L[1]}</span>${x.compraRecente ? '<span class="sub2">compra recente</span>' : ''}</td>
+    </tr>${aberto ? `<tr><td colspan="9" style="padding:0; white-space:normal">${detalheFornecedor(x)}</td></tr>` : ''}`;
+  };
+  box.innerHTML = `
+    ${D.erros.length ? `<div class="panel err">${D.erros.length} loja(s) não responderam e ficaram de fora: ${esc(D.erros.map(e => e.loja).join(', '))}. Rode de novo para incluí-las.</div>` : ''}
+    ${D.centralIncompleta ? '<div class="panel" style="border-color:var(--warn); font-size:12.5px">Parte do histórico da Central ainda não carregou — os valores comprados podem estar incompletos. Rode de novo em alguns minutos.</div>' : ''}
+    <div class="forn-resumo">
+      <span><strong>${fmtMoeda(D.totComprado)}</strong>comprado na Central (${dt(P.desde)} a ${dt(P.ate)}) · ${fmtNum(D.pedidos)} pedidos</span>
+      <span><strong>${fmtMoeda(D.totVendido)}</strong>vendido desses fornecedores até ${dt(P.vendasAte)}</span>
+      <span><strong>${fmtPct(D.faturamento ? D.totVendido / D.faturamento * 100 : 0, 1)}</strong>do faturamento de ${fmtNum(D.lojas)} loja(s) (${fmtMoeda(D.faturamento)})</span>
+      <span><strong>${fmtNum(cont.compensa)} · ${fmtNum(cont.atencao)} · ${fmtNum(cont.revisar)}</strong>compensa · atenção · revisar</span>
+      <span title="Parte do faturamento cujos produtos foram ligados a um fornecedor da Central (vínculo, código ou descrição). O resto: ${fmtMoeda(D.semFornecedor)} sem fornecedor identificado e ${fmtMoeda(D.foraDaCentral)} marcado como fora da Central."><strong>${fmtPct(cobertura, 0)}</strong>do faturamento ligado a um fornecedor</span>
+    </div>
+    <div class="tbl-tools" style="margin-bottom:8px">
+      <label style="display:inline-flex; gap:6px; align-items:center; font-size:12.5px; width:auto; margin:0"><input type="checkbox" id="forn_sem_compra" style="width:auto; margin:0" ${_fornMostrarSemCompra ? 'checked' : ''}> Mostrar também fornecedores sem compra no período (${fmtNum(semCompra)})</label>
+      <span style="font-size:12px; color:var(--muted)">Clique num fornecedor para ver por loja e por produto. Ordenar: clique no título da coluna.</span>
+    </div>
+    <div style="overflow-x:auto"><table class="no-tools forn-tab"><thead><tr>
+      <th>Fornecedor</th>${th('valor', 'Comprado', 'Valor dos pedidos da Central no período')}${th('venda', 'Vendido', 'Venda dos produtos do fornecedor, do início do período até "Vendas até"')}
+      ${th('giro', 'Giro', 'Peças vendidas ÷ peças compradas (do pior para o melhor ao ordenar)')}<th class="num" title="Venda do fornecedor ÷ faturamento total das lojas analisadas">% do fatur.</th>
+      <th class="num" title="(Venda − custo da VarejOnline) ÷ venda">Margem</th><th class="num" title="Frete médio do fornecedor em % do valor do pedido (fica salvo)">Frete %</th>
+      ${th('retorno', 'Retorno', 'Venda ÷ (compra + frete): quanto cada R$ 1 gasto voltou em venda (do pior para o melhor ao ordenar)')}<th>Leitura</th>
+    </tr></thead><tbody>${lista.map(linha).join('') || '<tr><td colspan="9" class="empty">Nenhum pedido na Central nesse período.</td></tr>'}</tbody></table></div>`;
+  box.querySelectorAll('[data-forn]').forEach(tr => tr.addEventListener('click', () => { _fornAberto = _fornAberto === tr.dataset.forn ? null : tr.dataset.forn; renderFornecedores(); }));
+  box.querySelectorAll('[data-forn-ord]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); _fornOrdem = b.dataset.fornOrd; renderFornecedores(); }));
+  $('forn_sem_compra').addEventListener('change', e => { _fornMostrarSemCompra = e.target.checked; renderFornecedores(); });
+  box.querySelectorAll('[data-forn-frete]').forEach(inp => inp.addEventListener('change', () => salvarFreteFornecedor(inp.dataset.fornFrete, inp.value, inp)));
+}
+async function salvarFreteFornecedor(fid, valor, inp) {
+  const x = _fornDados?.fornecedores.find(f => f.id === fid); if (!x) return;
+  const pct = valor === '' ? null : Number(String(valor).replace(',', '.'));
+  inp.disabled = true;
+  try {
+    await chamarEdge({ modulo: 'fornecedores', acao: 'salvarFrete', fornecedorId: fid, percentual: pct }, EDGE_COMPRAS_URL);
+    x.frete = pct; calcularLeituraFornecedor(x, _fornDados.faturamento, _fornDados.P); renderFornecedores();
+  } catch (e) { inp.disabled = false; alert(`Não deu para salvar o frete: ${e.message}`); }
+}
+function detalheFornecedor(x) {
+  const lojas = Object.entries(x.porLoja).map(([loja, L]) => ({ loja, ...L, giro: L.compraPecas ? L.vendaPecas / L.compraPecas : null, pct: L.fatLoja ? L.vendaFat / L.fatLoja * 100 : 0 }))
+    .sort((a, b) => b.compraValor - a.compraValor || b.vendaFat - a.vendaFat);
+  const itens = [...x.itens.values()].map(i => ({ ...i, giro: i.compraPecas ? i.vendaPecas / i.compraPecas : null }));
+  const parados = itens.filter(i => i.compraPecas > 0 && i.vendaPecas === 0).sort((a, b) => b.compraValor - a.compraValor);
+  const top = [...itens].sort((a, b) => b.compraValor - a.compraValor || b.vendaFat - a.vendaFat).slice(0, 40);
+  const giroCls = g => g == null ? '' : g >= 0.7 ? 'heat-bom' : g < 0.4 ? 'heat-ruim' : 'heat-medio';
+  const maxPct = Math.max(...lojas.map(l => l.pct), 0.0001);
+  const vias = Object.entries(x.porVia || {}); const totVia = vias.reduce((t, [, v]) => t + v, 0);
+  const viaTxt = totVia ? vias.sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k === 'vinculo' ? 'vínculo salvo' : k} ${fmtPct(v / totVia * 100, 0)}`).join(', ') : '';
+  return `<div class="forn-detalhe">
+    <h3>${esc(x.nome)}</h3>
+    <div style="font-size:12.5px; color:var(--muted)">${esc(x.motivo)}.${viaTxt ? ` Venda ligada ao fornecedor por: ${esc(viaTxt)}.` : ''}${x.comprado.cancelados ? ` ${x.comprado.cancelados} pedido(s) cancelado(s) não entram na conta.` : ''}</div>
+    ${parados.length ? `<div style="margin-top:10px; font-size:12.5px"><strong style="color:var(--danger)">${fmtNum(parados.length)} produto(s) comprados sem nenhuma venda</strong> — ${fmtMoeda(parados.reduce((t, i) => t + i.compraValor, 0))}: ${esc(parados.slice(0, 6).map(i => `${i.codigo} ${_cliTitulo(i.descricao || '')}`).join('; '))}${parados.length > 6 ? '…' : ''}</div>` : ''}
+    <div class="grade2">
+      <div><div style="font-weight:650; font-size:13px; margin-bottom:6px">Por loja</div>
+        <table class="no-tools forn-tab"><thead><tr><th>Loja</th><th class="num">Comprou</th><th class="num">Vendeu</th><th class="num">Giro</th><th title="Venda do fornecedor ÷ faturamento da loja">% do fatur. da loja</th></tr></thead><tbody>
+        ${lojas.map(l => `<tr><td>${esc(l.loja.replace(/^SSS\s+/i, ''))}</td><td class="num">${l.compraValor ? `${fmtMoeda(l.compraValor)}<span class="sub2">${fmtNum(Math.round(l.compraPecas))} pç · ${dt2(l.ultima)}</span>` : '—'}</td>
+          <td class="num">${l.vendaFat ? `${fmtMoeda(l.vendaFat)}<span class="sub2">${fmtNum(Math.round(l.vendaPecas))} pç</span>` : '—'}</td>
+          <td class="num ${giroCls(l.giro)}">${l.giro != null ? fmtPct(l.giro * 100, 0) : '—'}</td>
+          <td><span class="forn-barra" style="width:${Math.max(2, l.pct / maxPct * 70)}px"></span>${fmtPct(l.pct, l.pct < 1 ? 2 : 1)}</td></tr>`).join('')}
+        </tbody></table></div>
+      <div><div style="font-weight:650; font-size:13px; margin-bottom:6px">Por produto (código da Central)${itens.length > 40 ? ` — 40 de ${fmtNum(itens.length)}, pelos mais comprados` : ''}</div>
+        <table class="no-tools forn-tab"><thead><tr><th>Produto</th><th class="num">Comprou</th><th class="num">Vendeu</th><th class="num">Giro</th></tr></thead><tbody>
+        ${top.map(i => `<tr><td style="white-space:normal">${esc(_cliTitulo(i.descricao || ''))}<span class="sub2">${esc(i.codigo)}</span></td>
+          <td class="num">${i.compraPecas ? `${fmtNum(Math.round(i.compraPecas))} pç<span class="sub2">${fmtMoeda(i.compraValor)}</span>` : '—'}</td>
+          <td class="num">${i.vendaPecas ? `${fmtNum(Math.round(i.vendaPecas))} pç<span class="sub2">${fmtMoeda(i.vendaFat)}</span>` : (i.compraPecas ? '<span style="color:var(--danger)">0</span>' : '—')}</td>
+          <td class="num ${giroCls(i.giro)}">${i.giro != null ? fmtPct(i.giro * 100, 0) : '—'}</td></tr>`).join('')}
+        </tbody></table></div>
+    </div>
+  </div>`;
+}
+const dt2 = d => d ? _cliData(d) : '';
+
 function tabelaVendedores(vs, p, comLoja) {
   if (!vs.length) return '<div class="empty">Nenhuma venda no período.</div>';
   const clsId = v => v.id === 'sem' ? '' : v.percentClienteIdentificado >= p.metaIdentificacao ? 'heat-bom' : v.percentClienteIdentificado < p.metaIdentificacao * 0.6 ? 'heat-ruim' : 'heat-medio';
@@ -5726,7 +5985,7 @@ function aplicarPerfil(p) {
   const mudouPapel = _papelAtual !== p.papel; _papelAtual = p.papel; if (mudouPapel) _inicioDados = null;
   $('usuarioNome').textContent = p.nome || '—';
   $('usuarioPapel').textContent = p.tipo === 'senha' ? 'senha do time' : (ROTULO_PAPEL[p.papel] || p.papel) + (p.papel === 'franqueado' ? ` · ${p.lojas.length} loja(s)` : '');
-  const ocultar = new Set(p.papel === 'franqueado' ? ['benchmark', 'lojas', 'vinculos', 'usuarios'] : p.papel === 'equipe' ? ['lojas', 'usuarios'] : []);
+  const ocultar = new Set(p.papel === 'franqueado' ? ['benchmark', 'fornecedores', 'lojas', 'vinculos', 'usuarios'] : p.papel === 'equipe' ? ['lojas', 'usuarios'] : []);
   if (p.tipo === 'senha') ocultar.delete('usuarios'); // a senha do time cria o 1º administrador
   document.querySelectorAll('.nav-item[data-view]').forEach(n => { n.style.display = ocultar.has(n.dataset.view) ? 'none' : ''; });
   marcarGrupos();
