@@ -934,6 +934,7 @@
       <h1>Fornecedores</h1>
       <div class="sub">O que as lojas compraram de cada fornecedor na Central, quanto disso virou venda e quanto pesa no faturamento.</div>
       <details class="como-funciona"><summary>Como funciona</summary><div>
+        <p><strong>Período:</strong> até 13 meses atrás (atalhos 90 dias, 6 meses e 12 meses). Períodos longos demoram mais: as compras são lidas de mês em mês e as vendas de cada loja também.</p>
         <p><strong>Comprado:</strong> pedidos da Central feitos no período (sem os cancelados), por fornecedor e loja. Valor = quantidade × preço do pedido.</p>
         <p><strong>Vendido:</strong> vendas das lojas (VarejOnline) do início do período até a data escolhida em "Vendas até", dos produtos ligados ao fornecedor pela mesma regra da tela Vínculos (vínculo salvo; senão código; senão descrição). Produto sem ligação entra em "sem fornecedor identificado" — quanto mais vínculos, mais precisa a análise.</p>
         <p><strong>Giro:</strong> das peças compradas no período, quantas já venderam. Em cada loja e produto, a venda conta só até a quantidade comprada — o que vendeu além disso saiu de estoque antigo e aparece à parte. Por isso o giro fica sempre entre 0% e 100%. Compra feita há poucos dias ainda não teve tempo de girar.</p>
@@ -947,7 +948,8 @@
     </header>
     <div class="panel">
       <div class="grid">
-        <div><label>Compras de</label><input id="forn_desde" type="date"></div>
+        <div><label>Compras de</label><input id="forn_desde" type="date">
+          <div style="display:flex; gap:6px; margin-top:6px; flex-wrap:wrap"><button type="button" class="secondary ini-oferecer" data-forn-periodo="90">90 dias</button><button type="button" class="secondary ini-oferecer" data-forn-periodo="182">6 meses</button><button type="button" class="secondary ini-oferecer" data-forn-periodo="365">12 meses</button></div></div>
         <div><label>Compras até</label><input id="forn_ate" type="date"></div>
         <div><label>Vendas até</label><select id="forn_vendas_ate"><option value="hoje">Hoje (dá tempo de girar)</option><option value="fim">Fim do período de compras</option></select></div>
         <div><label>Lojas (vazio = todas)</label><input id="forn_lojas" placeholder="ex: SSS NATAL, SSS BAURU"></div>
@@ -5107,6 +5109,10 @@ let _fornDados = null, _fornAberto = null, _fornOrdem = 'valor', _fornMostrarSem
   const ini = new Date(hoje); ini.setDate(ini.getDate() - 89);
   $('forn_desde').value = iso(ini); $('forn_ate').value = iso(hoje);
   $('forn_rodar').addEventListener('click', rodarFornecedores);
+  document.querySelectorAll('[data-forn-periodo]').forEach(b => b.addEventListener('click', () => {
+    const h = new Date(Date.now() - 3 * 3600e3), i = new Date(h); i.setDate(i.getDate() - Number(b.dataset.fornPeriodo) + 1);
+    $('forn_desde').value = iso(i); $('forn_ate').value = iso(h);
+  }));
 })();
 async function rodarFornecedores() {
   const st = $('status-fornecedores'), erro = $('erro-fornecedores'), box = $('resultado-fornecedores');
@@ -5114,16 +5120,15 @@ async function rodarFornecedores() {
   const desde = $('forn_desde').value, ate = $('forn_ate').value;
   if (!desde || !ate || desde > ate) { erro.innerHTML = '<div class="panel err">Escolha um período válido (data inicial antes da final).</div>'; return; }
   const diasAtras = Math.ceil((Date.now() - Date.parse(desde + 'T12:00:00Z')) / 864e5) + 1;
-  if (diasAtras > 180) { erro.innerHTML = '<div class="panel err">O histórico da Central guardado no painel vai até 180 dias atrás. Escolha uma data inicial mais recente.</div>'; return; }
+  if (diasAtras > 400) { erro.innerHTML = '<div class="panel err">A análise vai até 13 meses atrás. Escolha uma data inicial mais recente.</div>'; return; }
   const vendasAte = $('forn_vendas_ate').value === 'fim' ? ate : null;
   const filtro = $('forn_lojas').value.trim();
   $('forn_rodar').disabled = true; box.innerHTML = '';
   try {
     st.textContent = 'Atualizando os pedidos da Central…';
-    try { await sincronizarCentralPainel(Math.max(diasAtras, 30), msg => { st.textContent = msg; }); } catch (e) { /* segue com o que houver */ }
-    st.textContent = 'Lendo as compras da Central…';
+    try { await sincronizarCentralPainel(Math.min(Math.max(diasAtras, 30), 60), msg => { st.textContent = msg; }); } catch (e) { /* segue com o que houver */ }
     const [compras, fr] = await Promise.all([
-      chamarEdge({ modulo: 'fornecedores', acao: 'compras', desde, ate }, EDGE_COMPRAS_URL),
+      comprasFornecedoresPorMes(desde, ate, msg => { st.textContent = msg; }),
       chamarEdge({ modulo: 'fornecedores', acao: 'frete' }, EDGE_COMPRAS_URL).catch(() => ({ frete: {} })),
     ]);
     const nomes = filtro ? filtro.split(',').map(x => x.trim()).filter(Boolean) : await lojasConfiguradas();
@@ -5143,6 +5148,38 @@ async function rodarFornecedores() {
   } catch (e) { erro.innerHTML = `<div class="panel err">${esc(e.message)}</div>`; st.textContent = ''; }
   finally { $('forn_rodar').disabled = false; }
 }
+// Compras da Central pedidas de mês em mês (cada trecho busca na Central só os dias que faltam) e somadas.
+async function comprasFornecedoresPorMes(desde, ate, onStatus) {
+  const dia = 864e5, iso = t => new Date(t).toISOString().slice(0, 10);
+  const trechos = []; for (let t = Date.parse(desde + 'T12:00:00Z'), fim = Date.parse(ate + 'T12:00:00Z'); t <= fim; t += 31 * dia) trechos.push([iso(t), iso(Math.min(t + 30 * dia, fim))]);
+  const F = new Map(); let incompleta = false, fora = 0, aviso = null;
+  for (const [k, [a, b]] of trechos.entries()) {
+    let r;
+    for (let tent = 0; tent < 4; tent++) { // dias que a Central ainda não devolveu: tenta de novo
+      onStatus && onStatus(`Lendo as compras da Central… ${k + 1}/${trechos.length}${tent ? ' (completando)' : ''}`);
+      r = await chamarEdge({ modulo: 'fornecedores', acao: 'compras', desde: a, ate: b }, EDGE_COMPRAS_URL);
+      if (!r.pendentes) break;
+    }
+    if (r.centralIncompleta) { incompleta = true; aviso = r.aviso || aviso; }
+    fora += r.pedidosForaDoPainel || 0;
+    for (const f of r.fornecedores) {
+      const x = F.get(f.id) ?? (F.set(f.id, { id: f.id, nome: f.nome, pedidos: 0, cancelados: 0, valor: 0, pecas: 0, primeira: f.primeira, ultima: f.ultima, lojas: {}, itens: new Map() }), F.get(f.id));
+      x.pedidos += f.pedidos; x.cancelados += f.cancelados; x.valor += f.valor; x.pecas += f.pecas;
+      if (f.primeira < x.primeira) x.primeira = f.primeira; if (f.ultima > x.ultima) x.ultima = f.ultima;
+      for (const [loja, L] of Object.entries(f.lojas)) {
+        const y = x.lojas[loja] ?? (x.lojas[loja] = { pedidos: 0, valor: 0, pecas: 0, ultima: L.ultima });
+        y.pedidos += L.pedidos; y.valor += L.valor; y.pecas += L.pecas; if (L.ultima > y.ultima) y.ultima = L.ultima;
+      }
+      for (const it of f.itens) {
+        const c = String(it.codigo).toUpperCase().replace(/\s+/g, '');
+        const y = x.itens.get(c) ?? (x.itens.set(c, { codigo: it.codigo, descricao: it.descricao, pecas: 0, valor: 0, lojas: {} }), x.itens.get(c));
+        y.pecas += it.pecas; y.valor += it.valor; for (const [loja, q] of Object.entries(it.lojas)) y.lojas[loja] = (y.lojas[loja] || 0) + q;
+      }
+    }
+  }
+  return { desde, ate, fornecedores: [...F.values()].map(f => ({ ...f, itens: [...f.itens.values()] })), centralIncompleta: incompleta, aviso, pedidosForaDoPainel: fora };
+}
+
 // Vendas de uma loja somadas por produto, lidas em trechos de até 31 dias (cada chamada fica leve para o Supabase).
 async function vendasFornecedorLoja(loja, de, ate) {
   const dia = 864e5, iso = t => new Date(t).toISOString().slice(0, 10);
