@@ -241,3 +241,6 @@ Algumas lojas cadastram o código da Central com zeros na frente (ex.: `00003D-C
 - **Itens a conferir**: produto vendido, em média, por menos de 1,1× o custo da Central (vínculo errado, display/kit, caixa × unidade). Sai da conta do fornecedor e vai para uma lista no fim da tela.
 - **Situação**: uma regra decide, na ordem Revisar (giro < 60% da rede) → Margem baixa (markup < 1,8×) → Gira abaixo da rede (60–90%) → Gira, peça barata (peça média < 75% da rede) → Compensa; Compra recente quando quase tudo foi comprado nos últimos 60 dias. O motivo aparece na linha.
 - Tabela: Comprado → Vendeu (giro) → Parado → % do faturamento → R$ por peça (× esforço médio) → Situação. Frete, markup, "já voltou" e lucro bruto foram para o detalhe.
+
+### Fornecedores: unidades no pacote
+Item da Central vendido em pacote/caixa e vendido em unidades na loja (ex.: SANTITAS PACK = 27). Na lista **Itens a conferir**, a coluna "Unidades no pacote" salva o número (ação `salvarPacote`, `painel_cache` chave `pacote_itens_central`, `{ CODIGO: n }`, vale para a rede). A tela multiplica a compra e divide o custo por `n` e recalcula na hora, sem ler tudo de novo.
