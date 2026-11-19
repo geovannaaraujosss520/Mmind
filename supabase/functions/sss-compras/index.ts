@@ -1898,10 +1898,12 @@ function codigosAlternativos(it: any): string[] {
   out.delete(c);
   return [...out];
 }
+// "00003D-CA-001" na loja = "3D-CA-001" na Central: zeros à esquerda não mudam o código
+const semZeros = (c: string) => { const z = c.replace(/^0+/, ''); return z.length >= 3 ? z : ''; };
 const baseCodigo = (c: string) => { const b = c.split('.')[0]; return b.length >= 3 && b !== c ? b : ''; };
 function indexarCatalogo(cat: any) {
   const porCodigo = new Map<string, any[]>(), porDesc = new Map<string, any[]>(), porChave = new Map<string, any>(), porFamilia = new Map<string, any[]>();
-  const porCodigoAlt = new Map<string, any[]>(), porBase = new Map<string, any[]>();
+  const porCodigoAlt = new Map<string, any[]>(), porBase = new Map<string, any[]>(), porSemZeros = new Map<string, any[]>();
   const add = (m: Map<string, any[]>, k: string, it: any) => { if (!k) return; if (!m.has(k)) m.set(k, []); if (!m.get(k)!.includes(it)) m.get(k)!.push(it); };
   for (const it of cat.itens) {
     porChave.set(it.chave, it);
@@ -1909,12 +1911,13 @@ function indexarCatalogo(cat: any) {
     const c = codNorm(it.codigo); if (c) { if (!porCodigo.has(c)) porCodigo.set(c, []); porCodigo.get(c)!.push(it); }
     for (const alt of codigosAlternativos(it)) { add(porCodigoAlt, alt, it); add(porBase, baseCodigo(alt), it); if (!alt.includes('.')) add(porBase, alt, it); }
     add(porBase, baseCodigo(c), it); if (!c.includes('.')) add(porBase, c, it);
+    add(porSemZeros, semZeros(c), it); for (const alt of codigosAlternativos(it)) add(porSemZeros, semZeros(alt), it);
     for (const desc of it.descricoes?.length ? it.descricoes : [it.descricao]) {
       for (const d of [limpa(desc), limpa(`${desc} ${it.variacao}`)]) { if (!d) continue; if (!porDesc.has(d)) porDesc.set(d, []); if (!porDesc.get(d)!.includes(it)) porDesc.get(d)!.push(it); }
     }
     if (it.referencia) { const rf = codNorm(it.referencia); if (!porCodigo.has(rf)) porCodigo.set(rf, []); if (!porCodigo.get(rf)!.includes(it)) porCodigo.get(rf)!.push(it); }
   }
-  return { porCodigo, porCodigoAlt, porBase, porDesc, porChave, porFamilia, itens: cat.itens };
+  return { porCodigo, porCodigoAlt, porBase, porSemZeros, porDesc, porChave, porFamilia, itens: cat.itens };
 }
 
 // Vinculos da propria loja (cada loja tem sua conta na VarejOnline e o id do produto pode coincidir entre contas).
@@ -1972,6 +1975,14 @@ function casarProduto(r: any, idx: ReturnType<typeof indexarCatalogo>, vinc: { n
   // a base do código da loja ("8062.0001" → 8062) contra a base dos códigos da Central
   for (const cod of [r.codigoSistema, r.codigoInterno]) {
     if (!cands.length && cod && idx.porCodigoAlt?.has(codNorm(cod))) { cands = idx.porCodigoAlt.get(codNorm(cod))!; via = 'código'; }
+  }
+  // mesmo código sem os zeros à esquerda; se o que sobra é só número, exige descrição parecida
+  for (const cod of [r.codigoSistema, r.codigoInterno]) {
+    const z = cod ? semZeros(codNorm(cod)) : '';
+    if (cands.length || !z || !idx.porSemZeros?.has(z)) continue;
+    const lista = idx.porSemZeros.get(z)!;
+    const ok = /^[\d.]+$/.test(z) ? lista.filter((c: any) => jaccard(tokens(r.descricao), tokens(c.descricao)) >= 0.3) : lista;
+    if (ok.length) { cands = ok; via = 'código'; }
   }
   for (const cod of [r.codigoSistema, r.codigoInterno]) {
     const b = cod ? baseCodigo(codNorm(cod)) || codNorm(cod) : '';
