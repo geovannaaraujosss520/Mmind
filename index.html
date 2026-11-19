@@ -5688,7 +5688,7 @@ const VIN_STATUS = {
   ignorado: { txt: 'Fora da Central', cls: 'chip', dica: 'Marcado como produto que não se compra pela Central' },
 };
 const statusVinculo = l => l.via === 'ignorado' ? 'ignorado' : !l.central ? 'sem' : l.via === 'vínculo' ? 'confirmado'
-  : (l.via === 'descrição' || l.variacaoIncerta || l.vinculoQuebrado) ? 'conferir' : 'codigo';
+  : (l.via === 'descrição' || l.via === 'código (base)' || l.variacaoIncerta || l.vinculoQuebrado) ? 'conferir' : 'codigo';
 try { $('vin_usuario').value = localStorage.getItem('sss_aprovador') || ''; } catch { }
 $('vin_usuario').addEventListener('change', () => { try { localStorage.setItem('sss_aprovador', $('vin_usuario').value.trim()); } catch { } });
 
