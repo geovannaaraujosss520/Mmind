@@ -5285,6 +5285,10 @@ async function ligarVendasAosFornecedores(vendas, onStatus, fornecedoresCompra =
         const f = porFornecedor[fid] ?? (porFornecedor[fid] = { nome: nomeF[fid] || '', pecas: 0, faturamento: 0, custo: 0, produtos: 0, porVia: {}, itensM: new Map() });
         f.pecas += x.q; f.faturamento += x.v; f.custo += x.c; f.produtos++; f.porVia.marca = (f.porVia.marca || 0) + x.v;
         f.marcaQ = (f.marcaQ || 0) + x.q; f.marcaFat = (f.marcaFat || 0) + x.v;
+        // entra também na lista de produtos do fornecedor (pelo código/descrição da loja), para o top 10
+        const km = String(x.cs || x.desc).toUpperCase().replace(/\s+/g, '');
+        const im = f.itensM.get(km) ?? (f.itensM.set(km, { codigo: x.cs || '', descricao: x.desc, pecas: 0, faturamento: 0, porMarca: true }), f.itensM.get(km));
+        im.pecas += x.q; im.faturamento += x.v;
         continue;
       }
       const [fid, nome, codigo, descItem, via] = m;
@@ -5337,7 +5341,7 @@ function montarFornecedores(compras, vendas, frete, insumo, P) {
       L.marcaQ = (L.marcaQ || 0) + (s.marcaQ || 0); L.marcaFat = (L.marcaFat || 0) + (s.marcaFat || 0);
       for (const it of s.itens) {
         const k = it.codigo.toUpperCase().replace(/\s+/g, '');
-        const I = x.itens.get(k) ?? (x.itens.set(k, { codigo: it.codigo, descricao: it.descricao, compraPecas: 0, compraValor: 0, precoCompra: 0, compraPorLoja: {}, vendaPorLoja: {}, vendaPecas: 0, vendaFat: 0 }), x.itens.get(k));
+        const I = x.itens.get(k) ?? (x.itens.set(k, { codigo: it.codigo, descricao: it.descricao, porMarca: !!it.porMarca, compraPecas: 0, compraValor: 0, precoCompra: 0, compraPorLoja: {}, vendaPorLoja: {}, vendaPecas: 0, vendaFat: 0 }), x.itens.get(k));
         I.vendaPecas += it.pecas; I.vendaFat += it.faturamento;
         const VL = I.vendaPorLoja[v.loja] ?? (I.vendaPorLoja[v.loja] = { q: 0, fat: 0 }); VL.q += it.pecas; VL.fat += it.faturamento;
       }
@@ -5582,7 +5586,10 @@ function detalheFornecedor(x) {
     .sort((a, b) => b.compraValor - a.compraValor || b.vendaFat - a.vendaFat);
   const itens = [...x.itens.values()].map(i => ({ ...i, giro: i.compraPecas ? Math.min(1, (i.daCompraPecas || 0) / i.compraPecas) : null }));
   const parados = itens.filter(i => i.compraPecas > 0 && !(i.daCompraPecas > 0)).sort((a, b) => b.compraValor - a.compraValor);
-  const top = [...itens].sort((a, b) => b.compraValor - a.compraValor || b.vendaFat - a.vendaFat).slice(0, 40);
+  const top = [...itens].filter(i => i.compraPecas > 0).sort((a, b) => b.compraValor - a.compraValor || b.vendaFat - a.vendaFat).slice(0, 40);
+  // top 10 mais vendidos do fornecedor no período (toda a venda, inclusive de estoque antigo)
+  const vendTot = itens.reduce((t, i) => t + i.vendaFat, 0);
+  const top10 = itens.filter(i => i.vendaPecas > 0).sort((a, b) => b.vendaFat - a.vendaFat).slice(0, 10);
   // peças que faturam menos da metade da peça média da rede: muito esforço para pouco retorno
   const ref = x.T?.precoPeca || 0, pcI = i => desta && i.compraPecas ? (i.daCompraPecas || 0) : i.vendaPecas, fatI = i => desta && i.compraPecas ? (i.daCompraFat || 0) : i.vendaFat;
   const precoI = i => pcI(i) ? fatI(i) / pcI(i) : null;
@@ -5604,6 +5611,16 @@ function detalheFornecedor(x) {
     </div>
     ${pcBar >= 1 && pcTot ? `<div style="margin-top:10px; font-size:12.5px"><strong style="color:var(--warn)">${fmtPct(pcBar / pcTot * 100, 0)} das peças vendidas${desta ? ' desta compra' : ''} faturam menos de ${fmtMoeda(ref / 2)} cada</strong> (metade da peça média da rede) e trazem só ${fmtPct(fatTot ? fatBar / fatTot * 100 : 0, 0)} do faturamento do fornecedor: ${esc(baratos.sort((a, b) => pcI(b) - pcI(a)).slice(0, 5).map(i => `${_cliTitulo(i.descricao || i.codigo)} (${fmtMoeda(precoI(i))}/pç)`).join('; '))}${baratos.length > 5 ? '…' : ''}</div>` : ''}
     ${parados.length ? `<div style="margin-top:10px; font-size:12.5px"><strong style="color:var(--danger)">${fmtNum(parados.length)} produto(s) comprados sem nenhuma venda nas lojas que compraram</strong> — ${fmtMoeda(parados.reduce((t, i) => t + i.compraValor, 0))}: ${esc(parados.slice(0, 6).map(i => `${i.codigo} ${_cliTitulo(i.descricao || '')}`).join('; '))}${parados.length > 6 ? '…' : ''}</div>` : ''}
+    ${top10.length ? `<div style="margin-top:14px"><div style="font-weight:650; font-size:13px; margin-bottom:6px">Top 10 mais vendidos de ${esc(x.nome)} <span style="font-weight:400; color:var(--muted)">(${dt2(_fornDados.P.desde)} até ${dt2(_fornDados.P.vendasAte)}, todas as lojas analisadas, inclusive estoque antigo)</span></div>
+      <div style="overflow-x:auto"><table class="no-tools forn-tab"><thead><tr><th class="num">#</th><th>Produto</th><th class="num">Peças vendidas</th><th class="num">Faturamento</th><th class="num" title="Parte do faturamento do fornecedor">% do fornecedor</th><th class="num">R$ por peça</th><th class="num" title="Peças compradas no período (pedido da Central)">Comprado no período</th><th class="num">Giro</th></tr></thead><tbody>
+      ${top10.map((i, n) => `<tr><td class="num">${n + 1}</td><td style="white-space:normal">${esc(_cliTitulo(i.descricao || i.codigo))}<span class="sub2">${esc(i.codigo || '')}${i.porMarca ? ' · ligado pela marca' : ''}</span></td>
+        <td class="num">${fmtNum(Math.round(i.vendaPecas))}</td><td class="num"><strong>${fmtMoeda(i.vendaFat)}</strong></td>
+        <td><span class="forn-barra" style="width:${Math.max(2, vendTot ? i.vendaFat / vendTot * 160 : 0)}px"></span>${fmtPct(vendTot ? i.vendaFat / vendTot * 100 : 0, 1)}</td>
+        <td class="num ${ref && i.vendaFat / i.vendaPecas < ref / 2 ? 'heat-ruim' : ''}">${fmtMoeda(i.vendaFat / i.vendaPecas)}</td>
+        <td class="num">${i.compraPecas ? fmtNum(Math.round(i.compraPecas)) + ' pç' : '<span style="color:var(--muted)">—</span>'}</td>
+        <td class="num ${giroCls(i.giro)}">${i.giro != null ? fmtPct(i.giro * 100, 0) : '—'}</td></tr>`).join('')}
+      </tbody></table></div>
+      <div class="sub" style="font-size:11.5px; max-width:none; margin-top:4px">Os 10 somam ${fmtPct(vendTot ? top10.reduce((t, i) => t + i.vendaFat, 0) / vendTot * 100 : 0, 0)} do faturamento do fornecedor no período.</div></div>` : ''}
     <div class="grade2">
       <div><div style="font-weight:650; font-size:13px; margin-bottom:6px">Por loja</div>
         <table class="no-tools forn-tab"><thead><tr><th>Loja</th><th class="num">Comprou</th><th class="num">Vendeu ${desta ? 'desta compra' : ''}</th><th class="num">Giro</th><th title="Venda ${desta ? 'das peças desta compra' : 'do fornecedor'} ÷ faturamento da loja">% do fatur. da loja</th></tr></thead><tbody>
@@ -5612,7 +5629,7 @@ function detalheFornecedor(x) {
           <td class="num ${giroCls(l.giro)}">${l.giro != null ? fmtPct(l.giro * 100, 0) : '—'}</td>
           <td><span class="forn-barra" style="width:${Math.max(2, l.pct / maxPct * 70)}px"></span>${fmtPct(l.pct, l.pct < 1 ? 2 : 1)}<span class="sub2">${fmtPct(l.pctPc, l.pctPc < 1 ? 2 : 1)} das peças${l.pctPc > 0 && l.pct / l.pctPc < 0.75 ? ' · <span style="color:var(--warn)">vende barato</span>' : ''}</span></td></tr>`).join('')}
         </tbody></table></div>
-      <div><div style="font-weight:650; font-size:13px; margin-bottom:6px">Por produto (código da Central)${itens.length > 40 ? ` — 40 de ${fmtNum(itens.length)}, pelos mais comprados` : ''}</div>
+      <div><div style="font-weight:650; font-size:13px; margin-bottom:6px">Comprado no período, por produto (código da Central)${itens.filter(i => i.compraPecas > 0).length > 40 ? ` — 40 de ${fmtNum(itens.filter(i => i.compraPecas > 0).length)}, pelos mais comprados` : ''}</div>
         <table class="no-tools forn-tab"><thead><tr><th>Produto</th><th class="num">Comprou</th><th class="num">Vendeu ${desta ? 'desta compra' : ''}</th><th class="num" title="Faturamento por peça vendida; em vermelho, menos da metade da peça média da rede (${esc(fmtMoeda(ref))})">R$ por peça</th><th class="num">Giro</th></tr></thead><tbody>
         ${top.map(i => `<tr><td style="white-space:normal">${esc(_cliTitulo(i.descricao || ''))}<span class="sub2">${esc(i.codigo)}</span></td>
           <td class="num">${i.compraPecas ? `${fmtNum(Math.round(i.compraPecas))} pç<span class="sub2">${fmtMoeda(i.compraValor)}</span>` : '—'}</td>
