@@ -329,7 +329,8 @@ async function moduloFornecedores(body: any, a: Acesso) {
     const atual: Record<string, number> = data?.dados ?? {};
     if (acao === 'frete') {
       const ins = await sb().from('painel_cache').select('dados').eq('chave', CHAVE_INSUMO).maybeSingle();
-      return { frete: atual, insumo: Array.isArray(ins.data?.dados) ? ins.data.dados : [] };
+      const mf = await sb().from('painel_cache').select('dados').eq('chave', 'marcas_fornecedor').maybeSingle();
+      return { frete: atual, insumo: Array.isArray(ins.data?.dados) ? ins.data.dados : [], marcasFornecedor: mf.data?.dados ?? {} };
     }
     const fid = String(body.fornecedorId ?? '').trim();
     if (!fid) throw new Error('Fornecedor não informado.');
@@ -439,6 +440,24 @@ async function moduloFornecedores(body: any, a: Acesso) {
     const marcas: Record<string, string> = {}; let pendentes = 0;
     for (const [k] of itens) { if (k in guardado) marcas[k] = guardado[k]; else pendentes++; }
     return { marcas, pendentes };
+  }
+  // Marcas conhecidas (do cadastro já lido) e as marcas que a franqueadora ligou a cada fornecedor
+  if (acao === 'listaMarcas') {
+    const { data } = await sb().from('painel_cache').select('dados').eq('chave', 'marcas_rede').maybeSingle();
+    const cont: Record<string, number> = {};
+    for (const m of Object.values(data?.dados ?? {}) as string[]) if (m) cont[m] = (cont[m] ?? 0) + 1;
+    return { marcas: Object.entries(cont).sort((a, b) => b[1] - a[1]).map(([marca, produtos]) => ({ marca, produtos })) };
+  }
+  if (acao === 'salvarMarcas') {
+    const fid = String(body.fornecedorId ?? '').trim(); if (!fid) throw new Error('Fornecedor não informado.');
+    const marcas = (Array.isArray(body.marcas) ? body.marcas : []).map((x: any) => String(x).trim().toUpperCase()).filter(Boolean).slice(0, 20);
+    const { data, error } = await sb().from('painel_cache').select('dados').eq('chave', 'marcas_fornecedor').maybeSingle();
+    if (error) throw new Error(error.message);
+    const atual: Record<string, string[]> = data?.dados ?? {};
+    if (marcas.length) atual[fid] = marcas; else delete atual[fid];
+    const r = await sb().from('painel_cache').upsert({ chave: 'marcas_fornecedor', dados: atual, atualizado_em: new Date().toISOString() }, { onConflict: 'chave' });
+    if (r.error) throw new Error(r.error.message);
+    return { ok: true, marcasFornecedor: atual };
   }
   // Cadastro completo de alguns produtos na VarejOnline (para conferir marca, fornecedor, classificação)
   if (acao === 'cadastroProdutos') {
