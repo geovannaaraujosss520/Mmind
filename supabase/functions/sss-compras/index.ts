@@ -487,6 +487,23 @@ async function moduloFornecedores(body: any, a: Acesso) {
   }
   // Liga os produtos vendidos de uma loja ao item/fornecedor da Central (mesma regra da tela Vínculos)
   // entrada: produtos [[produtoId, descricao, codigoSistema, codigoInterno]]; saída: produtoId → [fornecedorId, nome, códigoCentral, descrição, via] | 'ignorado' | null
+  // Estoque atual de uma loja (saldo da VarejOnline, todas as entidades), só produtos com saldo positivo:
+  // [produtoId, codigoSistema, codigoInterno, quantidade]. A tela liga ao fornecedor e valoriza pelo custo da Central.
+  if (acao === 'estoqueLoja') {
+    const loja = String(body.loja ?? '');
+    const tokens = await getLojasTokens();
+    if (!tokens[loja]) throw new Error('Loja inválida.');
+    const saldos: any[] = await saldosComCache(fetchAllPages, `${Deno.env.get('VAREJONLINE_API_BASE')!}/saldos-mercadorias`, tokens[loja], () => {});
+    const agg = new Map<string, any[]>();
+    for (const sl of saldos) {
+      const id = sl.produto?.id; if (id == null) continue;
+      const k = String(id), q = Number(sl.quantidade ?? 0);
+      const cur = agg.get(k) ?? [id, sl.produto?.codigoSistema ?? null, sl.produto?.codigoInterno ?? null, 0];
+      cur[3] += q; agg.set(k, cur);
+    }
+    return { loja, produtos: [...agg.values()].filter((x) => x[3] > 0).map((x) => [x[0], x[1], x[2], r2(x[3])]) };
+  }
+
   if (acao === 'mapearLoja') {
     const loja = String(body.loja ?? '');
     const lista: any[] = Array.isArray(body.produtos) ? body.produtos.slice(0, 6000) : [];
@@ -497,7 +514,7 @@ async function moduloFornecedores(body: any, a: Acesso) {
       const m = casarProduto({ produtoId, descricao, codigoSistema, codigoInterno }, idx, vinc);
       if (m.via === 'ignorado') { mapa[produtoId] = 'ignorado'; continue; }
       const it = m.item;
-      mapa[produtoId] = it?.fornecedorId ? [it.fornecedorId, it.fornecedorNome ?? '', String(it.codigo ?? '').trim(), it.descricao ?? '', m.via.startsWith('vínculo') ? 'vinculo' : m.via] : null;
+      mapa[produtoId] = it?.fornecedorId ? [it.fornecedorId, it.fornecedorNome ?? '', String(it.codigo ?? '').trim(), it.descricao ?? '', m.via.startsWith('vínculo') ? 'vinculo' : m.via, Number(it.preco) || null] : null;
     }
     return { loja, mapa };
   }
@@ -3823,7 +3840,7 @@ Deno.serve(async (req) => {
     if (modulo === 'sincronizarCentral') return resp(await moduloSincronizarCentral(body));
     if (modulo === 'fornecedores') {
       equipe(); // painel da franqueadora
-      if (body.acao === 'vendasLoja' || body.acao === 'mapearLoja' || body.acao === 'cadastroProdutos') exigirLoja(a, body.loja);
+      if (body.acao === 'vendasLoja' || body.acao === 'estoqueLoja' || body.acao === 'mapearLoja' || body.acao === 'cadastroProdutos') exigirLoja(a, body.loja);
       return resp(await moduloFornecedores(body, a));
     }
     if (modulo === 'lojaEditar') { exigirPapel(a, 'admin'); return resp(await moduloLojaEditar(body)); }
