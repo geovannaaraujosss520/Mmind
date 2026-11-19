@@ -943,6 +943,7 @@
         <p><strong>Frete:</strong> a Central não informa o valor do frete. Informe o frete médio de cada fornecedor (% do valor do pedido); fica salvo para as próximas análises.</p>
         <p><strong>Markup:</strong> preço de venda ÷ custo de compra na Central (+ frete) das peças desta compra que já venderam — usa o preço do pedido, não o custo cadastrado no VarejOnline. Embaixo, <strong>já voltou</strong>: a venda dessas peças ÷ tudo o que foi gasto na compra (+ frete); 1× significa que a compra já se pagou.</p>
         <p><strong>Por que o faturamento por peça importa:</strong> vender 10 medalhas compradas a R$ 0,50 e vendidas a R$ 1,50 dá markup de 3×, mas fatura R$ 15. Vender 10 colares comprados a R$ 35 e vendidos a R$ 99 fatura R$ 990. O esforço é o mesmo (10 peças: 10 atendimentos, embalagens e tempo de vendedor), o retorno não. Por isso o markup sozinho não decide a leitura.</p>
+        <p><strong>Quantas vezes mais esforço:</strong> peças vendidas para faturar R$ 1.000 de cada fornecedor, comparadas com a média da rede (coluna Esforço × retorno) ou entre dois fornecedores (quadro "Comparar o esforço"). Ex.: 21 peças de um contra 11 de outro para o mesmo R$ 1.000 = 1,9× mais esforço.</p>
         <p><strong>Esforço × retorno</strong> (também só com as peças desta compra): quanto o fornecedor ocupa das <em>peças vendidas</em> (o esforço: cada peça é um atendimento, embalagem e tempo de vendedor) comparado com quanto ele devolve do <em>faturamento</em> e do <em>lucro bruto</em> das lojas. Ex.: 25% das peças vendidas para 12% do faturamento = a loja faz força vendendo peça barata. <em>Vende barato</em> = parte do faturamento abaixo de 75% da parte das peças · <em>Não sustenta</em> = além disso, lucro bruto por peça abaixo de 60% da média · <em>Puxa o ticket</em> = parte do faturamento acima de 125% da parte das peças.</p>
         <p><strong>Leitura:</strong> <em>Revisar</em> = não sustenta, giro abaixo de 60% do giro médio da rede, markup abaixo de 1,8× ou peça que fatura menos da metade da peça média da rede · <em>Compensa</em> = giro igual ou acima do da rede, markup ≥ 2,2× e peça faturando pelo menos 75% da média · <em>Atenção</em> = o resto. No detalhe de cada fornecedor, a coluna <strong>R$ por peça</strong> marca em vermelho os produtos que faturam menos da metade da peça média.</p>
       </div></details>
@@ -5104,7 +5105,7 @@ const DIAS_NOME = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 
 // =====================================================================
 // FORNECEDORES (franqueadora): compra na Central × venda × % do faturamento × frete
 // =====================================================================
-let _fornDados = null, _fornAberto = null, _fornOrdem = 'valor', _fornMostrarSemCompra = false;
+let _fornDados = null, _fornAberto = null, _fornOrdem = 'valor', _fornMostrarSemCompra = false, _fornMarcasManuais = {}, _fornCmp = null;
 (function iniciarFornecedores() {
   const hoje = new Date(Date.now() - 3 * 3600e3), iso = d => d.toISOString().slice(0, 10);
   const ini = new Date(hoje); ini.setDate(ini.getDate() - 89);
@@ -5141,7 +5142,8 @@ async function rodarFornecedores() {
       feitas++; st.textContent = `Lendo as vendas das lojas… ${feitas}/${nomes.length}`;
       return r;
     });
-    const vendas = await ligarVendasAosFornecedores(brutas, msg => { st.textContent = msg; }, compras.fornecedores);
+    const vendas = await ligarVendasAosFornecedores(brutas, msg => { st.textContent = msg; }, compras.fornecedores, fr.marcasFornecedor || {});
+    _fornMarcasManuais = fr.marcasFornecedor || {};
     _fornDados = montarFornecedores(compras, vendas, fr.frete || {}, new Set(fr.insumo || []), { desde, ate, vendasAte: vendasAte || new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10), filtroLojas: filtro ? nomes : null });
     _fornAberto = null;
     renderFornecedores();
@@ -5212,22 +5214,27 @@ async function vendasFornecedorLoja(loja, de, ate) {
 // (≥ 60%) ou, se a marca ainda não tem nada ligado, pelo nome ("LK JOIAS" → LK JOIAS, "PATRICIA VIRMOND" → ATELIER PATRICIA VIRMOND).
 const _normNome = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ')
   .split(/\s+/).filter(w => w && !['LTDA', 'ME', 'EIRELI', 'COMERCIO', 'DE', 'DA', 'DO', 'DAS', 'DOS', 'E', 'ARTIGOS', 'INDUSTRIA', 'DISTRIBUIDORA'].includes(w));
-function marcaParaFornecedor(tally, fornecedores) {
-  const mapa = {};
+// Ordem: 1) marcas ligadas à mão pela franqueadora (detalhe do fornecedor); 2) nome da marca dentro do nome
+// do fornecedor ("EA" → EA PRESENTES, "LK JOIAS" → LK JOIAS); 3) fornecedor que já recebe 60%+ da venda da marca.
+function marcaParaFornecedor(tally, fornecedores, manuais = {}) {
+  const mapa = {}, aMao = {};
+  for (const [fid, marcas] of Object.entries(manuais || {})) for (const m of marcas || []) aMao[_normNome(m).join(' ')] = fid;
   for (const [marca, porF] of Object.entries(tally)) {
     const tot = Object.values(porF).reduce((t, v) => t + v, 0), top = Object.entries(porF).sort((a, b) => b[1] - a[1])[0];
     if (top && tot > 0 && top[1] / tot >= 0.6) mapa[marca] = top[0];
   }
   const forn = fornecedores.map(f => ({ id: f.id, nome: f.nome, w: _normNome(f.nome) }));
+  const cache = new Map();
   return (marca) => {
     if (!marca) return null;
-    if (marca in mapa) return mapa[marca];
-    const wm = _normNome(marca); if (!wm.length) return null;
-    const cands = forn.filter(f => wm.every(w => f.w.includes(w)));
-    return cands.length === 1 ? cands[0].id : null;
+    if (cache.has(marca)) return cache.get(marca);
+    const wm = _normNome(marca); let r = null;
+    if (wm.length && aMao[wm.join(' ')]) r = aMao[wm.join(' ')];
+    else { const cands = wm.length ? forn.filter(f => wm.every(w => f.w.includes(w))) : []; r = cands.length === 1 ? cands[0].id : (mapa[marca] ?? null); }
+    cache.set(marca, r); return r;
   };
 }
-async function ligarVendasAosFornecedores(vendas, onStatus, fornecedoresCompra = []) {
+async function ligarVendasAosFornecedores(vendas, onStatus, fornecedoresCompra = [], marcasManuais = {}) {
   const chave = (loja, x) => x.cs ? 'C:' + String(x.cs).trim().toUpperCase().replace(/\s+/g, '') : `I:${loja}:${x.id}`;
   const unicos = new Map();
   for (const v of vendas) if (!v.erro) for (const x of v.produtos) { const k = chave(v.loja, x); if (!unicos.has(k)) unicos.set(k, [x.id, x.desc, x.cs, x.ci]); }
@@ -5261,7 +5268,10 @@ async function ligarVendasAosFornecedores(vendas, onStatus, fornecedoresCompra =
     const m = mapa.get(chave(v.loja, x)), mk = marcas.get(chave(v.loja, x));
     if (Array.isArray(m) && mk) { nomeF[m[0]] = nomeF[m[0]] || m[1]; tally[mk] = tally[mk] || {}; tally[mk][m[0]] = (tally[mk][m[0]] || 0) + x.v; }
   }
-  const fornDaMarca = marcaParaFornecedor(tally, Object.entries(nomeF).map(([id, nome]) => ({ id, nome })));
+  const fornDaMarca = marcaParaFornecedor(tally, Object.entries(nomeF).map(([id, nome]) => ({ id, nome })), marcasManuais);
+  // marcas de cada fornecedor (para mostrar no detalhe)
+  window._fornMarcasVistas = {};
+  for (const mk of Object.keys(tally).concat([...new Set(marcas.values())])) { const fid = mk && fornDaMarca(mk); if (fid) (window._fornMarcasVistas[fid] = window._fornMarcasVistas[fid] || new Set()).add(mk); }
   return vendas.map(v => {
     if (v.erro) return v;
     const porFornecedor = {}, sem = { pecas: 0, faturamento: 0, produtos: 0 }, fora = { pecas: 0, faturamento: 0, produtos: 0 };
@@ -5402,6 +5412,9 @@ function calcularLeituraFornecedor(x, T, P) {
   x.precoPeca = base.pecas ? base.fat / base.pecas : null;
   x.lucroPeca = base.pecas ? x.lucro / base.pecas : null;
   x.idxEsforco = x.pctPecas > 0 ? x.pctFat / x.pctPecas : null;
+  // esforço = peças vendidas para faturar R$ 1.000; "vezes" = quanto isso é da média da rede
+  x.pecasPorMil = base.fat > 0 ? base.pecas / base.fat * 1000 : null;
+  x.vezesEsforco = x.pecasPorMil != null && T.pecas && T.fat ? x.pecasPorMil / (T.pecas / T.fat * 1000) : null;
   x.esforco = x.idxEsforco == null || base.pecas < 20 ? null : x.idxEsforco < 0.75 ? 'barato' : x.idxEsforco > 1.25 ? 'ticket' : 'equilibrado';
   const lucroBaixo = x.lucroPeca != null && T.lucroPeca > 0 && x.lucroPeca < 0.6 * T.lucroPeca;
   x.naoSustenta = x.esforco === 'barato' && lucroBaixo;
@@ -5468,7 +5481,7 @@ function renderFornecedores() {
       <td class="num" title="${esc(x.comprado.pedidos ? `Desta compra: ${fmtNum(Math.round(x.daCompra.pecas))} peças, ${fmtMoeda(x.daCompra.faturamento)}. Com o estoque antigo: ${fmtNum(Math.round(x.vendido.pecas))} peças, ${fmtMoeda(x.vendido.faturamento)} (${fmtPct(x.pctFatTotal, 1)} do faturamento).` : 'Sem pedido no período: venda de estoque antigo.')}">${x.base.fat ? `<strong>${fmtMoeda(x.base.fat)}</strong><span class="sub2">${fmtNum(Math.round(x.base.pecas))} peças${x.comprado.pedidos && x.estoqueAntigo >= 1 ? ` · +${fmtNum(Math.round(x.estoqueAntigo))} de estoque antigo` : ''}</span>` : '<span style="color:var(--danger)">sem venda</span>'}</td>
       <td class="num ${x.giro == null || !T.giroRede ? '' : x.giro >= T.giroRede ? 'heat-bom' : x.giro < 0.6 * T.giroRede ? 'heat-ruim' : 'heat-medio'}">${x.giro != null ? fmtPct(x.giro * 100, 0) : '—'}</td>
       <td class="num" title="${esc(`${fmtPct(x.pctFat, 1)} do faturamento · ${fmtPct(x.pctPecas, 1)} das peças vendidas · ${fmtPct(x.pctLucro, 1)} do lucro bruto das lojas analisadas`)}"><strong>${fmtPct(x.pctFat, x.pctFat < 1 ? 2 : 1)}</strong><span class="sub2">${fmtPct(x.pctPecas, x.pctPecas < 1 ? 2 : 1)} das peças · ${fmtPct(x.pctLucro, x.pctLucro < 1 ? 2 : 1)} do lucro</span></td>
-      <td title="${esc(x.precoPeca != null ? `Preço médio da peça ${fmtMoeda(x.precoPeca)} (lojas: ${fmtMoeda(T.precoPeca)}) · lucro bruto por peça ${fmtMoeda(x.lucroPeca)} (lojas: ${fmtMoeda(T.lucroPeca)}) · margem ${fmtPct(x.margem, 0)}` : '')}">${esfTag(x)}<span class="sub2">${x.precoPeca != null ? `${fmtMoeda(x.precoPeca)}/pç · lucro ${fmtMoeda(x.lucroPeca)}/pç` : ''}</span></td>
+      <td title="${esc(x.precoPeca != null ? `Preço médio da peça ${fmtMoeda(x.precoPeca)} (lojas: ${fmtMoeda(T.precoPeca)}) · lucro bruto por peça ${fmtMoeda(x.lucroPeca)} (lojas: ${fmtMoeda(T.lucroPeca)}) · margem ${fmtPct(x.margem, 0)}` : '')}">${esfTag(x)}<span class="sub2">${x.pecasPorMil != null ? `${fmtNum(Math.round(x.pecasPorMil * 10) / 10)} pç por R$ 1 mil · <strong style="color:${x.vezesEsforco > 1.25 ? 'var(--warn)' : x.vezesEsforco < 0.8 ? 'var(--good)' : 'inherit'}">${x.vezesEsforco.toFixed(1).replace('.', ',')}× a média</strong>` : ''}</span><span class="sub2">${x.precoPeca != null ? `${fmtMoeda(x.precoPeca)}/pç · lucro ${fmtMoeda(x.lucroPeca)}/pç` : ''}</span></td>
       <td class="num" onclick="event.stopPropagation()"><input class="forn-frete" type="number" min="0" max="100" step="0.5" placeholder="—" value="${x.frete ?? ''}" data-forn-frete="${esc(x.id)}" aria-label="Frete de ${esc(x.nome)} em % do pedido"></td>
       <td class="num ${x.markup == null ? '' : x.markup >= 2.2 ? 'heat-bom' : x.markup < 1.8 ? 'heat-ruim' : 'heat-medio'}">${x.markup != null ? x.markup.toFixed(2).replace('.', ',') + '×' : '—'}<span class="sub2">${x.retorno != null ? `já voltou ${x.retorno.toFixed(2).replace('.', ',')}×` : ''}</span></td>
       <td title="${esc(x.motivo)}"><span class="${L[0]}">${L[1]}</span>${x.compraRecente ? '<span class="sub2">compra recente</span>' : ''}</td>
@@ -5491,6 +5504,7 @@ function renderFornecedores() {
       <div style="color:var(--muted); font-size:12px; margin-bottom:8px">Fornecedores que ocupam bem mais peças vendidas do que trazem de faturamento — muita venda de peça barata. Cada peça custa o mesmo atendimento, embalagem e tempo de vendedor.</div>
       ${forca.map(x => `<div style="padding:3px 0"><strong>${esc(x.nome)}</strong> — ${fmtPct(x.pctPecas, 1)} das peças vendidas, ${fmtPct(x.pctFat, 1)} do faturamento e ${fmtPct(x.pctLucro, 1)} do lucro · ${fmtMoeda(x.precoPeca)}/pç (média ${fmtMoeda(T.precoPeca)})${x.naoSustenta ? ' · <span class="tag-risco">Não sustenta</span>' : ''}</div>`).join('')}
     </div>` : ''}
+    ${comparadorEsforco(lista, T)}
     <div class="tbl-tools" style="margin-bottom:8px">
       <label style="display:inline-flex; gap:6px; align-items:center; font-size:12.5px; width:auto; margin:0"><input type="checkbox" id="forn_sem_compra" style="width:auto; margin:0" ${_fornMostrarSemCompra ? 'checked' : ''}> Mostrar também fornecedores sem compra no período (${fmtNum(semCompra)})</label>
       <span style="font-size:12px; color:var(--muted)">Clique num fornecedor para ver por loja e por produto. Ordenar: clique no título da coluna.</span>
@@ -5507,8 +5521,42 @@ function renderFornecedores() {
   box.querySelectorAll('[data-forn]').forEach(tr => tr.addEventListener('click', () => { _fornAberto = _fornAberto === tr.dataset.forn ? null : tr.dataset.forn; renderFornecedores(); }));
   box.querySelectorAll('[data-forn-ord]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); _fornOrdem = b.dataset.fornOrd; renderFornecedores(); }));
   $('forn_sem_compra').addEventListener('change', e => { _fornMostrarSemCompra = e.target.checked; renderFornecedores(); });
+  ['forn_cmp_a', 'forn_cmp_b'].forEach((id, i) => $(id)?.addEventListener('change', e => { _fornCmp = _fornCmp || [null, null]; _fornCmp[i] = e.target.value; renderFornecedores(); }));
+  box.querySelectorAll('[data-forn-marcas]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); salvarMarcasFornecedor(b.dataset.fornMarcas); }));
   box.querySelectorAll('[data-forn-frete]').forEach(inp => inp.addEventListener('change', () => salvarFreteFornecedor(inp.dataset.fornFrete, inp.value, inp)));
   box.querySelectorAll('[data-forn-insumo]').forEach(inp => inp.addEventListener('change', () => salvarInsumoFornecedor(inp.dataset.fornInsumo, inp.checked, inp)));
+}
+// "Quantas vezes mais esforço": peças vendidas para faturar o mesmo valor, fornecedor A × fornecedor B
+function comparadorEsforco(lista, T) {
+  const ok = lista.filter(x => x.pecasPorMil != null && x.base.pecas >= 20);
+  if (ok.length < 2) return '';
+  const porValor = [...ok].sort((a, b) => b.comprado.valor - a.comprado.valor);
+  let [a, b] = _fornCmp || [];
+  if (!ok.some(x => x.id === a)) a = porValor[0].id;
+  if (!ok.some(x => x.id === b) || b === a) b = porValor.find(x => x.id !== a).id;
+  _fornCmp = [a, b];
+  const A = ok.find(x => x.id === a), B = ok.find(x => x.id === b);
+  const opt = sel => [...ok].sort((p, q) => p.nome.localeCompare(q.nome)).map(x => `<option value="${esc(x.id)}" ${x.id === sel ? 'selected' : ''}>${esc(x.nome)}</option>`).join('');
+  const [mais, menos] = A.pecasPorMil >= B.pecasPorMil ? [A, B] : [B, A];
+  const vezes = mais.pecasPorMil / menos.pecasPorMil, alvo = 10000;
+  const pc = x => Math.round(x.pecasPorMil * alvo / 1000), lucro = x => x.lucroPeca != null ? x.lucroPeca * pc(x) : null;
+  return `<div class="panel" style="padding:12px 16px; margin-bottom:14px; font-size:13px">
+    <div style="font-weight:650; margin-bottom:8px">Comparar o esforço entre dois fornecedores</div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px">
+      <select id="forn_cmp_a" style="width:auto; max-width:280px">${opt(a)}</select><span>×</span><select id="forn_cmp_b" style="width:auto; max-width:280px">${opt(b)}</select></div>
+    <div style="font-size:15px">Para faturar <strong>${fmtMoeda(alvo)}</strong>, a loja vende <strong>${fmtNum(pc(A))} peças de ${esc(A.nome)}</strong> ou <strong>${fmtNum(pc(B))} peças de ${esc(B.nome)}</strong>:
+      <strong style="color:var(--warn)">${esc(mais.nome)} dá ${vezes.toFixed(1).replace('.', ',')}× mais esforço</strong> (atendimentos, embalagens, tempo de vendedor).</div>
+    <div class="sub" style="font-size:12px; max-width:none; margin-top:6px">Peça média: ${esc(A.nome)} ${fmtMoeda(A.precoPeca)} · ${esc(B.nome)} ${fmtMoeda(B.precoPeca)} · rede ${fmtMoeda(T.precoPeca)}.${lucro(A) != null && lucro(B) != null ? ` Lucro bruto desses ${fmtMoeda(alvo)}: ${esc(A.nome)} ${fmtMoeda(lucro(A))} · ${esc(B.nome)} ${fmtMoeda(lucro(B))}.` : ''} Só peças desta compra.</div>
+  </div>`;
+}
+async function salvarMarcasFornecedor(fid) {
+  const inp = $('forn_marcas_' + fid); if (!inp) return;
+  const marcas = inp.value.split(',').map(t => t.trim().toUpperCase()).filter(Boolean);
+  try {
+    const r = await chamarEdge({ modulo: 'fornecedores', acao: 'salvarMarcas', fornecedorId: fid, marcas }, EDGE_COMPRAS_URL);
+    _fornMarcasManuais = r.marcasFornecedor || {};
+    $('forn_marcas_msg_' + fid).textContent = 'Salvo. Rode a análise de novo para aplicar.';
+  } catch (e) { alert(`Não deu para salvar as marcas: ${e.message}`); }
 }
 async function salvarInsumoFornecedor(fid, marcado, inp) {
   const x = _fornDados?.fornecedores.find(f => f.id === fid); if (!x) return;
@@ -5548,6 +5596,12 @@ function detalheFornecedor(x) {
     <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center"><h3>${esc(x.nome)}</h3>
       <label style="display:inline-flex; gap:6px; align-items:center; font-size:12.5px; width:auto; margin:0" onclick="event.stopPropagation()"><input type="checkbox" style="width:auto; margin:0" data-forn-insumo="${esc(x.id)}" ${x.insumo ? 'checked' : ''}> Fornecedor de insumo (embalagem, material de loja) — fora da análise de venda</label></div>
     <div style="font-size:12.5px; color:var(--muted)">${esc(x.motivo)}.${viaTxt ? ` Venda ligada ao fornecedor por: ${esc(viaTxt)}.` : ''}${x.comprado.cancelados ? ` ${x.comprado.cancelados} pedido(s) cancelado(s) não entram na conta.` : ''}</div>
+    <div style="margin-top:10px; font-size:12.5px; display:flex; gap:8px; flex-wrap:wrap; align-items:center" onclick="event.stopPropagation()">
+      <span>Marcas no cadastro da VarejOnline:</span>
+      <input id="forn_marcas_${esc(x.id)}" style="width:auto; min-width:240px; padding:4px 8px; font-size:12.5px" value="${esc(((_fornMarcasManuais[x.id] && _fornMarcasManuais[x.id].length) ? _fornMarcasManuais[x.id] : [...(window._fornMarcasVistas?.[x.id] || [])]).join(', '))}" placeholder="ex.: EA, ELAINE ALVES">
+      <button type="button" class="secondary ini-oferecer" data-forn-marcas="${esc(x.id)}">Salvar marcas</button>
+      <span id="forn_marcas_msg_${esc(x.id)}" style="color:var(--muted)">${_fornMarcasManuais[x.id]?.length ? 'definidas à mão' : 'reconhecidas sozinhas — corrija se precisar'}</span>
+    </div>
     ${pcBar >= 1 && pcTot ? `<div style="margin-top:10px; font-size:12.5px"><strong style="color:var(--warn)">${fmtPct(pcBar / pcTot * 100, 0)} das peças vendidas${desta ? ' desta compra' : ''} faturam menos de ${fmtMoeda(ref / 2)} cada</strong> (metade da peça média da rede) e trazem só ${fmtPct(fatTot ? fatBar / fatTot * 100 : 0, 0)} do faturamento do fornecedor: ${esc(baratos.sort((a, b) => pcI(b) - pcI(a)).slice(0, 5).map(i => `${_cliTitulo(i.descricao || i.codigo)} (${fmtMoeda(precoI(i))}/pç)`).join('; '))}${baratos.length > 5 ? '…' : ''}</div>` : ''}
     ${parados.length ? `<div style="margin-top:10px; font-size:12.5px"><strong style="color:var(--danger)">${fmtNum(parados.length)} produto(s) comprados sem nenhuma venda nas lojas que compraram</strong> — ${fmtMoeda(parados.reduce((t, i) => t + i.compraValor, 0))}: ${esc(parados.slice(0, 6).map(i => `${i.codigo} ${_cliTitulo(i.descricao || '')}`).join('; '))}${parados.length > 6 ? '…' : ''}</div>` : ''}
     <div class="grade2">
