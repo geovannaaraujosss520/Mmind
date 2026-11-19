@@ -936,6 +936,7 @@
       <details class="como-funciona"><summary>Como funciona</summary><div>
         <p><strong>Período:</strong> até 13 meses atrás (atalhos 90 dias, 6 meses e 12 meses). Períodos longos demoram mais: as compras são lidas de mês em mês e as vendas de cada loja também.</p>
         <p><strong>Comprado:</strong> pedidos da Central feitos no período (sem os cancelados), por fornecedor e loja. Valor = quantidade × preço do pedido.</p>
+        <p><strong>Marca:</strong> quando o produto não tem vínculo nem código que bata com a Central, a venda vai para o fornecedor pela <strong>MARCA</strong> do cadastro da VarejOnline (ex.: ANDRÉA → EMPORIUM DA BIJUTERIA, JOSE RAFAEL → ACESSÓRIOS JR). A marca vale para o fornecedor que já recebe a maior parte (60%+) da venda dessa marca pelos vínculos; marca sem nada ligado é reconhecida pelo nome (ex.: LK JOIAS). Nesses casos não se sabe o item exato, então no giro a venda conta, por loja, até o que sobrou da compra daquele fornecedor.</p>
         <p><strong>Vendido:</strong> vendas das lojas (VarejOnline) do início do período até a data escolhida em "Vendas até", dos produtos ligados ao fornecedor pela mesma regra da tela Vínculos (vínculo salvo; senão código; senão descrição). Produto sem ligação entra em "sem fornecedor identificado" — quanto mais vínculos, mais precisa a análise.</p>
         <p><strong>Giro:</strong> das peças compradas no período, quantas já venderam. Em cada loja e produto, a venda conta só até a quantidade comprada — o que vendeu além disso saiu de estoque antigo e aparece à parte. Por isso o giro fica sempre entre 0% e 100%. Compra feita há poucos dias ainda não teve tempo de girar.</p>
         <p><strong>% do faturamento:</strong> quanto faturaram as peças <em>desta compra</em> que já venderam ÷ faturamento total das lojas analisadas no mesmo intervalo. Ex.: comprei 1.000, vendi 500, e essas 500 deram 10% do meu faturamento. A venda do mesmo fornecedor saída de estoque antigo aparece à parte e não entra nessa conta.</p>
@@ -5140,7 +5141,7 @@ async function rodarFornecedores() {
       feitas++; st.textContent = `Lendo as vendas das lojas… ${feitas}/${nomes.length}`;
       return r;
     });
-    const vendas = await ligarVendasAosFornecedores(brutas, msg => { st.textContent = msg; });
+    const vendas = await ligarVendasAosFornecedores(brutas, msg => { st.textContent = msg; }, compras.fornecedores);
     _fornDados = montarFornecedores(compras, vendas, fr.frete || {}, new Set(fr.insumo || []), { desde, ate, vendasAte: vendasAte || new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10), filtroLojas: filtro ? nomes : null });
     _fornAberto = null;
     renderFornecedores();
@@ -5207,7 +5208,26 @@ async function vendasFornecedorLoja(loja, de, ate) {
 
 // Liga os produtos vendidos de TODAS as lojas ao fornecedor da Central de uma vez (por código do produto;
 // a mesma peça em várias lojas é consultada uma vez só) e monta, para cada loja, a venda por fornecedor.
-async function ligarVendasAosFornecedores(vendas, onStatus) {
+// Marca (cadastro da VarejOnline) → fornecedor da Central: pela maioria da venda já ligada por vínculo/código
+// (≥ 60%) ou, se a marca ainda não tem nada ligado, pelo nome ("LK JOIAS" → LK JOIAS, "PATRICIA VIRMOND" → ATELIER PATRICIA VIRMOND).
+const _normNome = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ')
+  .split(/\s+/).filter(w => w && !['LTDA', 'ME', 'EIRELI', 'COMERCIO', 'DE', 'DA', 'DO', 'DAS', 'DOS', 'E', 'ARTIGOS', 'INDUSTRIA', 'DISTRIBUIDORA'].includes(w));
+function marcaParaFornecedor(tally, fornecedores) {
+  const mapa = {};
+  for (const [marca, porF] of Object.entries(tally)) {
+    const tot = Object.values(porF).reduce((t, v) => t + v, 0), top = Object.entries(porF).sort((a, b) => b[1] - a[1])[0];
+    if (top && tot > 0 && top[1] / tot >= 0.6) mapa[marca] = top[0];
+  }
+  const forn = fornecedores.map(f => ({ id: f.id, nome: f.nome, w: _normNome(f.nome) }));
+  return (marca) => {
+    if (!marca) return null;
+    if (marca in mapa) return mapa[marca];
+    const wm = _normNome(marca); if (!wm.length) return null;
+    const cands = forn.filter(f => wm.every(w => f.w.includes(w)));
+    return cands.length === 1 ? cands[0].id : null;
+  };
+}
+async function ligarVendasAosFornecedores(vendas, onStatus, fornecedoresCompra = []) {
   const chave = (loja, x) => x.cs ? 'C:' + String(x.cs).trim().toUpperCase().replace(/\s+/g, '') : `I:${loja}:${x.id}`;
   const unicos = new Map();
   for (const v of vendas) if (!v.erro) for (const x of v.produtos) { const k = chave(v.loja, x); if (!unicos.has(k)) unicos.set(k, [x.id, x.desc, x.cs, x.ci]); }
@@ -5221,13 +5241,42 @@ async function ligarVendasAosFornecedores(vendas, onStatus) {
     const parte = lista.slice(k, k + 2500), r = await mapear(parte);
     for (const [kk, p] of parte) mapa.set(kk, r[p[0]] ?? null);
   }
+  // marca de cada produto (guardada no servidor; na primeira vez busca no cadastro da VarejOnline)
+  const rep = new Map();
+  for (const v of vendas) if (!v.erro) for (const x of v.produtos) { const k = chave(v.loja, x); if (!rep.has(k)) rep.set(k, [k, v.loja, x.id]); }
+  const listaM = [...rep.values()], marcas = new Map();
+  for (let k = 0; k < listaM.length; k += 3000) {
+    let parte = listaM.slice(k, k + 3000);
+    for (let tent = 0; tent < 12 && parte.length; tent++) {
+      onStatus && onStatus(`Lendo a marca dos produtos… ${Math.min(k + 3000, listaM.length) - parte.length}/${listaM.length}${tent ? ' (primeira vez demora mais)' : ''}`);
+      let r; try { r = await chamarEdge({ modulo: 'fornecedores', acao: 'marcas', itens: parte }, EDGE_COMPRAS_URL); } catch (e) { break; }
+      for (const [kk, mm] of Object.entries(r.marcas)) marcas.set(kk, mm);
+      parte = parte.filter(p => !marcas.has(p[0]));
+      if (!r.pendentes) break;
+    }
+  }
+  const tally = {}, nomeF = {};
+  for (const f of fornecedoresCompra) nomeF[f.id] = f.nome;
+  for (const v of vendas) if (!v.erro) for (const x of v.produtos) {
+    const m = mapa.get(chave(v.loja, x)), mk = marcas.get(chave(v.loja, x));
+    if (Array.isArray(m) && mk) { nomeF[m[0]] = nomeF[m[0]] || m[1]; tally[mk] = tally[mk] || {}; tally[mk][m[0]] = (tally[mk][m[0]] || 0) + x.v; }
+  }
+  const fornDaMarca = marcaParaFornecedor(tally, Object.entries(nomeF).map(([id, nome]) => ({ id, nome })));
   return vendas.map(v => {
     if (v.erro) return v;
     const porFornecedor = {}, sem = { pecas: 0, faturamento: 0, produtos: 0 }, fora = { pecas: 0, faturamento: 0, produtos: 0 };
     for (const x of v.produtos) {
       const m = mapa.get(chave(v.loja, x));
       if (m === 'ignorado') { fora.pecas += x.q; fora.faturamento += x.v; fora.produtos++; continue; }
-      if (!m) { sem.pecas += x.q; sem.faturamento += x.v; sem.produtos++; continue; }
+      if (!m) {
+        // sem vínculo nem código: usa a MARCA do cadastro para saber o fornecedor (sem saber o item exato)
+        const fid = fornDaMarca(marcas.get(chave(v.loja, x)));
+        if (!fid) { sem.pecas += x.q; sem.faturamento += x.v; sem.produtos++; continue; }
+        const f = porFornecedor[fid] ?? (porFornecedor[fid] = { nome: nomeF[fid] || '', pecas: 0, faturamento: 0, custo: 0, produtos: 0, porVia: {}, itensM: new Map() });
+        f.pecas += x.q; f.faturamento += x.v; f.custo += x.c; f.produtos++; f.porVia.marca = (f.porVia.marca || 0) + x.v;
+        f.marcaQ = (f.marcaQ || 0) + x.q; f.marcaFat = (f.marcaFat || 0) + x.v;
+        continue;
+      }
       const [fid, nome, codigo, descItem, via] = m;
       const f = porFornecedor[fid] ?? (porFornecedor[fid] = { nome, pecas: 0, faturamento: 0, custo: 0, produtos: 0, porVia: {}, itensM: new Map() });
       f.pecas += x.q; f.faturamento += x.v; f.custo += x.c; f.produtos++; f.porVia[via] = (f.porVia[via] || 0) + x.v;
@@ -5239,6 +5288,7 @@ async function ligarVendasAosFornecedores(vendas, onStatus) {
     return { loja: v.loja, faturamento: v.faturamento, pecas: v.pecas, custo: v.custo, porFornecedor, semFornecedor: sem, foraDaCentral: fora };
   });
 }
+
 
 function montarFornecedores(compras, vendas, frete, insumo, P) {
   const okV = vendas.filter(v => !v.erro), erros = vendas.filter(v => v.erro);
@@ -5274,6 +5324,7 @@ function montarFornecedores(compras, vendas, frete, insumo, P) {
       for (const [via, val] of Object.entries(s.porVia || {})) x.porVia[via] = (x.porVia[via] || 0) + val;
       const L = x.porLoja[v.loja] ?? (x.porLoja[v.loja] = { compraValor: 0, compraPecas: 0, pedidos: 0, ultima: null, vendaPecas: 0, vendaFat: 0, fatLoja: 0 });
       L.vendaPecas += s.pecas; L.vendaFat += s.faturamento; L.vendaCusto = (L.vendaCusto || 0) + s.custo;
+      L.marcaQ = (L.marcaQ || 0) + (s.marcaQ || 0); L.marcaFat = (L.marcaFat || 0) + (s.marcaFat || 0);
       for (const it of s.itens) {
         const k = it.codigo.toUpperCase().replace(/\s+/g, '');
         const I = x.itens.get(k) ?? (x.itens.set(k, { codigo: it.codigo, descricao: it.descricao, compraPecas: 0, compraValor: 0, precoCompra: 0, compraPorLoja: {}, vendaPorLoja: {}, vendaPecas: 0, vendaFat: 0 }), x.itens.get(k));
@@ -5300,6 +5351,14 @@ function montarFornecedores(compras, vendas, frete, insumo, P) {
         x.daCompra.pecas += m; x.daCompra.faturamento += fatM; x.daCompra.custo += m * I.precoCompra;
         const L = x.porLoja[loja]; if (L) { L.daCompraPecas += m; L.daCompraFat += fatM; }
       }
+    }
+    // venda ligada só pela marca (sem saber o item): conta, por loja, até o que sobrou da compra daquela loja
+    for (const L of Object.values(x.porLoja)) {
+      const sobra = Math.max(0, (L.compraPecas || 0) - L.daCompraPecas);
+      if (!sobra || !L.marcaQ) continue;
+      const m = Math.min(sobra, L.marcaQ), fatM = L.marcaFat * m / L.marcaQ, preco = L.compraPecas ? L.compraValor / L.compraPecas : 0;
+      L.daCompraPecas += m; L.daCompraFat += fatM;
+      x.daCompra.pecas += m; x.daCompra.faturamento += fatM; x.daCompra.custo += m * preco;
     }
     x.frete = frete[x.id] ?? null; x.insumo = insumo.has(x.id);
   }
@@ -5484,7 +5543,7 @@ function detalheFornecedor(x) {
   const giroCls = g => g == null ? '' : g >= 0.7 ? 'heat-bom' : g < 0.4 ? 'heat-ruim' : 'heat-medio';
   const maxPct = Math.max(...lojas.map(l => l.pct), 0.0001);
   const vias = Object.entries(x.porVia || {}); const totVia = vias.reduce((t, [, v]) => t + v, 0);
-  const viaTxt = totVia ? vias.sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k === 'vinculo' ? 'vínculo salvo' : k} ${fmtPct(v / totVia * 100, 0)}`).join(', ') : '';
+  const viaTxt = totVia ? vias.sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k === 'vinculo' ? 'vínculo salvo' : k === 'marca' ? 'marca do cadastro' : k} ${fmtPct(v / totVia * 100, 0)}`).join(', ') : '';
   return `<div class="forn-detalhe">
     <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center"><h3>${esc(x.nome)}</h3>
       <label style="display:inline-flex; gap:6px; align-items:center; font-size:12.5px; width:auto; margin:0" onclick="event.stopPropagation()"><input type="checkbox" style="width:auto; margin:0" data-forn-insumo="${esc(x.id)}" ${x.insumo ? 'checked' : ''}> Fornecedor de insumo (embalagem, material de loja) — fora da análise de venda</label></div>
