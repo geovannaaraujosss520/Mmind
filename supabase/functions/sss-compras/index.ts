@@ -304,7 +304,7 @@ async function centralIntervalo(de: string, ate: string, orcamentoMs = 90000) {
 //                       a mesma regra da tela Vínculos) + faturamento total da loja
 //   acao 'frete' / 'salvarFrete' — frete estimado (% do valor do pedido) de cada fornecedor
 // =====================================================================
-const CHAVE_FRETE = 'frete_fornecedores', CHAVE_INSUMO = 'fornecedores_insumo';
+const CHAVE_FRETE = 'frete_fornecedores', CHAVE_INSUMO = 'fornecedores_insumo', CHAVE_PACOTE = 'pacote_itens_central';
 async function moduloFornecedores(body: any, a: Acesso) {
   const acao = String(body.acao ?? '');
   const isoOk = (x: unknown) => /^\d{4}-\d{2}-\d{2}$/.test(String(x ?? ''));
@@ -330,7 +330,8 @@ async function moduloFornecedores(body: any, a: Acesso) {
     if (acao === 'frete') {
       const ins = await sb().from('painel_cache').select('dados').eq('chave', CHAVE_INSUMO).maybeSingle();
       const mf = await sb().from('painel_cache').select('dados').eq('chave', 'marcas_fornecedor').maybeSingle();
-      return { frete: atual, insumo: Array.isArray(ins.data?.dados) ? ins.data.dados : [], marcasFornecedor: mf.data?.dados ?? {} };
+      const pc = await sb().from('painel_cache').select('dados').eq('chave', CHAVE_PACOTE).maybeSingle();
+      return { frete: atual, insumo: Array.isArray(ins.data?.dados) ? ins.data.dados : [], marcasFornecedor: mf.data?.dados ?? {}, pacote: pc.data?.dados ?? {} };
     }
     const fid = String(body.fornecedorId ?? '').trim();
     if (!fid) throw new Error('Fornecedor não informado.');
@@ -340,6 +341,22 @@ async function moduloFornecedores(body: any, a: Acesso) {
     const r = await sb().from('painel_cache').upsert({ chave: CHAVE_FRETE, dados: atual, atualizado_em: new Date().toISOString() }, { onConflict: 'chave' });
     if (r.error) throw new Error(r.error.message);
     return { ok: true, frete: atual };
+  }
+
+  // Item da Central comprado em pacote/caixa e vendido em unidades na loja (ex.: SANTITAS PACK = 27 unidades).
+  // { "ST-PACK": 27 } — vale para a rede inteira; a tela de fornecedores multiplica a compra e divide o custo.
+  if (acao === 'salvarPacote') {
+    const codigo = codNorm(body.codigo);
+    if (!codigo) throw new Error('Código da Central não informado.');
+    const n = body.unidades === null || body.unidades === '' ? null : Number(body.unidades);
+    if (n != null && (!Number.isInteger(n) || n < 1 || n > 10000)) throw new Error('Informe um número inteiro de unidades (1 a 10.000).');
+    const { data, error } = await sb().from('painel_cache').select('dados').eq('chave', CHAVE_PACOTE).maybeSingle();
+    if (error) throw new Error(error.message);
+    const atual: Record<string, number> = data?.dados ?? {};
+    if (n == null || n === 1) delete atual[codigo]; else atual[codigo] = n;
+    const r = await sb().from('painel_cache').upsert({ chave: CHAVE_PACOTE, dados: atual, atualizado_em: new Date().toISOString() }, { onConflict: 'chave' });
+    if (r.error) throw new Error(r.error.message);
+    return { ok: true, pacote: atual };
   }
 
   if (acao === 'compras') {
