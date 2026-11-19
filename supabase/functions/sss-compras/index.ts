@@ -406,6 +406,40 @@ async function moduloFornecedores(body: any, a: Acesso) {
     return { loja, de, ate: atePer, faturamento: r2(faturamento), pecas: r2(pecasLoja), custo: r2(custoLoja),
       produtos: [...agg.values()].map((x) => [x[0], x[1], x[2], x[3], r2(x[4]), r2(x[5]), r2(x[6])]) };
   }
+  // MARCA de cada produto (categoria de nível MARCA no cadastro da VarejOnline), guardada para a rede em
+  // painel_cache (chave marcas_rede: chave do produto → marca). Entrada: itens [[chave, loja, produtoId]];
+  // busca no cadastro só o que ainda não está guardado, em lotes de 50, com limite de tempo.
+  if (acao === 'marcas') {
+    const itens: any[] = Array.isArray(body.itens) ? body.itens.slice(0, 3000) : [];
+    const { data, error } = await sb().from('painel_cache').select('dados').eq('chave', 'marcas_rede').maybeSingle();
+    if (error) throw new Error('Rode antes o SQL 20261117000001_painel_cache.sql no Supabase.');
+    const guardado: Record<string, string> = data?.dados ?? {};
+    const faltam = itens.filter(([k]) => !(k in guardado));
+    const tokens = await getLojasTokens(), apiBase = Deno.env.get('VAREJONLINE_API_BASE')!;
+    const porLoja = new Map<string, any[]>();
+    for (const it of faltam) { if (!tokens[it[1]]) continue; if (!porLoja.has(it[1])) porLoja.set(it[1], []); porLoja.get(it[1])!.push(it); }
+    const lotes: { loja: string; itens: any[] }[] = [];
+    for (const [loja, l] of porLoja) for (let i = 0; i < l.length; i += 50) lotes.push({ loja, itens: l.slice(i, i + 50) });
+    const t0 = Date.now(); let feitos = 0, novos = 0, j = 0;
+    await Promise.all(Array.from({ length: Math.min(4, lotes.length) }, async () => {
+      while (j < lotes.length) {
+        if (Date.now() - t0 > 55_000) return;
+        const lote = lotes[j++];
+        const porId = new Map(lote.itens.map((x) => [String(x[2]), x[0]]));
+        try {
+          await fetchAllPages(`${apiBase}/produtos?idsProdutos=${[...porId.keys()].join(',')}`, tokens[lote.loja], (pg) => {
+            for (const p of pg) { const k = porId.get(String(p.id)); if (!k) continue; const mc = (p.categorias ?? []).find((c: any) => c?.nivel === 'MARCA'); guardado[k] = String(mc?.nome ?? '').trim(); novos++; }
+          });
+          for (const k of porId.values()) if (!(k in guardado)) { guardado[k] = ''; novos++; } // produto sem cadastro: não pede de novo
+          feitos++;
+        } catch { /* tenta na próxima chamada */ }
+      }
+    }));
+    if (novos) await sb().from('painel_cache').upsert({ chave: 'marcas_rede', dados: guardado, atualizado_em: new Date().toISOString() }, { onConflict: 'chave' });
+    const marcas: Record<string, string> = {}; let pendentes = 0;
+    for (const [k] of itens) { if (k in guardado) marcas[k] = guardado[k]; else pendentes++; }
+    return { marcas, pendentes };
+  }
   // Cadastro completo de alguns produtos na VarejOnline (para conferir marca, fornecedor, classificação)
   if (acao === 'cadastroProdutos') {
     const loja = String(body.loja ?? ''); const tokens = await getLojasTokens();
