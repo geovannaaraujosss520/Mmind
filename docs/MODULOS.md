@@ -234,3 +234,10 @@ Brasília, Goiânia e Ribeirão têm 2 unidades usando o mesmo token da VarejOnl
 
 ### Fornecedores: código com zeros à esquerda
 Algumas lojas cadastram o código da Central com zeros na frente (ex.: `00003D-CA-001` na loja = `3D-CA-001` na Central, Mini Jesus da ANA PAULA). A ligação agora compara também o código sem os zeros à esquerda. Quando o que sobra é só número (ex.: `972` × `0972`), exige descrição parecida para não juntar produtos diferentes.
+
+### Fornecedores: tela mais precisa (giro maduro, itens a conferir, situação com motivo)
+- **Giro só com compras de mais de 60 dias** (`FORN_DIAS_RECENTE`): a compra recente ainda está vendendo e entrava como "não vendida". As compras dos últimos 60 dias são lidas à parte (`comprasFornecedoresPorMes` no trecho final) e descontadas por loja e produto. A compra recente aparece no Comprado e no resumo.
+- **Parado** = custo das peças compradas há mais de 60 dias sem venda.
+- **Itens a conferir**: produto vendido, em média, por menos de 1,1× o custo da Central (vínculo errado, display/kit, caixa × unidade). Sai da conta do fornecedor e vai para uma lista no fim da tela.
+- **Situação**: uma regra decide, na ordem Revisar (giro < 60% da rede) → Margem baixa (markup < 1,8×) → Gira abaixo da rede (60–90%) → Gira, peça barata (peça média < 75% da rede) → Compensa; Compra recente quando quase tudo foi comprado nos últimos 60 dias. O motivo aparece na linha.
+- Tabela: Comprado → Vendeu (giro) → Parado → % do faturamento → R$ por peça (× esforço médio) → Situação. Frete, markup, "já voltou" e lucro bruto foram para o detalhe.
