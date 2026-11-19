@@ -265,6 +265,37 @@ async function sincronizarCentralDiasInterno(nDias: number, orcamentoMs: number)
   return { lista, falhas, pendentes, semCache, erro: avisos.length ? avisos.join('; ') : undefined };
 }
 
+// Pedidos da Central de um intervalo de dias (para análises longas, até ~13 meses, pedidas em trechos).
+// Lê os dias guardados; busca na Central só os que faltam (e os recentes vencidos). Dias com mais de 60 dias
+// já guardados não são rebuscados (pedido antigo quase não muda).
+async function centralIntervalo(de: string, ate: string, orcamentoMs = 90000) {
+  const chave = (Deno.env.get('PEDIDOS_API_KEY') ?? '').trim();
+  if (!chave) return { lista: [] as any[], falhas: 0, pendentes: 0, erro: 'PEDIDOS_API_KEY nao configurada' };
+  const t0 = Date.now(), hoje = new Date(); hoje.setUTCHours(0, 0, 0, 0);
+  const dias: string[] = [];
+  for (let t = Date.parse(ate + 'T00:00:00Z'); t >= Date.parse(de + 'T00:00:00Z'); t -= 86400000) dias.push(new Date(t).toISOString().slice(0, 10));
+  const { data, error } = await sb().from(TABELA_CACHE_CENTRAL).select('dia, pedidos, atualizado_em').gte('dia', de).lte('dia', ate);
+  const guardado = new Map<string, any>((error ? [] : data ?? []).map((r: any) => [String(r.dia).slice(0, 10), r]));
+  const porDia = new Map<string, any[]>(), fila: string[] = [];
+  for (const d of dias) {
+    const g = guardado.get(d), idade = Math.round((hoje.getTime() - Date.parse(d + 'T00:00:00Z')) / 86400000);
+    if (g) porDia.set(d, g.pedidos ?? []);
+    if (!g || (idade <= 60 && Date.now() - Date.parse(g.atualizado_em) > validadeDia(idade))) fila.push(d);
+  }
+  let falhas = 0; const novos: any[] = [], naoBuscados = new Set(fila);
+  for (let i = 0; i < fila.length; i += 12) {
+    if (Date.now() - t0 > orcamentoMs) break;
+    const lote = fila.slice(i, i + 12);
+    const res = await Promise.allSettled(lote.map((d) => buscarDiaCentral(chave, d)));
+    res.forEach((r, k) => { const d = lote[k]; if (r.status === 'fulfilled') { porDia.set(d, r.value); novos.push({ dia: d, pedidos: r.value, total: r.value.length, atualizado_em: new Date().toISOString() }); naoBuscados.delete(d); } else falhas++; });
+  }
+  if (novos.length && !error) for (let i = 0; i < novos.length; i += 20) await sb().from(TABELA_CACHE_CENTRAL).upsert(novos.slice(i, i + 20), { onConflict: 'dia' });
+  const pendentes = dias.filter((d) => !guardado.has(d) && naoBuscados.has(d)).length;
+  const lista: any[] = [], vistos = new Set<string>();
+  for (const d of dias) for (const p of porDia.get(d) ?? []) { const id = String(p._id ?? p.codigo); if (!vistos.has(id)) { vistos.add(id); lista.push(p); } }
+  return { lista, falhas, pendentes, erro: pendentes ? `${pendentes} dia(s) da Central ainda não carregados` : (falhas ? `${falhas} consulta(s) à Central falharam` : undefined) };
+}
+
 // =====================================================================
 // PAINEL DO FORNECEDOR (franqueadora): o que as lojas compraram de cada fornecedor na Central num período,
 // quanto venderam desses produtos, quanto isso pesa no faturamento e se compensa (com frete).
@@ -312,8 +343,10 @@ async function moduloFornecedores(body: any, a: Acesso) {
 
   if (acao === 'compras') {
     const diasAtras = Math.ceil((Date.now() - Date.parse(desde + 'T12:00:00Z')) / 86400_000) + 1;
-    if (diasAtras > 180) throw new Error('O histórico da Central guardado no painel vai até 180 dias atrás. Escolha uma data inicial mais recente.');
-    const base = await buscarPedidosCentral(Math.max(1, diasAtras));
+    if (diasAtras > 400) throw new Error('A análise vai até 13 meses atrás. Escolha uma data inicial mais recente.');
+    const dur = (Date.parse(ate) - Date.parse(desde)) / 86400_000;
+    // trechos curtos (o painel pede de mês em mês): lê só esses dias; senão, o atalho dos últimos N dias
+    const base: any = dur <= 62 ? await centralIntervalo(desde, ate) : await buscarPedidosCentral(Math.max(1, diasAtras));
     const tokens = await getLojasTokens();
     const permitidas = lojasDoAcesso(a, undefined);
     const nomePainel = new Map(Object.keys(tokens).map((n) => [normLoja(n), n]));
@@ -344,7 +377,7 @@ async function moduloFornecedores(body: any, a: Acesso) {
     const lista = [...forn.values()].map((f) => ({ ...f, valor: r2(f.valor), pecas: r2(f.pecas),
       lojas: Object.fromEntries(Object.entries(f.lojas).map(([k, v]: any) => [k, { ...v, valor: r2(v.valor), pecas: r2(v.pecas) }])),
       itens: Object.values(f.itens).map((it: any) => ({ ...it, valor: r2(it.valor), pecas: r2(it.pecas) })) }));
-    return { desde, ate, fornecedores: lista, centralIncompleta: !!(base.falhas || base.pendentes || base.erro), aviso: base.erro ?? null, pedidosForaDoPainel: foraDoPainel };
+    return { desde, ate, fornecedores: lista, centralIncompleta: !!(base.falhas || base.pendentes || base.erro), pendentes: base.pendentes ?? 0, aviso: base.erro ?? null, pedidosForaDoPainel: foraDoPainel };
   }
 
   // Vendas de uma loja num trecho de datas (o painel pede em trechos de até 31 dias para não passar do limite de CPU),
