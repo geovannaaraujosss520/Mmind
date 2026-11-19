@@ -119,6 +119,14 @@
   table.forn-tab tr.forn-linha.aberta td{ background:var(--panel-2); }
   table.forn-tab .sub2{ display:block; font-size:11px; color:var(--muted); }
   .forn-frete{ width:64px; padding:4px 6px; font-size:12px; text-align:right; }
+  .forn-abas{ display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin:0 0 14px; }
+  .forn-abas button{ background:transparent; color:var(--text); border:1px solid var(--line-strong); border-radius:999px; padding:6px 14px; font-size:13px; cursor:pointer; width:auto; }
+  .forn-abas button[aria-selected="true"]{ background:var(--text); color:var(--panel); border-color:var(--text); }
+  .forn-abas select{ width:auto; min-width:260px; max-width:100%; margin-left:6px; }
+  .forn-pag-topo{ display:flex; justify-content:space-between; gap:12px 24px; flex-wrap:wrap; align-items:flex-start; margin:0 0 12px; }
+  .forn-pag-topo h2{ font-size:20px; margin:0 0 2px; }
+  .forn-leg{ display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; vertical-align:-1px; }
+  :root{ --forn-compra:#B9AEA3; --forn-venda:#8E1F2A; }
   .forn-legenda{ display:flex; flex-wrap:wrap; gap:8px 18px; align-items:center; font-size:12.5px; margin:0 0 14px; }
   .forn-legenda details{ flex-basis:100%; color:var(--muted); font-size:12px; }
   .forn-legenda details summary{ cursor:pointer; color:var(--text); }
@@ -5110,7 +5118,7 @@ const DIAS_NOME = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 
 // FORNECEDORES (franqueadora): compra na Central × venda × % do faturamento × frete
 // =====================================================================
 const FORN_DIAS_RECENTE = 60; // compra feita há menos que isso ainda está vendendo: fica fora do giro
-let _fornPacote = {}, _fornBruto = null, _fornConferirAberto = false;
+let _fornPacote = {}, _fornBruto = null, _fornConferirAberto = false, _fornAba = 'geral', _fornSel = null;
 let _fornDados = null, _fornAberto = null, _fornOrdem = 'valor', _fornMostrarSemCompra = false, _fornMarcasManuais = {}, _fornCmp = null;
 (function iniciarFornecedores() {
   const hoje = new Date(Date.now() - 3 * 3600e3), iso = d => d.toISOString().slice(0, 10);
@@ -5179,8 +5187,9 @@ async function comprasFornecedoresPorMes(desde, ate, onStatus) {
     if (r.centralIncompleta) { incompleta = true; aviso = r.aviso || aviso; }
     fora += r.pedidosForaDoPainel || 0;
     for (const f of r.fornecedores) {
-      const x = F.get(f.id) ?? (F.set(f.id, { id: f.id, nome: f.nome, pedidos: 0, cancelados: 0, valor: 0, pecas: 0, primeira: f.primeira, ultima: f.ultima, lojas: {}, itens: new Map() }), F.get(f.id));
+      const x = F.get(f.id) ?? (F.set(f.id, { id: f.id, nome: f.nome, pedidos: 0, cancelados: 0, valor: 0, pecas: 0, primeira: f.primeira, ultima: f.ultima, lojas: {}, itens: new Map(), trechos: {} }), F.get(f.id));
       x.pedidos += f.pedidos; x.cancelados += f.cancelados; x.valor += f.valor; x.pecas += f.pecas;
+      x.trechos = x.trechos || {}; x.trechos[k] = Object.fromEntries(Object.entries(f.lojas).map(([loja, L]) => [loja, [L.valor, L.pecas]]));
       if (f.primeira < x.primeira) x.primeira = f.primeira; if (f.ultima > x.ultima) x.ultima = f.ultima;
       for (const [loja, L] of Object.entries(f.lojas)) {
         const y = x.lojas[loja] ?? (x.lojas[loja] = { pedidos: 0, valor: 0, pecas: 0, ultima: L.ultima });
@@ -5210,11 +5219,12 @@ async function vendasFornecedorLoja(loja, de, ate) {
       return [...await lerTrecho(a, iso(meio)), ...await lerTrecho(iso(meio + dia), b)];
     }
   };
-  for (const [a, b] of trechos) for (const r of await lerTrecho(a, b)) {
+  for (const [t, [a, b]] of trechos.entries()) for (const r of await lerTrecho(a, b)) {
     faturamento += r.faturamento; pecas += r.pecas; custo += r.custo;
     for (const [id, desc, cs, ci, q, v, c] of r.produtos) {
-      const x = prod.get(id) ?? (prod.set(id, { id, desc, cs, ci, q: 0, v: 0, c: 0 }), prod.get(id));
+      const x = prod.get(id) ?? (prod.set(id, { id, desc, cs, ci, q: 0, v: 0, c: 0, t: {} }), prod.get(id));
       x.q += q; x.v += v; x.c += c;
+      const m = x.t[t] ?? (x.t[t] = [0, 0]); m[0] += q; m[1] += v; // venda por trecho de ~1 mês (evolução no detalhe do fornecedor)
     }
   }
   return { loja, faturamento, pecas, custo, produtos: [...prod.values()] };
@@ -5295,7 +5305,8 @@ async function ligarVendasAosFornecedores(vendas, onStatus, fornecedoresCompra =
         // sem vínculo nem código: usa a MARCA do cadastro para saber o fornecedor (sem saber o item exato)
         const fid = fornDaMarca(marcas.get(chave(v.loja, x)));
         if (!fid) { sem.pecas += x.q; sem.faturamento += x.v; sem.produtos++; continue; }
-        const f = porFornecedor[fid] ?? (porFornecedor[fid] = { nome: nomeF[fid] || '', pecas: 0, faturamento: 0, custo: 0, produtos: 0, porVia: {}, itensM: new Map() });
+        const f = porFornecedor[fid] ?? (porFornecedor[fid] = { nome: nomeF[fid] || '', pecas: 0, faturamento: 0, custo: 0, produtos: 0, porVia: {}, itensM: new Map(), mes: {} });
+        for (const [t, [q, vv]] of Object.entries(x.t || {})) { const mm = f.mes[t] ?? (f.mes[t] = [0, 0]); mm[0] += q; mm[1] += vv; }
         f.pecas += x.q; f.faturamento += x.v; f.custo += x.c; f.produtos++; f.porVia.marca = (f.porVia.marca || 0) + x.v;
         f.marcaQ = (f.marcaQ || 0) + x.q; f.marcaFat = (f.marcaFat || 0) + x.v;
         // entra também na lista de produtos do fornecedor (pelo código/descrição da loja), para o top 10
@@ -5305,7 +5316,8 @@ async function ligarVendasAosFornecedores(vendas, onStatus, fornecedoresCompra =
         continue;
       }
       const [fid, nome, codigo, descItem, via] = m;
-      const f = porFornecedor[fid] ?? (porFornecedor[fid] = { nome, pecas: 0, faturamento: 0, custo: 0, produtos: 0, porVia: {}, itensM: new Map() });
+      const f = porFornecedor[fid] ?? (porFornecedor[fid] = { nome, pecas: 0, faturamento: 0, custo: 0, produtos: 0, porVia: {}, itensM: new Map(), mes: {} });
+      for (const [t, [q, vv]] of Object.entries(x.t || {})) { const mm = f.mes[t] ?? (f.mes[t] = [0, 0]); mm[0] += q; mm[1] += vv; }
       f.pecas += x.q; f.faturamento += x.v; f.custo += x.c; f.produtos++; f.porVia[via] = (f.porVia[via] || 0) + x.v;
       const k = String(codigo).toUpperCase().replace(/\s+/g, '');
       const it = f.itensM.get(k) ?? (f.itensM.set(k, { codigo, descricao: descItem || x.desc, pecas: 0, faturamento: 0 }), f.itensM.get(k));
@@ -5344,6 +5356,8 @@ function montarFornecedores(compras, vendas, frete, insumo, P, recentes = null) 
       const precoCompra = it.pecas ? it.valor / it.pecas / un : 0;
       if (pecas) x.itens.set(kc, { codigo: it.codigo, descricao: it.descricao, pacote: un > 1 ? un : null, compraPecas: pecas, compraValor: precoCompra * pecas, precoCompra, compraPorLoja, vendaPorLoja: {}, vendaPecas: 0, vendaFat: 0 });
     }
+    x.mesCompra = {};
+    for (const [t, porL] of Object.entries(f.trechos || {})) for (const [loja, [val, pc]] of Object.entries(porL)) if (lojasAnalisadas.has(loja)) { const m = x.mesCompra[t] ?? (x.mesCompra[t] = [0, 0]); m[0] += val; m[1] += pc; }
     if (x.comprado.pedidos || x.comprado.cancelados) F.set(f.id, x);
   }
   let semForn = 0, foraCentral = 0;
@@ -5353,6 +5367,7 @@ function montarFornecedores(compras, vendas, frete, insumo, P, recentes = null) 
       const x = F.get(fid) ?? (F.set(fid, novo(fid, s.nome)), F.get(fid));
       if (!x.nome) x.nome = s.nome;
       x.vendido.pecas += s.pecas; x.vendido.faturamento += s.faturamento; x.vendido.custo += s.custo;
+      x.mesVenda = x.mesVenda || {}; for (const [t, [q, vv]] of Object.entries(s.mes || {})) { const m = x.mesVenda[t] ?? (x.mesVenda[t] = [0, 0]); m[0] += q; m[1] += vv; }
       for (const [via, val] of Object.entries(s.porVia || {})) x.porVia[via] = (x.porVia[via] || 0) + val;
       const L = x.porLoja[v.loja] ?? (x.porLoja[v.loja] = { compraValor: 0, compraPecas: 0, pedidos: 0, ultima: null, vendaPecas: 0, vendaFat: 0, fatLoja: 0 });
       L.vendaPecas += s.pecas; L.vendaFat += s.faturamento; L.vendaCusto = (L.vendaCusto || 0) + s.custo;
@@ -5422,7 +5437,7 @@ function montarFornecedores(compras, vendas, frete, insumo, P, recentes = null) 
         I.recPecas += rq; I.madPecas += mq;
         const mv = Math.min(mq, vq);
         I.madVend += mv; x.maduro.pecas += mq; x.maduro.vendidas += mv; x.maduro.valor += mq * I.precoCompra; x.maduro.parado += (mq - mv) * I.precoCompra;
-        const L = x.porLoja[loja]; if (L) { L.madPecas += mq; L.madVend += mv; }
+        const L = x.porLoja[loja]; if (L) { L.madPecas += mq; L.madVend += mv; L.parado = (L.parado || 0) + (mq - mv) * I.precoCompra; }
         if (!vq) continue;
         const m = Math.min(q, vq), fatM = V.fat * m / vq;
         I.daCompraPecas += m; I.daCompraFat += fatM;
@@ -5441,7 +5456,7 @@ function montarFornecedores(compras, vendas, frete, insumo, P, recentes = null) 
         x.daCompra.pecas += m; x.daCompra.faturamento += fatM; x.daCompra.custo += m * preco;
       }
       const sobraM = Math.max(0, L.madPecas - L.madVend);
-      if (sobraM) { const m = Math.min(sobraM, L.marcaQ); L.madVend += m; x.maduro.vendidas += m; x.maduro.parado -= m * preco; }
+      if (sobraM) { const m = Math.min(sobraM, L.marcaQ); L.madVend += m; x.maduro.vendidas += m; x.maduro.parado -= m * preco; L.parado = Math.max(0, (L.parado || 0) - m * preco); }
     }
     x.maduro.parado = Math.max(0, x.maduro.parado);
     x.frete = frete[x.id] ?? null; x.insumo = insumo.has(x.id);
@@ -5543,6 +5558,25 @@ const ORDEM_LEITURA = ['revisar', 'margem', 'lento', 'barata', 'compensa', 'novo
 function renderFornecedores() {
   const D = _fornDados, box = $('resultado-fornecedores'); if (!D) return;
   const P = D.P, dt = d => d ? _cliData(d) : '—';
+  const porCompra = D.fornecedores.filter(x => x.comprado.pedidos || x.vendido.faturamento).sort((a, b) => b.comprado.valor - a.comprado.valor || b.vendido.faturamento - a.vendido.faturamento);
+  if (_fornAba === 'fornecedor' && !porCompra.some(x => x.id === _fornSel)) _fornSel = porCompra[0]?.id || null;
+  const abas = `<div class="forn-abas" role="tablist">
+      <button type="button" role="tab" aria-selected="${_fornAba === 'geral'}" data-forn-aba="geral">Visão geral</button>
+      <button type="button" role="tab" aria-selected="${_fornAba === 'fornecedor'}" data-forn-aba="fornecedor">Por fornecedor</button>
+      ${_fornAba === 'fornecedor' ? `<select id="forn_sel" aria-label="Fornecedor">${porCompra.map(x => `<option value="${esc(x.id)}" ${x.id === _fornSel ? 'selected' : ''}>${esc(x.nome || x.id)}${x.insumo ? ' (insumo)' : ''}</option>`).join('')}</select>` : ''}
+    </div>`;
+  const ligar = () => {
+    box.querySelectorAll('[data-forn-aba]').forEach(b => b.addEventListener('click', () => { _fornAba = b.dataset.fornAba; renderFornecedores(); }));
+    $('forn_sel')?.addEventListener('change', e => { _fornSel = e.target.value; renderFornecedores(); });
+    box.querySelectorAll('[data-forn-marcas]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); salvarMarcasFornecedor(b.dataset.fornMarcas); }));
+    box.querySelectorAll('[data-forn-frete]').forEach(inp => inp.addEventListener('change', () => salvarFreteFornecedor(inp.dataset.fornFrete, inp.value, inp)));
+    box.querySelectorAll('[data-forn-insumo]').forEach(inp => inp.addEventListener('change', () => salvarInsumoFornecedor(inp.dataset.fornInsumo, inp.checked, inp)));
+    box.querySelectorAll('[data-forn-pacote-ok]').forEach(b => b.addEventListener('click', () => salvarPacoteItem(b.dataset.fornPacoteOk, b)));
+  };
+  if (_fornAba === 'fornecedor' && _fornSel) {
+    box.innerHTML = abas + paginaFornecedor(D.fornecedores.find(x => x.id === _fornSel));
+    ligar(); return;
+  }
   let lista = D.fornecedores.filter(x => !x.insumo && (_fornMostrarSemCompra || x.comprado.pedidos));
   const insumos = D.fornecedores.filter(x => x.insumo && x.comprado.pedidos).sort((a, b) => b.comprado.valor - a.comprado.valor);
   const ord = { valor: (a, b) => b.comprado.valor - a.comprado.valor, parado: (a, b) => (b.maduro?.parado || 0) - (a.maduro?.parado || 0),
@@ -5568,10 +5602,10 @@ function renderFornecedores() {
       <td class="num" title="${esc(`Venda das peças compradas no período: ${fmtMoeda(x.base.fat)} (${fmtNum(Math.round(x.base.pecas))} peças) ÷ faturamento das lojas analisadas (${fmtMoeda(T.fat)}). Com estoque comprado antes do período: ${fmtPct(x.pctFatTotal, 1)}.`)}">${x.base.fat ? `<strong>${fmtPct(x.pctFat, x.pctFat < 1 ? 2 : 1)}</strong><span class="sub2">${fmtMoeda(x.base.fat)} vendidos</span>` : '<span style="color:var(--danger)">sem venda</span>'}</td>
       <td class="num" title="${esc(x.precoPeca != null ? `Faturamento por peça vendida (rede ${fmtMoeda(T.precoPeca)}). ${fmtNum(Math.round(x.pecasPorMil * 10) / 10)} peças para faturar R$ 1 mil = ${x.vezesEsforco.toFixed(1).replace('.', ',')}× o esforço médio da rede.` : '')}">${x.precoPeca != null ? `<strong>${fmtMoeda(x.precoPeca)}</strong><span class="sub2" style="color:${x.vezesEsforco > 1.33 ? 'var(--warn)' : 'var(--muted)'}">${x.vezesEsforco.toFixed(1).replace('.', ',')}× o esforço médio</span>` : '—'}</td>
       <td style="white-space:normal; min-width:240px"><span class="${L[0]}">${L[1]}</span>${x.resumo ? `<span class="sub2" style="white-space:normal">${esc(x.resumo)}</span>` : ''}</td>
-    </tr>${aberto ? `<tr><td colspan="7" style="padding:0; white-space:normal">${detalheFornecedor(x)}</td></tr>` : ''}`;
+    </tr>`;
   };
   const aConf = D.aConferir || [];
-  box.innerHTML = `
+  box.innerHTML = abas + `
     ${D.erros.length ? `<div class="panel err">${D.erros.length} loja(s) não responderam e ficaram de fora: ${esc(D.erros.map(e => e.loja).join(', '))}. Rode de novo para incluí-las.</div>` : ''}
     ${D.centralIncompleta ? '<div class="panel" style="border-color:var(--warn); font-size:12.5px">Parte do histórico da Central ainda não carregou — os valores comprados podem estar incompletos. Rode de novo em alguns minutos.</div>' : ''}
     <div class="forn-resumo">
@@ -5598,7 +5632,7 @@ function renderFornecedores() {
     ${comparadorEsforco(lista, T)}
     <div class="tbl-tools" style="margin-bottom:8px">
       <label style="display:inline-flex; gap:6px; align-items:center; font-size:12.5px; width:auto; margin:0"><input type="checkbox" id="forn_sem_compra" style="width:auto; margin:0" ${_fornMostrarSemCompra ? 'checked' : ''}> Mostrar também fornecedores sem compra no período (${fmtNum(semCompra)})</label>
-      <span style="font-size:12px; color:var(--muted)">Clique num fornecedor para ver por loja, por produto, frete e markup. Ordenar: clique no título da coluna.</span>
+      <span style="font-size:12px; color:var(--muted)">Clique num fornecedor para abrir a análise dele. Ordenar: clique no título da coluna.</span>
     </div>
     <div style="overflow-x:auto"><table class="no-tools forn-tab"><thead><tr>
       <th>Fornecedor</th>${th('valor', 'Comprado', 'Valor dos pedidos da Central no período')}
@@ -5617,14 +5651,11 @@ function renderFornecedores() {
       </tbody></table></div></details>` : ''}
     ${semVendaSuspeito ? `<div class="sub" style="font-size:12px; max-width:none; margin-top:8px">Fornecedor com compra e nenhuma venda pode ser de insumo (embalagem, sacola, material de loja) ou ter produtos ainda sem vínculo. Abra o fornecedor e, se for insumo, marque <strong>Fornecedor de insumo</strong> para tirá-lo da análise.</div>` : ''}
     ${D.foraDoPainel ? `<div class="sub" style="font-size:12px; max-width:none; margin-top:4px">${fmtNum(D.foraDoPainel)} pedido(s) da Central são de franqueados que não estão entre as lojas do painel e ficaram de fora.</div>` : ''}`;
-  box.querySelectorAll('[data-forn]').forEach(tr => tr.addEventListener('click', () => { _fornAberto = _fornAberto === tr.dataset.forn ? null : tr.dataset.forn; renderFornecedores(); }));
+  box.querySelectorAll('[data-forn]').forEach(tr => tr.addEventListener('click', () => { _fornAba = 'fornecedor'; _fornSel = tr.dataset.forn; renderFornecedores(); window.scrollTo({ top: box.getBoundingClientRect().top + scrollY - 80 }); }));
   box.querySelectorAll('[data-forn-ord]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); _fornOrdem = b.dataset.fornOrd; renderFornecedores(); }));
   $('forn_sem_compra').addEventListener('change', e => { _fornMostrarSemCompra = e.target.checked; renderFornecedores(); });
   ['forn_cmp_a', 'forn_cmp_b'].forEach((id, i) => $(id)?.addEventListener('change', e => { _fornCmp = _fornCmp || [null, null]; _fornCmp[i] = e.target.value; renderFornecedores(); }));
-  box.querySelectorAll('[data-forn-marcas]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); salvarMarcasFornecedor(b.dataset.fornMarcas); }));
-  box.querySelectorAll('[data-forn-frete]').forEach(inp => inp.addEventListener('change', () => salvarFreteFornecedor(inp.dataset.fornFrete, inp.value, inp)));
-  box.querySelectorAll('[data-forn-insumo]').forEach(inp => inp.addEventListener('change', () => salvarInsumoFornecedor(inp.dataset.fornInsumo, inp.checked, inp)));
-  box.querySelectorAll('[data-forn-pacote-ok]').forEach(b => b.addEventListener('click', () => salvarPacoteItem(b.dataset.fornPacoteOk, b)));
+  ligar();
   $('forn_conferir')?.addEventListener('toggle', e => { _fornConferirAberto = e.target.open; });
   $('forn_ir_conferir')?.addEventListener('click', e => { e.preventDefault(); const d = $('forn_conferir'); d.open = true; _fornConferirAberto = true; d.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
 }
@@ -5689,6 +5720,65 @@ async function salvarFreteFornecedor(fid, valor, inp) {
     x.frete = pct; calcularLeituraFornecedor(x, _fornDados.T, _fornDados.P); renderFornecedores();
   } catch (e) { inp.disabled = false; alert(`Não deu para salvar o frete: ${e.message}`); }
 }
+// Página de um fornecedor ("Por fornecedor"): números principais, evolução mês a mês e o detalhe por loja e produto.
+function paginaFornecedor(x) {
+  if (!x) return '<div class="empty">Escolha um fornecedor.</div>';
+  const D = _fornDados, T = D.T, P = D.P, gR = T.giroRede, mad = x.maduro || { pecas: 0, vendidas: 0, parado: 0 };
+  const L = LEITURA_FORN[x.leitura] || ['chip', '—'];
+  const vz = n => n.toFixed(2).replace('.', ',') + '×';
+  const kpi = (v, rot, dica = '', cor = '') => `<span ${dica ? `title="${esc(dica)}"` : ''}><strong ${cor ? `style="color:${cor}"` : ''}>${v}</strong>${rot}</span>`;
+  const giroCor = x.giro == null || !gR ? '' : x.giro >= 0.9 * gR ? 'var(--good)' : x.giro < 0.6 * gR ? 'var(--danger)' : 'var(--warn)';
+  // evolução: trechos de ~1 mês a partir do início do período (os mesmos usados para ler compras e vendas)
+  const dia = 864e5, fim = Date.parse((P.vendasAte > P.ate ? P.vendasAte : P.ate) + 'T12:00:00Z');
+  const tr = []; for (let t = Date.parse(P.desde + 'T12:00:00Z'); t <= fim; t += 31 * dia) tr.push(t);
+  const MES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+  const serie = tr.map((t, i) => { const m = new Date(t + 15 * dia); const c = x.mesCompra?.[i] || [0, 0], v = x.mesVenda?.[i] || [0, 0];
+    return { rot: `${MES[m.getUTCMonth()]}/${String(m.getUTCFullYear()).slice(2)}`, de: new Date(t).toISOString().slice(0, 10), ate: new Date(Math.min(t + 30 * dia, fim)).toISOString().slice(0, 10), compra: c[0], compraPc: c[1], venda: v[1], vendaPc: v[0] }; });
+  const max = Math.max(1, ...serie.map(m => Math.max(m.compra, m.venda)));
+  const W = Math.max(560, serie.length * 64), H = 210, base = 180, alt = 150, bw = 18, passo = (W - 52) / Math.max(1, serie.length);
+  const fmtK = v => v >= 1e6 ? `${(v / 1e6).toFixed(1).replace('.', ',')} mi` : v >= 1e3 ? `${Math.round(v / 1e3)} mil` : fmtNum(Math.round(v));
+  const grafico = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Compra e venda de ${esc(x.nome)} mês a mês" style="width:100%; max-width:${W}px; height:auto; display:block">
+    ${[0.5, 1].map(f => `<line x1="44" x2="${W}" y1="${base - alt * f}" y2="${base - alt * f}" stroke="var(--line)" stroke-dasharray="3 4"/><text x="40" y="${base - alt * f + 4}" text-anchor="end" font-size="11" fill="var(--muted)">${fmtK(max * f)}</text>`).join('')}
+    <line x1="44" x2="${W}" y1="${base}" y2="${base}" stroke="var(--line-strong)"/>
+    ${serie.map((m, i) => { const cx = 52 + i * passo + (passo - 2 * bw - 4) / 2; const hc = m.compra / max * alt, hv = m.venda / max * alt;
+      return `<g><title>${_cliData(m.de)} a ${_cliData(m.ate)}
+Comprado: ${fmtMoeda(m.compra)} (${fmtNum(Math.round(m.compraPc))} pç, custo)
+Vendido: ${fmtMoeda(m.venda)} (${fmtNum(Math.round(m.vendaPc))} pç)</title>
+        <rect x="${cx}" y="${base - hc}" width="${bw}" height="${Math.max(hc, 0.5)}" rx="3" fill="var(--forn-compra)"/><rect x="${cx + bw + 4}" y="${base - hv}" width="${bw}" height="${Math.max(hv, 0.5)}" rx="3" fill="var(--forn-venda)"/>
+        <rect x="${cx - 6}" y="${base - alt}" width="${2 * bw + 16}" height="${alt + 26}" fill="transparent"/>
+        <text x="${cx + bw + 2}" y="${base + 18}" text-anchor="middle" font-size="11" fill="var(--muted)">${m.rot}</text></g>`; }).join('')}
+  </svg>`;
+  const conf = x.aConferir || [];
+  return `<div class="forn-pagina">
+    <div class="forn-pag-topo">
+      <div><h2>${esc(x.nome || x.id)}</h2>
+        <div style="font-size:12.5px; color:var(--muted)">${x.comprado.pedidos ? `${fmtNum(x.comprado.pedidos)} pedido(s) na Central · ${fmtNum(x.comprado.lojas)} loja(s) · último pedido ${_cliData(x.comprado.ultima)}` : 'sem pedido na Central no período'}</div></div>
+      <div style="max-width:560px"><span class="${L[0]}">${L[1]}</span>${x.resumo ? `<div style="font-size:12.5px; margin-top:4px">${esc(x.resumo)}</div>` : ''}</div>
+    </div>
+    <div class="forn-resumo">
+      ${kpi(x.comprado.valor ? fmtMoeda(x.comprado.valor) : '—', `comprado (${fmtNum(Math.round(x.comprado.pecas))} pç)${x.recente?.valor ? ` · ${fmtMoeda(x.recente.valor)} nos últimos ${FORN_DIAS_RECENTE} dias` : ''}`)}
+      ${kpi(x.giro != null ? fmtPct(x.giro * 100, 0) : '—', `vendeu do que comprou há +${FORN_DIAS_RECENTE} dias (rede ${gR ? fmtPct(gR * 100, 0) : '—'})`, `${fmtNum(Math.round(mad.vendidas))} de ${fmtNum(Math.round(mad.pecas))} peças`, giroCor)}
+      ${kpi(fmtMoeda(mad.parado), 'parado (custo das peças sem venda)')}
+      ${kpi(fmtPct(x.pctFat, x.pctFat < 1 ? 2 : 1), `do faturamento da rede · ${fmtMoeda(x.base.fat)} vendidos`, `Com estoque comprado antes do período: ${fmtPct(x.pctFatTotal, 1)} (${fmtMoeda(x.vendido.faturamento)})`)}
+      ${kpi(x.precoPeca != null ? fmtMoeda(x.precoPeca) : '—', `por peça (rede ${fmtMoeda(T.precoPeca)})${x.vezesEsforco != null ? ` · ${x.vezesEsforco.toFixed(1).replace('.', ',')}× o esforço médio` : ''}`)}
+      ${kpi(x.markup != null ? vz(x.markup) : '—', `o custo${x.frete != null ? ' com frete' : ''} · já voltou ${x.retorno != null ? vz(x.retorno) : '—'} o gasto`)}
+      ${kpi(x.lucroPeca != null ? fmtMoeda(x.lucroPeca) : '—', `lucro bruto por peça (rede ${fmtMoeda(T.lucroPeca)})`)}
+    </div>
+    <div class="panel" style="padding:14px 16px; margin-bottom:14px">
+      <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:baseline"><div style="font-weight:650; font-size:13.5px">Compra × venda mês a mês</div>
+        <div style="font-size:12px; color:var(--muted); display:flex; gap:14px; flex-wrap:wrap"><span><span class="forn-leg" style="background:var(--forn-compra)"></span>Comprado (custo na Central)</span><span><span class="forn-leg" style="background:var(--forn-venda)"></span>Vendido (faturamento, inclusive estoque antigo)</span></div></div>
+      <div style="overflow-x:auto; margin-top:8px">${grafico}</div>
+      <div class="sub" style="font-size:11.5px; max-width:none">Cada par de barras é um trecho de ~1 mês a partir de ${_cliData(P.desde)}; passe o mouse para ver os valores. Compra concentrada em poucos meses e venda baixa depois = estoque que não girou.</div>
+    </div>
+    ${conf.length ? `<div class="panel" style="padding:12px 16px; margin-bottom:14px; border-color:var(--warn)"><div style="font-weight:650; font-size:13px">Itens a conferir deste fornecedor (${fmtNum(conf.length)}) — fora da conta</div>
+      <div class="sub" style="font-size:12px; max-width:none; margin:4px 0 8px">Vendidos pelo custo ou abaixo. Se a Central vende em pacote e a loja vende a unidade, informe as unidades do pacote. Se não for pacote, o vínculo está errado: corrija em Vínculos.</div>
+      <div style="overflow-x:auto"><table class="no-tools forn-tab"><thead><tr><th>Produto da Central</th><th class="num">Custo</th><th class="num">Venda média</th><th class="num">Comprou</th><th class="num">Vendeu</th><th>Unidades no pacote</th></tr></thead><tbody>
+      ${conf.map(i => `<tr><td style="white-space:normal">${esc(_cliTitulo(i.descricao || ''))}<span class="sub2">${esc(i.codigo)}</span></td><td class="num">${fmtMoeda(i.precoCompra)}</td><td class="num heat-ruim">${fmtMoeda(i.precoVenda)}</td><td class="num">${fmtNum(Math.round(i.compraPecas))} pç</td><td class="num">${fmtNum(Math.round(i.vendaPecas))} pç</td>
+        <td style="white-space:nowrap"><input type="number" min="1" step="1" placeholder="ex.: 27" value="${i.pacote || ''}" style="width:80px; padding:4px 6px" aria-label="Unidades no pacote de ${esc(i.descricao)}"> <button type="button" class="secondary ini-oferecer" data-forn-pacote-ok="${esc(i.codigo)}">Salvar</button></td></tr>`).join('')}
+      </tbody></table></div></div>` : ''}
+    ${detalheFornecedor(x)}
+  </div>`;
+}
 function detalheFornecedor(x) {
   const desta = !!x.comprado.pedidos;
   const lojas = Object.entries(x.porLoja).map(([loja, L]) => { const pc = desta ? (L.daCompraPecas || 0) : L.vendaPecas, fv = desta ? (L.daCompraFat || 0) : L.vendaFat;
@@ -5710,7 +5800,7 @@ function detalheFornecedor(x) {
   const vias = Object.entries(x.porVia || {}); const totVia = vias.reduce((t, [, v]) => t + v, 0);
   const viaTxt = totVia ? vias.sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k === 'vinculo' ? 'vínculo salvo' : k === 'marca' ? 'marca do cadastro' : k} ${fmtPct(v / totVia * 100, 0)}`).join(', ') : '';
   return `<div class="forn-detalhe">
-    <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center"><h3>${esc(x.nome)}</h3>
+    <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center"><h3>Detalhes e ajustes</h3>
       <label style="display:inline-flex; gap:6px; align-items:center; font-size:12.5px; width:auto; margin:0" onclick="event.stopPropagation()"><input type="checkbox" style="width:auto; margin:0" data-forn-insumo="${esc(x.id)}" ${x.insumo ? 'checked' : ''}> Fornecedor de insumo (embalagem, material de loja) — fora da análise de venda</label></div>
     <div style="font-size:12.5px; color:var(--muted)">${esc(x.motivo)}.${viaTxt ? ` Venda ligada ao fornecedor por: ${esc(viaTxt)}.` : ''}${x.comprado.cancelados ? ` ${x.comprado.cancelados} pedido(s) cancelado(s) não entram na conta.` : ''}</div>
     <div style="margin-top:10px; font-size:12.5px; display:flex; gap:8px; flex-wrap:wrap; align-items:center" onclick="event.stopPropagation()">
@@ -5726,7 +5816,7 @@ function detalheFornecedor(x) {
       <span>Já voltou: <strong>${x.retorno != null ? x.retorno.toFixed(2).replace('.', ',') + '×' : '—'}</strong> o valor gasto${x.retorno >= 1 ? ' (a compra se pagou)' : ''}</span>
       <span>Lucro bruto: <strong>${x.lucroPeca != null ? fmtMoeda(x.lucroPeca) : '—'}</strong>/pç (rede ${fmtMoeda(x.T?.lucroPeca || 0)})</span>
     </div>
-    ${x.aConferir?.length ? `<div style="margin-top:10px; font-size:12.5px"><strong style="color:var(--warn)">${fmtNum(x.aConferir.length)} produto(s) a conferir ficaram fora da conta</strong> (vendidos pelo custo ou abaixo — vínculo errado, kit ou display): ${esc(x.aConferir.slice(0, 5).map(i => `${_cliTitulo(i.descricao || i.codigo)} (custo ${fmtMoeda(i.precoCompra)}, venda ${fmtMoeda(i.precoVenda)})`).join('; '))}${x.aConferir.length > 5 ? '…' : ''}</div>` : ''}
+    ${false ? `<div style="margin-top:10px; font-size:12.5px"><strong style="color:var(--warn)">${fmtNum(x.aConferir.length)} produto(s) a conferir ficaram fora da conta</strong> (vendidos pelo custo ou abaixo — vínculo errado, kit ou display): ${esc(x.aConferir.slice(0, 5).map(i => `${_cliTitulo(i.descricao || i.codigo)} (custo ${fmtMoeda(i.precoCompra)}, venda ${fmtMoeda(i.precoVenda)})`).join('; '))}${x.aConferir.length > 5 ? '…' : ''}</div>` : ''}
     ${parados.length ? `<div style="margin-top:10px; font-size:12.5px"><strong style="color:var(--danger)">${fmtNum(parados.length)} produto(s) comprados há mais de ${FORN_DIAS_RECENTE} dias sem nenhuma venda nas lojas que compraram</strong> — ${fmtMoeda(parados.reduce((t, i) => t + i.madPecas * i.precoCompra, 0))}: ${esc(parados.slice(0, 6).map(i => `${i.codigo} ${_cliTitulo(i.descricao || '')}`).join('; '))}${parados.length > 6 ? '…' : ''}</div>` : ''}
     ${top10.length ? `<div style="margin-top:14px"><div style="font-weight:650; font-size:13px; margin-bottom:6px">Top 10 mais vendidos de ${esc(x.nome)} <span style="font-weight:400; color:var(--muted)">(${dt2(_fornDados.P.desde)} até ${dt2(_fornDados.P.vendasAte)}, todas as lojas analisadas, inclusive estoque antigo)</span></div>
       <div style="overflow-x:auto"><table class="no-tools forn-tab"><thead><tr><th class="num">#</th><th>Produto</th><th class="num">Peças vendidas</th><th class="num">Faturamento</th><th class="num" title="Parte do faturamento do fornecedor">% do fornecedor</th><th class="num">R$ por peça</th><th class="num" title="Peças compradas no período (pedido da Central)">Comprado no período</th><th class="num">Giro</th></tr></thead><tbody>
@@ -5740,10 +5830,10 @@ function detalheFornecedor(x) {
       <div class="sub" style="font-size:11.5px; max-width:none; margin-top:4px">Os 10 somam ${fmtPct(vendTot ? top10.reduce((t, i) => t + i.vendaFat, 0) / vendTot * 100 : 0, 0)} do faturamento do fornecedor no período.</div></div>` : ''}
     <div class="grade2">
       <div><div style="font-weight:650; font-size:13px; margin-bottom:6px">Por loja</div>
-        <table class="no-tools forn-tab"><thead><tr><th>Loja</th><th class="num">Comprou</th><th class="num">Vendeu ${desta ? 'desta compra' : ''}</th><th class="num">Giro</th><th title="Venda ${desta ? 'das peças desta compra' : 'do fornecedor'} ÷ faturamento da loja">% do fatur. da loja</th></tr></thead><tbody>
+        <table class="no-tools forn-tab"><thead><tr><th>Loja</th><th class="num">Comprou</th><th class="num">Vendeu ${desta ? 'desta compra' : ''}</th><th class="num" title="Das peças compradas há mais de ${FORN_DIAS_RECENTE} dias, quantas já venderam">Giro</th><th class="num" title="Custo das peças compradas há mais de ${FORN_DIAS_RECENTE} dias sem venda">Parado</th><th title="Venda ${desta ? 'das peças desta compra' : 'do fornecedor'} ÷ faturamento da loja">% do fatur. da loja</th></tr></thead><tbody>
         ${lojas.map(l => `<tr><td>${esc(l.loja.replace(/^SSS\s+/i, ''))}</td><td class="num">${l.compraValor ? `${fmtMoeda(l.compraValor)}<span class="sub2">${fmtNum(Math.round(l.compraPecas))} pç · ${dt2(l.ultima)}</span>` : '—'}</td>
           <td class="num">${l.fatBase ? `${fmtMoeda(l.fatBase)}<span class="sub2">${fmtNum(Math.round(l.pcBase))} pç${desta && l.vendaPecas - l.pcBase >= 1 ? ` · +${fmtNum(Math.round(l.vendaPecas - l.pcBase))} antigo` : ''}</span>` : (l.vendaPecas && desta ? `<span class="sub2">só estoque antigo (${fmtNum(Math.round(l.vendaPecas))} pç)</span>` : '—')}</td>
-          <td class="num ${giroCls(l.giro)}">${l.giro != null ? fmtPct(l.giro * 100, 0) : '—'}</td>
+          <td class="num ${giroCls(l.giro)}">${l.giro != null ? fmtPct(l.giro * 100, 0) : '—'}</td><td class="num">${l.parado >= 1 ? fmtMoeda(l.parado) : '—'}</td>
           <td><span class="forn-barra" style="width:${Math.max(2, l.pct / maxPct * 70)}px"></span>${fmtPct(l.pct, l.pct < 1 ? 2 : 1)}<span class="sub2">${fmtPct(l.pctPc, l.pctPc < 1 ? 2 : 1)} das peças${l.pctPc > 0 && l.pct / l.pctPc < 0.75 ? ' · <span style="color:var(--warn)">vende barato</span>' : ''}</span></td></tr>`).join('')}
         </tbody></table></div>
       <div><div style="font-weight:650; font-size:13px; margin-bottom:6px">Comprado no período, por produto (código da Central)${itens.filter(i => i.compraPecas > 0).length > 40 ? ` — 40 de ${fmtNum(itens.filter(i => i.compraPecas > 0).length)}, pelos mais comprados` : ''}</div>

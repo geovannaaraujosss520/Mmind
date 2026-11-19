@@ -244,3 +244,6 @@ Algumas lojas cadastram o código da Central com zeros na frente (ex.: `00003D-C
 
 ### Fornecedores: unidades no pacote
 Item da Central vendido em pacote/caixa e vendido em unidades na loja (ex.: SANTITAS PACK = 27). Na lista **Itens a conferir**, a coluna "Unidades no pacote" salva o número (ação `salvarPacote`, `painel_cache` chave `pacote_itens_central`, `{ CODIGO: n }`, vale para a rede). A tela multiplica a compra e divide o custo por `n` e recalcula na hora, sem ler tudo de novo.
+
+### Fornecedores: Visão geral × Por fornecedor
+A tela tem duas abas. **Visão geral**: resumo da rede, situações, comparador de esforço, tabela de fornecedores e itens a conferir; clicar num fornecedor abre a outra aba. **Por fornecedor** (com seletor): situação e motivo, números principais (comprado, giro, parado, % do faturamento, R$ por peça, markup, lucro por peça), gráfico **compra × venda mês a mês** (trechos de ~1 mês, os mesmos da leitura; `mesCompra`/`mesVenda`), itens a conferir do fornecedor com unidades no pacote, e o detalhe (top 10, por loja com valor parado, por produto, frete, marcas, insumo).
