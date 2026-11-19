@@ -119,6 +119,10 @@
   table.forn-tab tr.forn-linha.aberta td{ background:var(--panel-2); }
   table.forn-tab .sub2{ display:block; font-size:11px; color:var(--muted); }
   .forn-frete{ width:64px; padding:4px 6px; font-size:12px; text-align:right; }
+  .forn-legenda{ display:flex; flex-wrap:wrap; gap:8px 18px; align-items:center; font-size:12.5px; margin:0 0 14px; }
+  .forn-legenda details{ flex-basis:100%; color:var(--muted); font-size:12px; }
+  .forn-legenda details summary{ cursor:pointer; color:var(--text); }
+  .forn-legenda details div{ margin-top:6px; line-height:1.55; max-width:900px; }
   .forn-detalhe{ padding:14px 16px 18px; background:var(--panel); border:1px solid var(--line-strong); border-radius:10px; margin:6px 0 14px; white-space:normal; }
   .forn-detalhe h3{ font-size:15px; margin:0 0 4px; }
   .forn-detalhe .grade2{ display:grid; grid-template-columns:repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap:18px; margin-top:12px; }
@@ -938,14 +942,13 @@
         <p><strong>Comprado:</strong> pedidos da Central feitos no período (sem os cancelados), por fornecedor e loja. Valor = quantidade × preço do pedido.</p>
         <p><strong>Marca:</strong> quando o produto não tem vínculo nem código que bata com a Central, a venda vai para o fornecedor pela <strong>MARCA</strong> do cadastro da VarejOnline (ex.: ANDRÉA → EMPORIUM DA BIJUTERIA, JOSE RAFAEL → ACESSÓRIOS JR). A marca vale para o fornecedor que já recebe a maior parte (60%+) da venda dessa marca pelos vínculos; marca sem nada ligado é reconhecida pelo nome (ex.: LK JOIAS). Nesses casos não se sabe o item exato, então no giro a venda conta, por loja, até o que sobrou da compra daquele fornecedor.</p>
         <p><strong>Vendido:</strong> vendas das lojas (VarejOnline) do início do período até a data escolhida em "Vendas até", dos produtos ligados ao fornecedor pela mesma regra da tela Vínculos (vínculo salvo; senão código; senão descrição). Produto sem ligação entra em "sem fornecedor identificado" — quanto mais vínculos, mais precisa a análise.</p>
-        <p><strong>Giro:</strong> das peças compradas no período, quantas já venderam. Em cada loja e produto, a venda conta só até a quantidade comprada — o que vendeu além disso saiu de estoque antigo e aparece à parte. Por isso o giro fica sempre entre 0% e 100%. Compra feita há poucos dias ainda não teve tempo de girar.</p>
-        <p><strong>% do faturamento:</strong> quanto faturaram as peças <em>desta compra</em> que já venderam ÷ faturamento total das lojas analisadas no mesmo intervalo. Ex.: comprei 1.000, vendi 500, e essas 500 deram 10% do meu faturamento. A venda do mesmo fornecedor saída de estoque antigo aparece à parte e não entra nessa conta.</p>
-        <p><strong>Frete:</strong> a Central não informa o valor do frete. Informe o frete médio de cada fornecedor (% do valor do pedido); fica salvo para as próximas análises.</p>
-        <p><strong>Markup:</strong> preço de venda ÷ custo de compra na Central (+ frete) das peças desta compra que já venderam — usa o preço do pedido, não o custo cadastrado no VarejOnline. Embaixo, <strong>já voltou</strong>: a venda dessas peças ÷ tudo o que foi gasto na compra (+ frete); 1× significa que a compra já se pagou.</p>
-        <p><strong>Por que o faturamento por peça importa:</strong> vender 10 medalhas compradas a R$ 0,50 e vendidas a R$ 1,50 dá markup de 3×, mas fatura R$ 15. Vender 10 colares comprados a R$ 35 e vendidos a R$ 99 fatura R$ 990. O esforço é o mesmo (10 peças: 10 atendimentos, embalagens e tempo de vendedor), o retorno não. Por isso o markup sozinho não decide a leitura.</p>
-        <p><strong>Quantas vezes mais esforço:</strong> peças vendidas para faturar R$ 1.000 de cada fornecedor, comparadas com a média da rede (coluna Esforço × retorno) ou entre dois fornecedores (quadro "Comparar o esforço"). Ex.: 21 peças de um contra 11 de outro para o mesmo R$ 1.000 = 1,9× mais esforço.</p>
-        <p><strong>Esforço × retorno</strong> (também só com as peças desta compra): quanto o fornecedor ocupa das <em>peças vendidas</em> (o esforço: cada peça é um atendimento, embalagem e tempo de vendedor) comparado com quanto ele devolve do <em>faturamento</em> e do <em>lucro bruto</em> das lojas. Ex.: 25% das peças vendidas para 12% do faturamento = a loja faz força vendendo peça barata. <em>Vende barato</em> = parte do faturamento abaixo de 75% da parte das peças · <em>Não sustenta</em> = além disso, lucro bruto por peça abaixo de 60% da média · <em>Puxa o ticket</em> = parte do faturamento acima de 125% da parte das peças.</p>
-        <p><strong>Leitura:</strong> <em>Revisar</em> = não sustenta, giro abaixo de 60% do giro médio da rede, markup abaixo de 1,8× ou peça que fatura menos da metade da peça média da rede · <em>Compensa</em> = giro igual ou acima do da rede, markup ≥ 2,2× e peça faturando pelo menos 75% da média · <em>Atenção</em> = o resto. No detalhe de cada fornecedor, a coluna <strong>R$ por peça</strong> marca em vermelho os produtos que faturam menos da metade da peça média.</p>
+        <p><strong>Vendeu (giro):</strong> das peças compradas <em>há mais de 60 dias</em>, quantas já venderam. Em cada loja e produto, a venda conta só até a quantidade que aquela loja comprou (o que vendeu além disso saiu de estoque antigo). A compra dos últimos 60 dias ainda está vendendo: entra no Comprado, mas fica fora do giro — senão quem comprou na semana passada pareceria encalhado.</p>
+        <p><strong>Parado:</strong> custo (preço da Central) das peças compradas há mais de 60 dias que ainda não venderam.</p>
+        <p><strong>% do faturamento:</strong> quanto faturaram as peças compradas no período que já venderam ÷ faturamento total das lojas analisadas. Ex.: comprei 1.000, vendi 500, e essas 500 deram 10% do meu faturamento.</p>
+        <p><strong>R$ por peça e esforço:</strong> faturamento médio por peça vendida. Vender 10 medalhas a R$ 1,50 fatura R$ 15; 10 colares a R$ 99 faturam R$ 990 — o esforço (atendimento, embalagem, tempo de vendedor) é o mesmo. "1,5× o esforço médio" = precisa de 1,5 vez mais peças que a média da rede para faturar o mesmo valor. O quadro "Comparar o esforço" compara dois fornecedores.</p>
+        <p><strong>Situação:</strong> uma regra decide, na ordem: <em>Revisar</em> (giro abaixo de 60% do da rede) · <em>Margem baixa</em> (vende a menos de 1,8× o custo) · <em>Gira abaixo da rede</em> (giro entre 60% e 90% do da rede) · <em>Gira, peça barata</em> (gira bem, mas a peça média é menos de 75% da média da rede) · <em>Compensa</em> · <em>Compra recente</em> (quase tudo comprado nos últimos 60 dias). O motivo aparece embaixo da situação.</p>
+        <p><strong>Itens a conferir:</strong> produtos vendidos, em média, pelo custo da Central ou abaixo. Quase sempre é vínculo errado, display/kit vendido em unidades ou caixa contada como peça. Saem da conta do fornecedor e aparecem numa lista no fim da tela para corrigir.</p>
+        <p><strong>Frete, markup e "já voltou":</strong> no detalhe do fornecedor (clique na linha). A Central não informa o frete: informe o frete médio (% do pedido), fica salvo. Markup = preço de venda ÷ custo (+ frete); já voltou = venda das peças compradas ÷ total gasto (1× = a compra se pagou).</p>
       </div></details>
     </header>
     <div class="panel">
@@ -5105,6 +5108,7 @@ const DIAS_NOME = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 
 // =====================================================================
 // FORNECEDORES (franqueadora): compra na Central × venda × % do faturamento × frete
 // =====================================================================
+const FORN_DIAS_RECENTE = 60; // compra feita há menos que isso ainda está vendendo: fica fora do giro
 let _fornDados = null, _fornAberto = null, _fornOrdem = 'valor', _fornMostrarSemCompra = false, _fornMarcasManuais = {}, _fornCmp = null;
 (function iniciarFornecedores() {
   const hoje = new Date(Date.now() - 3 * 3600e3), iso = d => d.toISOString().slice(0, 10);
@@ -5143,8 +5147,13 @@ async function rodarFornecedores() {
       return r;
     });
     const vendas = await ligarVendasAosFornecedores(brutas, msg => { st.textContent = msg; }, compras.fornecedores, fr.marcasFornecedor || {});
+    // compras dos últimos 60 dias (FORN_DIAS_RECENTE): ainda estão vendendo, ficam fora do giro (senão quem comprou semana passada parece encalhado)
+    const fimV = vendasAte || new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
+    const corte = new Date(Date.parse(fimV + 'T12:00:00Z') - (FORN_DIAS_RECENTE - 1) * 864e5).toISOString().slice(0, 10);
+    let recentes = null;
+    if (corte <= ate) { st.textContent = 'Separando as compras recentes…'; recentes = await comprasFornecedoresPorMes(corte > desde ? corte : desde, ate, () => {}); }
     _fornMarcasManuais = fr.marcasFornecedor || {};
-    _fornDados = montarFornecedores(compras, vendas, fr.frete || {}, new Set(fr.insumo || []), { desde, ate, vendasAte: vendasAte || new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10), filtroLojas: filtro ? nomes : null });
+    _fornDados = montarFornecedores(compras, vendas, fr.frete || {}, new Set(fr.insumo || []), { desde, ate, vendasAte: fimV, corteRecente: corte, filtroLojas: filtro ? nomes : null }, recentes);
     _fornAberto = null;
     renderFornecedores();
     st.textContent = `Atualizado às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
@@ -5304,7 +5313,7 @@ async function ligarVendasAosFornecedores(vendas, onStatus, fornecedoresCompra =
 }
 
 
-function montarFornecedores(compras, vendas, frete, insumo, P) {
+function montarFornecedores(compras, vendas, frete, insumo, P, recentes = null) {
   const okV = vendas.filter(v => !v.erro), erros = vendas.filter(v => v.erro);
   const lojasAnalisadas = new Set(okV.map(v => v.loja));
   const fat = okV.reduce((t, v) => t + v.faturamento, 0);
@@ -5351,37 +5360,82 @@ function montarFornecedores(compras, vendas, frete, insumo, P) {
   // totais das lojas analisadas: base do "peso" de cada fornecedor (faturamento, peças e lucro bruto)
   const T = { fat, pecas: okV.reduce((t, v) => t + (v.pecas || 0), 0), custo: okV.reduce((t, v) => t + (v.custo || 0), 0) };
   T.lucro = T.fat - T.custo; T.precoPeca = T.pecas ? T.fat / T.pecas : 0; T.lucroPeca = T.pecas ? T.lucro / T.pecas : 0;
+  // compras recentes (últimos FORN_DIAS_RECENTE dias) por fornecedor, loja e produto
+  const REC = new Map();
+  for (const f of recentes?.fornecedores || []) {
+    const r = { valor: 0, pecas: 0, lojas: {}, itens: new Map() };
+    for (const [loja, L] of Object.entries(f.lojas)) if (lojasAnalisadas.has(loja)) { r.valor += L.valor; r.pecas += L.pecas; r.lojas[loja] = { valor: L.valor, pecas: L.pecas }; }
+    for (const it of f.itens) { const q = {}; for (const [loja, n] of Object.entries(it.lojas)) if (lojasAnalisadas.has(loja)) q[loja] = n; r.itens.set(String(it.codigo).toUpperCase().replace(/\s+/g, ''), q); }
+    REC.set(f.id, r);
+  }
+  const aConferirRede = [];
   for (const x of F.values()) {
-    for (const [loja, L] of Object.entries(x.porLoja)) { const V = porLojaV[loja]; L.fatLoja = V?.faturamento || 0; L.pecasLoja = V?.pecas || 0; L.daCompraPecas = 0; L.daCompraFat = 0; }
+    for (const [loja, L] of Object.entries(x.porLoja)) { const V = porLojaV[loja]; L.fatLoja = V?.faturamento || 0; L.pecasLoja = V?.pecas || 0; L.daCompraPecas = 0; L.daCompraFat = 0; L.madPecas = 0; L.madVend = 0; L.recPecas = REC.get(x.id)?.lojas[loja]?.pecas || 0; L.recValor = REC.get(x.id)?.lojas[loja]?.valor || 0; }
+    const R = REC.get(x.id);
+    x.recente = { valor: R?.valor || 0, pecas: R?.pecas || 0 };
+    // Itens a conferir: vendidos (em média) por menos de 1,1× o custo da Central. Quase sempre é vínculo errado
+    // (produto da loja ligado ao item errado), display/kit vendido em unidades ou caixa contada como peça.
+    // Saem da conta do fornecedor (giro, % do faturamento, markup) e vão para a lista "Itens a conferir".
+    x.aConferir = [];
+    for (const [k, I] of x.itens) {
+      if (!I.compraPecas || !I.precoCompra || I.vendaPecas < 10) continue;
+      const pv = I.vendaFat / I.vendaPecas;
+      if (pv >= 1.1 * I.precoCompra) continue;
+      I.aConferir = pv < I.precoCompra ? 'vende abaixo do custo' : 'vende quase pelo custo';
+      I.precoVenda = pv;
+      x.aConferir.push(I); aConferirRede.push({ fornecedor: x.nome, fid: x.id, ...I });
+      x.vendido.pecas -= I.vendaPecas;
+      if (x.vendido.faturamento > 0) x.vendido.custo -= x.vendido.custo * I.vendaFat / x.vendido.faturamento;
+      x.vendido.faturamento -= I.vendaFat;
+      for (const [loja, VL] of Object.entries(I.vendaPorLoja)) { const L = x.porLoja[loja]; if (L) { L.vendaPecas -= VL.q; L.vendaFat -= VL.fat; } }
+      x.comprado.pecasConferir = (x.comprado.pecasConferir || 0) + I.compraPecas;
+      x.comprado.valorConferir = (x.comprado.valorConferir || 0) + I.compraValor;
+    }
     // "Vendido desta compra": em cada loja e produto, as vendas contam até a quantidade comprada no período.
     // O que passar disso saiu de estoque antigo e não entra no giro (que assim fica entre 0% e 100%).
+    // Giro "maduro": só a compra com mais de FORN_DIAS_RECENTE dias entra no giro e no valor parado.
     x.daCompra = { pecas: 0, faturamento: 0, custo: 0 };
-    for (const I of x.itens.values()) {
-      I.daCompraPecas = 0; I.daCompraFat = 0;
+    x.maduro = { pecas: 0, vendidas: 0, valor: 0, parado: 0 };
+    for (const [k, I] of x.itens) {
+      I.daCompraPecas = 0; I.daCompraFat = 0; I.madPecas = 0; I.madVend = 0; I.recPecas = 0;
+      if (I.aConferir) continue;
+      const recI = R?.itens.get(k) || {};
       for (const [loja, q] of Object.entries(I.compraPorLoja)) {
-        const V = I.vendaPorLoja[loja]; if (!V || !V.q) continue;
-        const m = Math.min(q, V.q), fatM = V.fat * m / V.q;
+        const V = I.vendaPorLoja[loja], vq = V?.q || 0;
+        const rq = Math.min(q, recI[loja] || 0), mq = q - rq;
+        I.recPecas += rq; I.madPecas += mq;
+        const mv = Math.min(mq, vq);
+        I.madVend += mv; x.maduro.pecas += mq; x.maduro.vendidas += mv; x.maduro.valor += mq * I.precoCompra; x.maduro.parado += (mq - mv) * I.precoCompra;
+        const L = x.porLoja[loja]; if (L) { L.madPecas += mq; L.madVend += mv; }
+        if (!vq) continue;
+        const m = Math.min(q, vq), fatM = V.fat * m / vq;
         I.daCompraPecas += m; I.daCompraFat += fatM;
         x.daCompra.pecas += m; x.daCompra.faturamento += fatM; x.daCompra.custo += m * I.precoCompra;
-        const L = x.porLoja[loja]; if (L) { L.daCompraPecas += m; L.daCompraFat += fatM; }
+        if (L) { L.daCompraPecas += m; L.daCompraFat += fatM; }
       }
     }
     // venda ligada só pela marca (sem saber o item): conta, por loja, até o que sobrou da compra daquela loja
     for (const L of Object.values(x.porLoja)) {
+      if (!L.marcaQ) continue;
+      const preco = L.compraPecas ? L.compraValor / L.compraPecas : 0;
       const sobra = Math.max(0, (L.compraPecas || 0) - L.daCompraPecas);
-      if (!sobra || !L.marcaQ) continue;
-      const m = Math.min(sobra, L.marcaQ), fatM = L.marcaFat * m / L.marcaQ, preco = L.compraPecas ? L.compraValor / L.compraPecas : 0;
-      L.daCompraPecas += m; L.daCompraFat += fatM;
-      x.daCompra.pecas += m; x.daCompra.faturamento += fatM; x.daCompra.custo += m * preco;
+      if (sobra) {
+        const m = Math.min(sobra, L.marcaQ), fatM = L.marcaFat * m / L.marcaQ;
+        L.daCompraPecas += m; L.daCompraFat += fatM;
+        x.daCompra.pecas += m; x.daCompra.faturamento += fatM; x.daCompra.custo += m * preco;
+      }
+      const sobraM = Math.max(0, L.madPecas - L.madVend);
+      if (sobraM) { const m = Math.min(sobraM, L.marcaQ); L.madVend += m; x.maduro.vendidas += m; x.maduro.parado -= m * preco; }
     }
+    x.maduro.parado = Math.max(0, x.maduro.parado);
     x.frete = frete[x.id] ?? null; x.insumo = insumo.has(x.id);
   }
-  // giro médio da rede (peças desta compra já vendidas ÷ compradas, sem insumos): régua do giro de cada fornecedor
+  // giro médio da rede (peças compradas há mais de FORN_DIAS_RECENTE dias já vendidas ÷ compradas, sem insumos)
   const rev = [...F.values()].filter(x => !x.insumo && x.comprado.pedidos);
-  const cp = rev.reduce((t, x) => t + x.comprado.pecas, 0);
-  T.giroRede = cp ? rev.reduce((t, x) => t + x.daCompra.pecas, 0) / cp : null;
+  const cp = rev.reduce((t, x) => t + x.maduro.pecas, 0);
+  T.giroRede = cp ? rev.reduce((t, x) => t + x.maduro.vendidas, 0) / cp : null;
   for (const x of F.values()) calcularLeituraFornecedor(x, T, P);
-  const D = { P, T, fornecedores: [...F.values()], faturamento: fat, semFornecedor: semForn, foraDaCentral: foraCentral, lojas: okV.length, erros, frete,
+  const D = { P, T, fornecedores: [...F.values()], faturamento: fat, aConferir: aConferirRede.filter(i => !insumo.has(i.fid)).sort((a, b) => b.vendaFat - a.vendaFat), semFornecedor: semForn, foraDaCentral: foraCentral, lojas: okV.length, erros, frete,
     centralIncompleta: compras.centralIncompleta, aviso: compras.aviso, foraDoPainel: compras.pedidosForaDoPainel || 0 };
   totaisFornecedores(D);
   return D;
@@ -5393,6 +5447,9 @@ function totaisFornecedores(D) { // insumos (embalagem, material de loja) ficam 
   D.totVendidoTotal = rev.reduce((t, x) => t + x.vendido.faturamento, 0);
   D.pedidos = rev.reduce((t, x) => t + x.comprado.pedidos, 0);
   D.totInsumo = D.fornecedores.filter(x => x.insumo).reduce((t, x) => t + x.comprado.valor, 0);
+  D.totRecente = rev.reduce((t, x) => t + (x.recente?.valor || 0), 0);
+  D.totParado = rev.reduce((t, x) => t + (x.maduro?.parado || 0), 0);
+  D.totMaduro = rev.reduce((t, x) => t + (x.maduro?.valor || 0), 0);
 }
 // Esforço × retorno: o fornecedor ocupa X% das peças vendidas (o esforço de venda) e devolve Y% do faturamento
 // e Z% do lucro bruto. Índice = % do faturamento ÷ % das peças (= preço médio da peça ÷ preço médio da loja).
@@ -5400,8 +5457,10 @@ function totaisFornecedores(D) { // insumos (embalagem, material de loja) ficam 
 function calcularLeituraFornecedor(x, T, P) {
   const c = x.comprado, v = x.vendido;
   const dc = x.daCompra || { pecas: 0, faturamento: 0, custo: 0 };
+  const mad = x.maduro || { pecas: 0, vendidas: 0, valor: 0, parado: 0 };
   const gR = T.giroRede || null;
-  x.giro = c.pecas > 0 ? Math.min(1, dc.pecas / c.pecas) : null;
+  // giro = das peças compradas há mais de 60 dias, quantas já venderam (compra recente ainda está vendendo)
+  x.giro = mad.pecas >= 1 ? Math.min(1, mad.vendidas / mad.pecas) : null;
   x.estoqueAntigo = Math.max(0, v.pecas - dc.pecas);
   // Peso e esforço contam SÓ as peças desta compra que já venderam (sem o estoque antigo).
   // Fornecedor sem pedido no período: usa a venda total (é tudo estoque antigo) só para não ficar em branco.
@@ -5430,96 +5489,114 @@ function calcularLeituraFornecedor(x, T, P) {
   x.markup = dc.custo > 0 ? dc.faturamento / (dc.custo * fr) : null;
   // já voltou = venda das peças desta compra ÷ tudo o que foi gasto (compra + frete). 1× = a compra já se pagou.
   x.retorno = x.custoComFrete > 0 ? dc.faturamento / x.custoComFrete : null;
-  const diasDesdeUltima = c.ultima ? (Date.parse(P.vendasAte) - Date.parse(c.ultima)) / 864e5 : null;
-  x.compraRecente = diasDesdeUltima != null && diasDesdeUltima < 30 && c.valor > 0;
-  if (x.insumo) x.leitura = 'insumo';
-  else if (!c.pedidos) x.leitura = v.faturamento ? 'estoque' : 'nada';
-  // markup alto não basta: medalha de R$ 0,50 vendida a R$ 1,50 tem markup 3×, mas 10 peças faturam R$ 15;
-  // 10 colares de R$ 99 faturam R$ 990 com o mesmo esforço. Por isso o faturamento por peça entra na leitura.
-  // giro comparado com o da rede no mesmo período (compras recentes puxam todos para baixo igualmente)
-  else if (x.naoSustenta || (gR && x.giro < 0.6 * gR) || (x.markup != null && x.markup < 1.8) || (x.idxEsforco != null && x.base.pecas >= 20 && x.idxEsforco < 0.5)) x.leitura = 'revisar';
-  else if ((!gR || x.giro >= gR) && x.markup >= 2.2 && (x.idxEsforco == null || x.idxEsforco >= 0.75)) x.leitura = 'compensa';
-  else x.leitura = 'atencao';
+  x.compraRecente = (x.recente?.valor || 0) > 0;
+  const pctRec = c.pecas ? (x.recente?.pecas || 0) / c.pecas : 0;
+  const pct = n => fmtPct(n * 100, 0);
+  const vezes = n => n.toFixed(1).replace('.', ',') + '×';
+  // Situação: UMA regra decide, na ordem abaixo, e o motivo diz qual foi.
+  // giro (compra com +60 dias) comparado com o da rede · markup · preço da peça comparado com o da rede
+  const barata = x.precoPeca != null && T.precoPeca && base.pecas >= 20 && x.precoPeca < 0.75 * T.precoPeca;
+  if (x.insumo) { x.leitura = 'insumo'; x.resumo = 'fora da análise de venda'; }
+  else if (!c.pedidos) { x.leitura = v.faturamento ? 'estoque' : 'nada'; x.resumo = v.faturamento ? 'vendeu estoque comprado antes do período' : ''; }
+  else if (mad.pecas < 30) { x.leitura = 'novo'; x.resumo = `${pct(pctRec)} das peças foram compradas nos últimos ${FORN_DIAS_RECENTE} dias: ainda cedo para medir o giro`; }
+  else if (gR && x.giro < 0.6 * gR) { x.leitura = 'revisar'; x.resumo = `vendeu ${pct(x.giro)} do que comprou (rede ${pct(gR)}) · ${fmtMoeda(mad.parado)} parados`; }
+  else if (x.markup != null && x.markup < 1.8) { x.leitura = 'margem'; x.resumo = `vende a ${vezes(x.markup)} o custo${x.frete != null ? ' com frete' : ''} (abaixo de 1,8×)`; }
+  else if (gR && x.giro < 0.9 * gR) { x.leitura = 'lento'; x.resumo = `vendeu ${pct(x.giro)} do que comprou (rede ${pct(gR)})`; }
+  else if (barata) { x.leitura = 'barata'; x.resumo = `gira bem (${pct(x.giro)}), mas a peça média é ${fmtMoeda(x.precoPeca)} (rede ${fmtMoeda(T.precoPeca)}): ${vezes(x.vezesEsforco)} o esforço para o mesmo faturamento`; }
+  else { x.leitura = 'compensa'; x.resumo = `vendeu ${pct(x.giro)} do que comprou (rede ${pct(gR || 0)}), peça média ${fmtMoeda(x.precoPeca || 0)}${x.markup != null ? `, ${vezes(x.markup)} o custo` : ''}`; }
   const motivos = [];
   if (x.insumo) motivos.push('marcado como fornecedor de insumo (embalagem, material de loja): não entra na análise de venda');
   else if (c.pedidos) {
-    motivos.push(`das ${fmtNum(Math.round(c.pecas))} peças compradas, ${fmtNum(Math.round(dc.pecas))} já venderam (${fmtPct((x.giro || 0) * 100, 0)}${gR ? `; rede ${fmtPct(gR * 100, 0)}` : ''})`);
-    if (x.markup != null) motivos.push(`vendidas a ${x.markup.toFixed(2).replace('.', ',')}× o custo de compra${x.frete != null ? ' com frete' : ''}`);
-    motivos.push(`a venda dessas peças já devolveu ${(x.retorno || 0).toFixed(2).replace('.', ',')}× o valor gasto${(x.retorno || 0) >= 1 ? ' (a compra já se pagou)' : ''}`);
-    if (x.estoqueAntigo >= 1) motivos.push(`mais ${fmtNum(Math.round(x.estoqueAntigo))} peças vendidas saíram de estoque antigo (fora do giro)`);
+    motivos.push(`das ${fmtNum(Math.round(mad.pecas))} peças compradas há mais de ${FORN_DIAS_RECENTE} dias, ${fmtNum(Math.round(mad.vendidas))} já venderam (${pct(x.giro || 0)}${gR ? `; rede ${pct(gR)}` : ''}) e ${fmtMoeda(mad.parado)} (custo) seguem sem venda`);
+    if (x.recente?.pecas) motivos.push(`${fmtNum(Math.round(x.recente.pecas))} peças (${fmtMoeda(x.recente.valor)}) foram compradas nos últimos ${FORN_DIAS_RECENTE} dias e ainda estão vendendo: ficam fora do giro`);
+    if (x.markup != null) motivos.push(`vendidas a ${vezes(x.markup)} o custo de compra${x.frete != null ? ' com frete' : ''}`);
+    motivos.push(`a venda das peças compradas no período já devolveu ${(x.retorno || 0).toFixed(2).replace('.', ',')}× o valor gasto${(x.retorno || 0) >= 1 ? ' (a compra já se pagou)' : ''}`);
+    if (x.estoqueAntigo >= 1) motivos.push(`mais ${fmtNum(Math.round(x.estoqueAntigo))} peças vendidas saíram de estoque comprado antes do período`);
+    if (x.aConferir?.length) motivos.push(`${x.aConferir.length} produto(s) a conferir (venda pelo custo ou abaixo) ficaram fora da conta`);
     if (x.frete == null) motivos.push('frete não informado');
-    if (x.precoPeca != null && T.precoPeca) motivos.push(`cada peça vendida fatura ${fmtMoeda(x.precoPeca)} (média da rede ${fmtMoeda(T.precoPeca)}): 10 peças = ${fmtMoeda(x.precoPeca * 10)} contra ${fmtMoeda(T.precoPeca * 10)}`);
-    if (x.esforco) motivos.push(`ocupa ${fmtPct(x.pctPecas, 1)} das peças vendidas e devolve ${fmtPct(x.pctFat, 1)} do faturamento e ${fmtPct(x.pctLucro, 1)} do lucro bruto`
-      + (x.naoSustenta ? ' — muita peça barata, pouco lucro: não sustenta a operação' : x.esforco === 'barato' ? ' — vende barato' : x.esforco === 'ticket' ? ' — puxa o ticket' : ''));
-    if (x.compraRecente) motivos.push('tem compra recente, o giro ainda pode subir');
+    if (x.precoPeca != null && T.precoPeca) motivos.push(`cada peça vendida fatura ${fmtMoeda(x.precoPeca)} (média da rede ${fmtMoeda(T.precoPeca)})`);
   } else motivos.push('sem pedido na Central no período; as vendas são de estoque comprado antes');
   x.motivo = motivos.join(' · ');
 }
 const LEITURA_FORN = {
-  compensa: ['tag-ok', 'Compensa'], atencao: ['tag-alto', 'Atenção'], revisar: ['tag-risco', 'Revisar'],
+  compensa: ['tag-ok', 'Compensa'], barata: ['tag-alto', 'Gira, peça barata'], lento: ['tag-alto', 'Gira abaixo da rede'],
+  margem: ['tag-risco', 'Margem baixa'], revisar: ['tag-risco', 'Revisar'], novo: ['chip', 'Compra recente'],
   estoque: ['chip', 'Sem compra no período'], nada: ['chip', '—'], insumo: ['chip', 'Insumo'],
 };
+const ORDEM_LEITURA = ['revisar', 'margem', 'lento', 'barata', 'compensa', 'novo', 'estoque', 'nada', 'insumo'];
 function renderFornecedores() {
   const D = _fornDados, box = $('resultado-fornecedores'); if (!D) return;
   const P = D.P, dt = d => d ? _cliData(d) : '—';
   let lista = D.fornecedores.filter(x => !x.insumo && (_fornMostrarSemCompra || x.comprado.pedidos));
   const insumos = D.fornecedores.filter(x => x.insumo && x.comprado.pedidos).sort((a, b) => b.comprado.valor - a.comprado.valor);
-  const ord = { valor: (a, b) => b.comprado.valor - a.comprado.valor, venda: (a, b) => b.base.fat - a.base.fat,
-    giro: (a, b) => (a.giro ?? 9) - (b.giro ?? 9), retorno: (a, b) => (a.markup ?? 99) - (b.markup ?? 99),
-    peso: (a, b) => b.pctFat - a.pctFat, esforco: (a, b) => (a.idxEsforco ?? 99) - (b.idxEsforco ?? 99) };
+  const ord = { valor: (a, b) => b.comprado.valor - a.comprado.valor, parado: (a, b) => (b.maduro?.parado || 0) - (a.maduro?.parado || 0),
+    giro: (a, b) => (a.giro ?? 9) - (b.giro ?? 9), peso: (a, b) => b.pctFat - a.pctFat,
+    preco: (a, b) => (a.precoPeca ?? 1e9) - (b.precoPeca ?? 1e9),
+    situacao: (a, b) => ORDEM_LEITURA.indexOf(a.leitura) - ORDEM_LEITURA.indexOf(b.leitura) || b.comprado.valor - a.comprado.valor };
   lista.sort(ord[_fornOrdem] || ord.valor);
   const semCompra = D.fornecedores.filter(x => !x.comprado.pedidos && x.vendido.faturamento).length;
   const cobertura = D.faturamento ? (D.faturamento - D.semFornecedor - D.foraDaCentral) / D.faturamento * 100 : 0;
-  const cont = { compensa: 0, atencao: 0, revisar: 0 }; for (const x of D.fornecedores) if (cont[x.leitura] != null) cont[x.leitura]++;
+  const cont = {}; for (const x of lista) cont[x.leitura] = (cont[x.leitura] || 0) + 1;
   const semVendaSuspeito = lista.filter(x => x.comprado.pedidos && !x.vendido.faturamento).length;
-  const T = D.T;
-  const forca = lista.filter(x => x.esforco === 'barato' && x.pctPecas >= 1).sort((a, b) => (b.pctPecas - b.pctFat) - (a.pctPecas - a.pctFat)).slice(0, 5);
-  const esfTag = x => !x.esforco ? '<span style="color:var(--muted)">—</span>' : x.naoSustenta ? '<span class="tag-risco">Não sustenta</span>' : x.esforco === 'barato' ? '<span class="tag-alto">Vende barato</span>' : x.esforco === 'ticket' ? '<span class="tag-ok">Puxa o ticket</span>' : '<span class="chip">Equilibrado</span>';
-  const th = (k, t, title) => `<th class="num" ${title ? `title="${esc(title)}"` : ''}><button type="button" class="link-ord" data-forn-ord="${k}" style="all:unset; cursor:pointer; ${_fornOrdem === k ? 'text-decoration:underline' : ''}">${t}</button></th>`;
+  const T = D.T, gR = T.giroRede;
+  const th = (k, t, title, cls = 'num') => `<th class="${cls}" ${title ? `title="${esc(title)}"` : ''}><button type="button" class="link-ord" data-forn-ord="${k}" style="all:unset; cursor:pointer; ${_fornOrdem === k ? 'text-decoration:underline' : ''}">${t}</button></th>`;
+  const giroCls = x => x.giro == null || !gR ? '' : x.giro >= 0.9 * gR ? 'heat-bom' : x.giro < 0.6 * gR ? 'heat-ruim' : 'heat-medio';
   const linha = x => {
-    const L = LEITURA_FORN[x.leitura];
-    const aberto = _fornAberto === x.id;
+    const L = LEITURA_FORN[x.leitura] || ['chip', '—'];
+    const aberto = _fornAberto === x.id, mad = x.maduro || { pecas: 0, vendidas: 0, parado: 0 };
     return `<tr class="forn-linha ${aberto ? 'aberta' : ''}" data-forn="${esc(x.id)}">
-      <td class="prod-name" style="white-space:normal; min-width:180px"><strong>${esc(x.nome || x.id)}</strong><span class="sub2">${x.comprado.pedidos ? `${fmtNum(x.comprado.pedidos)} pedido(s) · ${fmtNum(x.comprado.lojas)} loja(s) · último ${dt(x.comprado.ultima)}` : 'sem pedido no período'}</span></td>
-      <td class="num">${x.comprado.valor ? `<strong>${fmtMoeda(x.comprado.valor)}</strong><span class="sub2">${fmtNum(Math.round(x.comprado.pecas))} peças</span>` : '—'}</td>
-      <td class="num" title="${esc(x.comprado.pedidos ? `Desta compra: ${fmtNum(Math.round(x.daCompra.pecas))} peças, ${fmtMoeda(x.daCompra.faturamento)}. Com o estoque antigo: ${fmtNum(Math.round(x.vendido.pecas))} peças, ${fmtMoeda(x.vendido.faturamento)} (${fmtPct(x.pctFatTotal, 1)} do faturamento).` : 'Sem pedido no período: venda de estoque antigo.')}">${x.base.fat ? `<strong>${fmtMoeda(x.base.fat)}</strong><span class="sub2">${fmtNum(Math.round(x.base.pecas))} peças${x.comprado.pedidos && x.estoqueAntigo >= 1 ? ` · +${fmtNum(Math.round(x.estoqueAntigo))} de estoque antigo` : ''}</span>` : '<span style="color:var(--danger)">sem venda</span>'}</td>
-      <td class="num ${x.giro == null || !T.giroRede ? '' : x.giro >= T.giroRede ? 'heat-bom' : x.giro < 0.6 * T.giroRede ? 'heat-ruim' : 'heat-medio'}">${x.giro != null ? fmtPct(x.giro * 100, 0) : '—'}</td>
-      <td class="num" title="${esc(`${fmtPct(x.pctFat, 1)} do faturamento · ${fmtPct(x.pctPecas, 1)} das peças vendidas · ${fmtPct(x.pctLucro, 1)} do lucro bruto das lojas analisadas`)}"><strong>${fmtPct(x.pctFat, x.pctFat < 1 ? 2 : 1)}</strong><span class="sub2">${fmtPct(x.pctPecas, x.pctPecas < 1 ? 2 : 1)} das peças · ${fmtPct(x.pctLucro, x.pctLucro < 1 ? 2 : 1)} do lucro</span></td>
-      <td title="${esc(x.precoPeca != null ? `Preço médio da peça ${fmtMoeda(x.precoPeca)} (lojas: ${fmtMoeda(T.precoPeca)}) · lucro bruto por peça ${fmtMoeda(x.lucroPeca)} (lojas: ${fmtMoeda(T.lucroPeca)}) · margem ${fmtPct(x.margem, 0)}` : '')}">${esfTag(x)}<span class="sub2">${x.pecasPorMil != null ? `${fmtNum(Math.round(x.pecasPorMil * 10) / 10)} pç por R$ 1 mil · <strong style="color:${x.vezesEsforco > 1.25 ? 'var(--warn)' : x.vezesEsforco < 0.8 ? 'var(--good)' : 'inherit'}">${x.vezesEsforco.toFixed(1).replace('.', ',')}× a média</strong>` : ''}</span><span class="sub2">${x.precoPeca != null ? `${fmtMoeda(x.precoPeca)}/pç · lucro ${fmtMoeda(x.lucroPeca)}/pç` : ''}</span></td>
-      <td class="num" onclick="event.stopPropagation()"><input class="forn-frete" type="number" min="0" max="100" step="0.5" placeholder="—" value="${x.frete ?? ''}" data-forn-frete="${esc(x.id)}" aria-label="Frete de ${esc(x.nome)} em % do pedido"></td>
-      <td class="num ${x.markup == null ? '' : x.markup >= 2.2 ? 'heat-bom' : x.markup < 1.8 ? 'heat-ruim' : 'heat-medio'}">${x.markup != null ? x.markup.toFixed(2).replace('.', ',') + '×' : '—'}<span class="sub2">${x.retorno != null ? `já voltou ${x.retorno.toFixed(2).replace('.', ',')}×` : ''}</span></td>
-      <td title="${esc(x.motivo)}"><span class="${L[0]}">${L[1]}</span>${x.compraRecente ? '<span class="sub2">compra recente</span>' : ''}</td>
-    </tr>${aberto ? `<tr><td colspan="9" style="padding:0; white-space:normal">${detalheFornecedor(x)}</td></tr>` : ''}`;
+      <td class="prod-name" style="white-space:normal; min-width:170px"><strong>${esc(x.nome || x.id)}</strong><span class="sub2">${x.comprado.pedidos ? `${fmtNum(x.comprado.pedidos)} pedido(s) · ${fmtNum(x.comprado.lojas)} loja(s) · último ${dt(x.comprado.ultima)}` : 'sem pedido no período'}</span></td>
+      <td class="num">${x.comprado.valor ? `<strong>${fmtMoeda(x.comprado.valor)}</strong><span class="sub2">${fmtNum(Math.round(x.comprado.pecas))} peças${x.recente?.valor ? ` · ${fmtMoeda(x.recente.valor)} nos últimos ${FORN_DIAS_RECENTE} dias` : ''}</span>` : '—'}</td>
+      <td class="num ${giroCls(x)}" title="${esc(x.giro != null ? `Das ${fmtNum(Math.round(mad.pecas))} peças compradas há mais de ${FORN_DIAS_RECENTE} dias, ${fmtNum(Math.round(mad.vendidas))} já venderam. Em cada loja e produto, a venda conta até a quantidade que aquela loja comprou.` : '')}">${x.giro != null ? `<strong>${fmtPct(x.giro * 100, 0)}</strong><span class="sub2">${fmtNum(Math.round(mad.vendidas))} de ${fmtNum(Math.round(mad.pecas))} pç</span>` : '—'}</td>
+      <td class="num" title="Custo das peças compradas há mais de ${FORN_DIAS_RECENTE} dias que ainda não venderam">${mad.parado >= 1 ? `<strong>${fmtMoeda(mad.parado)}</strong>` : '—'}</td>
+      <td class="num" title="${esc(`Venda das peças compradas no período: ${fmtMoeda(x.base.fat)} (${fmtNum(Math.round(x.base.pecas))} peças) ÷ faturamento das lojas analisadas (${fmtMoeda(T.fat)}). Com estoque comprado antes do período: ${fmtPct(x.pctFatTotal, 1)}.`)}">${x.base.fat ? `<strong>${fmtPct(x.pctFat, x.pctFat < 1 ? 2 : 1)}</strong><span class="sub2">${fmtMoeda(x.base.fat)} vendidos</span>` : '<span style="color:var(--danger)">sem venda</span>'}</td>
+      <td class="num" title="${esc(x.precoPeca != null ? `Faturamento por peça vendida (rede ${fmtMoeda(T.precoPeca)}). ${fmtNum(Math.round(x.pecasPorMil * 10) / 10)} peças para faturar R$ 1 mil = ${x.vezesEsforco.toFixed(1).replace('.', ',')}× o esforço médio da rede.` : '')}">${x.precoPeca != null ? `<strong>${fmtMoeda(x.precoPeca)}</strong><span class="sub2" style="color:${x.vezesEsforco > 1.33 ? 'var(--warn)' : 'var(--muted)'}">${x.vezesEsforco.toFixed(1).replace('.', ',')}× o esforço médio</span>` : '—'}</td>
+      <td style="white-space:normal; min-width:240px"><span class="${L[0]}">${L[1]}</span>${x.resumo ? `<span class="sub2" style="white-space:normal">${esc(x.resumo)}</span>` : ''}</td>
+    </tr>${aberto ? `<tr><td colspan="7" style="padding:0; white-space:normal">${detalheFornecedor(x)}</td></tr>` : ''}`;
   };
+  const aConf = D.aConferir || [];
   box.innerHTML = `
     ${D.erros.length ? `<div class="panel err">${D.erros.length} loja(s) não responderam e ficaram de fora: ${esc(D.erros.map(e => e.loja).join(', '))}. Rode de novo para incluí-las.</div>` : ''}
     ${D.centralIncompleta ? '<div class="panel" style="border-color:var(--warn); font-size:12.5px">Parte do histórico da Central ainda não carregou — os valores comprados podem estar incompletos. Rode de novo em alguns minutos.</div>' : ''}
     <div class="forn-resumo">
       <span><strong>${fmtMoeda(D.totComprado)}</strong>comprado na Central (${dt(P.desde)} a ${dt(P.ate)}) · ${fmtNum(D.pedidos)} pedidos</span>
-      <span title="Com o estoque antigo desses fornecedores: ${fmtMoeda(D.totVendidoTotal)}"><strong>${fmtMoeda(D.totVendido)}</strong>vendido dessas compras até ${dt(P.vendasAte)}</span>
-      <span><strong>${fmtPct(D.faturamento ? D.totVendido / D.faturamento * 100 : 0, 1)}</strong>do faturamento de ${fmtNum(D.lojas)} loja(s) (${fmtMoeda(D.faturamento)})</span>
-      <span><strong>${fmtNum(cont.compensa)} · ${fmtNum(cont.atencao)} · ${fmtNum(cont.revisar)}</strong>compensa · atenção · revisar</span>
-      <span title="Das peças compradas no período (sem insumos), quantas já venderam: a régua do giro de cada fornecedor"><strong>${T.giroRede != null ? fmtPct(T.giroRede * 100, 0) : '—'}</strong>giro médio da rede</span>
-      <span title="Preço médio da peça e lucro bruto por peça de todas as lojas analisadas: a régua do Esforço × retorno"><strong>${fmtMoeda(T.precoPeca)}</strong>preço médio da peça · lucro bruto ${fmtMoeda(T.lucroPeca)}/pç</span>
-      <span title="Parte do faturamento cujos produtos foram ligados a um fornecedor da Central (vínculo, código ou descrição). O resto: ${fmtMoeda(D.semFornecedor)} sem fornecedor identificado e ${fmtMoeda(D.foraDaCentral)} marcado como fora da Central."><strong>${fmtPct(cobertura, 0)}</strong>do faturamento ligado a um fornecedor</span>
+      <span title="Das peças compradas há mais de ${FORN_DIAS_RECENTE} dias (sem insumos), quantas já venderam. É a régua do giro de cada fornecedor."><strong>${gR != null ? fmtPct(gR * 100, 0) : '—'}</strong>giro da rede (compras com mais de ${FORN_DIAS_RECENTE} dias)</span>
+      <span title="Custo das peças compradas há mais de ${FORN_DIAS_RECENTE} dias que ainda não venderam"><strong>${fmtMoeda(D.totParado)}</strong>parado (custo de compra)</span>
+      <span title="Ainda estão vendendo: entram no comprado, mas não no giro nem no parado"><strong>${fmtMoeda(D.totRecente)}</strong>comprado nos últimos ${FORN_DIAS_RECENTE} dias</span>
+      <span title="Preço médio da peça vendida em todas as lojas analisadas: a régua do esforço"><strong>${fmtMoeda(T.precoPeca)}</strong>peça média da rede</span>
+      <span title="Parte do faturamento cujos produtos foram ligados a um fornecedor da Central. O resto: ${fmtMoeda(D.semFornecedor)} sem fornecedor identificado e ${fmtMoeda(D.foraDaCentral)} fora da Central."><strong>${fmtPct(cobertura, 0)}</strong>do faturamento ligado a um fornecedor</span>
     </div>
-    ${forca.length ? `<div class="panel" style="border-color:var(--warn); padding:12px 16px; margin-bottom:14px; font-size:13px">
-      <div style="font-weight:650; margin-bottom:6px">Onde as lojas fazem força para pouco retorno</div>
-      <div style="color:var(--muted); font-size:12px; margin-bottom:8px">Fornecedores que ocupam bem mais peças vendidas do que trazem de faturamento — muita venda de peça barata. Cada peça custa o mesmo atendimento, embalagem e tempo de vendedor.</div>
-      ${forca.map(x => `<div style="padding:3px 0"><strong>${esc(x.nome)}</strong> — ${fmtPct(x.pctPecas, 1)} das peças vendidas, ${fmtPct(x.pctFat, 1)} do faturamento e ${fmtPct(x.pctLucro, 1)} do lucro · ${fmtMoeda(x.precoPeca)}/pç (média ${fmtMoeda(T.precoPeca)})${x.naoSustenta ? ' · <span class="tag-risco">Não sustenta</span>' : ''}</div>`).join('')}
-    </div>` : ''}
+    <div class="forn-legenda">
+      ${['revisar', 'margem', 'lento', 'barata', 'compensa', 'novo'].filter(k => cont[k]).map(k => `<span><span class="${LEITURA_FORN[k][0]}">${LEITURA_FORN[k][1]}</span> ${fmtNum(cont[k])}</span>`).join('')}
+      <details><summary>Como cada situação é decidida</summary>
+        <div>Uma regra decide, nesta ordem (a primeira que bater):
+        <b>Revisar</b>: vendeu menos de 60% do giro da rede (${gR ? fmtPct(0.6 * gR * 100, 0) : '—'}).
+        <b>Margem baixa</b>: vende a menos de 1,8× o custo de compra (com frete, se informado).
+        <b>Gira abaixo da rede</b>: giro entre 60% e 90% do da rede.
+        <b>Gira, peça barata</b>: gira bem, mas a peça média é menos de 75% da peça média da rede (${fmtMoeda(0.75 * T.precoPeca)}): mais peças para o mesmo faturamento.
+        <b>Compensa</b>: gira bem, peça média boa e margem acima de 1,8×.
+        <b>Compra recente</b>: quase tudo foi comprado nos últimos ${FORN_DIAS_RECENTE} dias; ainda cedo para medir.
+        O giro conta só as peças compradas há mais de ${FORN_DIAS_RECENTE} dias, em cada loja e produto, e a venda vale até a quantidade que a loja comprou.</div></details>
+    </div>
     ${comparadorEsforco(lista, T)}
     <div class="tbl-tools" style="margin-bottom:8px">
       <label style="display:inline-flex; gap:6px; align-items:center; font-size:12.5px; width:auto; margin:0"><input type="checkbox" id="forn_sem_compra" style="width:auto; margin:0" ${_fornMostrarSemCompra ? 'checked' : ''}> Mostrar também fornecedores sem compra no período (${fmtNum(semCompra)})</label>
-      <span style="font-size:12px; color:var(--muted)">Clique num fornecedor para ver por loja e por produto. Ordenar: clique no título da coluna.</span>
+      <span style="font-size:12px; color:var(--muted)">Clique num fornecedor para ver por loja, por produto, frete e markup. Ordenar: clique no título da coluna.</span>
     </div>
     <div style="overflow-x:auto"><table class="no-tools forn-tab"><thead><tr>
-      <th>Fornecedor</th>${th('valor', 'Comprado', 'Valor dos pedidos da Central no período')}${th('venda', 'Vendido desta compra', 'Das peças compradas no período, as que já venderam e quanto faturaram (em cada loja e produto, até a quantidade comprada). O estoque antigo aparece à parte, embaixo.')}
-      ${th('giro', 'Giro', 'Das peças compradas no período, quantas já venderam (em cada loja e produto, a venda conta até a quantidade comprada; o resto é estoque antigo). Do pior para o melhor ao ordenar.')}${th('peso', '% do faturamento', 'Venda das peças desta compra ÷ faturamento total das lojas analisadas no mesmo intervalo; embaixo, a parte das peças vendidas e do lucro bruto')}
-      ${th('esforco', 'Esforço × retorno', 'Compara a parte das peças vendidas com a parte do faturamento: "Vende barato" = muita peça para pouco faturamento; "Não sustenta" = além disso, lucro por peça bem abaixo da média (do pior para o melhor ao ordenar)')}<th class="num" title="Frete médio do fornecedor em % do valor do pedido (fica salvo)">Frete %</th>
-      ${th('retorno', 'Markup', 'Preço de venda ÷ custo de compra (+ frete) das peças desta compra que já venderam. Embaixo: quanto a venda dessas peças já devolveu do total gasto (1× = a compra se pagou). Do pior para o melhor ao ordenar.')}<th>Leitura</th>
-    </tr></thead><tbody>${lista.map(linha).join('') || '<tr><td colspan="9" class="empty">Nenhum pedido na Central nesse período.</td></tr>'}
-    ${insumos.length ? `<tr><td colspan="9" style="padding-top:18px; font-weight:650; font-size:13px; white-space:normal">Insumos — ${fmtMoeda(D.totInsumo)} comprados (embalagem, material de loja; fora dos totais de revenda)</td></tr>${insumos.map(linha).join('')}` : ''}</tbody></table></div>
+      <th>Fornecedor</th>${th('valor', 'Comprado', 'Valor dos pedidos da Central no período')}
+      ${th('giro', 'Vendeu', `Giro: das peças compradas há mais de ${FORN_DIAS_RECENTE} dias, quantas já venderam. Do pior para o melhor ao ordenar.`)}
+      ${th('parado', 'Parado', `Custo das peças compradas há mais de ${FORN_DIAS_RECENTE} dias que ainda não venderam`)}
+      ${th('peso', '% do faturamento', 'Venda das peças compradas no período ÷ faturamento das lojas analisadas')}
+      ${th('preco', 'R$ por peça', 'Faturamento médio por peça vendida e quantas vezes o esforço médio da rede (peças para faturar o mesmo valor). Da mais barata para a mais cara ao ordenar.')}
+      ${th('situacao', 'Situação', 'Ordena do mais crítico para o melhor', '')}
+    </tr></thead><tbody>${lista.map(linha).join('') || '<tr><td colspan="7" class="empty">Nenhum pedido na Central nesse período.</td></tr>'}
+    ${insumos.length ? `<tr><td colspan="7" style="padding-top:18px; font-weight:650; font-size:13px; white-space:normal">Insumos — ${fmtMoeda(D.totInsumo)} comprados (embalagem, material de loja; fora dos totais de revenda)</td></tr>${insumos.map(linha).join('')}` : ''}</tbody></table></div>
+    ${aConf.length ? `<details class="panel" style="margin-top:14px; padding:12px 16px; border-color:var(--warn)"><summary style="cursor:pointer; font-weight:650; font-size:13px">Itens a conferir (${fmtNum(aConf.length)}) — vendidos pelo custo ou abaixo; ficaram fora da conta dos fornecedores</summary>
+      <div class="sub" style="font-size:12px; max-width:none; margin:6px 0 8px">Quase sempre é um destes casos: o produto da loja está ligado ao item errado da Central (corrija em Vínculos), um display/kit é vendido em unidades, ou a Central cobra a caixa e a loja vende a peça. Depois de corrigir, rode de novo.</div>
+      <div style="overflow-x:auto"><table class="no-tools forn-tab"><thead><tr><th>Fornecedor</th><th>Produto da Central</th><th class="num">Custo na Central</th><th class="num">Venda média na loja</th><th class="num">Comprou</th><th class="num">Vendeu</th><th>Por quê</th></tr></thead><tbody>
+      ${aConf.map(i => `<tr><td>${esc(i.fornecedor)}</td><td style="white-space:normal">${esc(_cliTitulo(i.descricao || ''))}<span class="sub2">${esc(i.codigo)}</span></td><td class="num">${fmtMoeda(i.precoCompra)}</td><td class="num heat-ruim">${fmtMoeda(i.precoVenda)}</td><td class="num">${fmtNum(Math.round(i.compraPecas))} pç</td><td class="num">${fmtNum(Math.round(i.vendaPecas))} pç<span class="sub2">${fmtMoeda(i.vendaFat)}</span></td><td>${esc(i.aConferir)}</td></tr>`).join('')}
+      </tbody></table></div></details>` : ''}
     ${semVendaSuspeito ? `<div class="sub" style="font-size:12px; max-width:none; margin-top:8px">Fornecedor com compra e nenhuma venda pode ser de insumo (embalagem, sacola, material de loja) ou ter produtos ainda sem vínculo. Abra o fornecedor e, se for insumo, marque <strong>Fornecedor de insumo</strong> para tirá-lo da análise.</div>` : ''}
     ${D.foraDoPainel ? `<div class="sub" style="font-size:12px; max-width:none; margin-top:4px">${fmtNum(D.foraDoPainel)} pedido(s) da Central são de franqueados que não estão entre as lojas do painel e ficaram de fora.</div>` : ''}`;
   box.querySelectorAll('[data-forn]').forEach(tr => tr.addEventListener('click', () => { _fornAberto = _fornAberto === tr.dataset.forn ? null : tr.dataset.forn; renderFornecedores(); }));
@@ -5582,10 +5659,10 @@ async function salvarFreteFornecedor(fid, valor, inp) {
 function detalheFornecedor(x) {
   const desta = !!x.comprado.pedidos;
   const lojas = Object.entries(x.porLoja).map(([loja, L]) => { const pc = desta ? (L.daCompraPecas || 0) : L.vendaPecas, fv = desta ? (L.daCompraFat || 0) : L.vendaFat;
-    return { loja, ...L, pcBase: pc, fatBase: fv, giro: L.compraPecas ? Math.min(1, (L.daCompraPecas || 0) / L.compraPecas) : null, pct: L.fatLoja ? fv / L.fatLoja * 100 : 0, pctPc: L.pecasLoja ? pc / L.pecasLoja * 100 : 0 }; })
+    return { loja, ...L, pcBase: pc, fatBase: fv, giro: L.madPecas >= 1 ? Math.min(1, (L.madVend || 0) / L.madPecas) : null, pct: L.fatLoja ? fv / L.fatLoja * 100 : 0, pctPc: L.pecasLoja ? pc / L.pecasLoja * 100 : 0 }; })
     .sort((a, b) => b.compraValor - a.compraValor || b.vendaFat - a.vendaFat);
-  const itens = [...x.itens.values()].map(i => ({ ...i, giro: i.compraPecas ? Math.min(1, (i.daCompraPecas || 0) / i.compraPecas) : null }));
-  const parados = itens.filter(i => i.compraPecas > 0 && !(i.daCompraPecas > 0)).sort((a, b) => b.compraValor - a.compraValor);
+  const itens = [...x.itens.values()].map(i => ({ ...i, giro: i.madPecas >= 1 && !i.aConferir ? Math.min(1, (i.madVend || 0) / i.madPecas) : null }));
+  const parados = itens.filter(i => i.madPecas >= 1 && !i.aConferir && !(i.madVend > 0)).sort((a, b) => b.madPecas * b.precoCompra - a.madPecas * a.precoCompra);
   const top = [...itens].filter(i => i.compraPecas > 0).sort((a, b) => b.compraValor - a.compraValor || b.vendaFat - a.vendaFat).slice(0, 40);
   // top 10 mais vendidos do fornecedor no período (toda a venda, inclusive de estoque antigo)
   const vendTot = itens.reduce((t, i) => t + i.vendaFat, 0);
@@ -5610,7 +5687,14 @@ function detalheFornecedor(x) {
       <span id="forn_marcas_msg_${esc(x.id)}" style="color:var(--muted)">${_fornMarcasManuais[x.id]?.length ? 'definidas à mão' : 'reconhecidas sozinhas — corrija se precisar'}</span>
     </div>
     ${pcBar >= 1 && pcTot ? `<div style="margin-top:10px; font-size:12.5px"><strong style="color:var(--warn)">${fmtPct(pcBar / pcTot * 100, 0)} das peças vendidas${desta ? ' desta compra' : ''} faturam menos de ${fmtMoeda(ref / 2)} cada</strong> (metade da peça média da rede) e trazem só ${fmtPct(fatTot ? fatBar / fatTot * 100 : 0, 0)} do faturamento do fornecedor: ${esc(baratos.sort((a, b) => pcI(b) - pcI(a)).slice(0, 5).map(i => `${_cliTitulo(i.descricao || i.codigo)} (${fmtMoeda(precoI(i))}/pç)`).join('; '))}${baratos.length > 5 ? '…' : ''}</div>` : ''}
-    ${parados.length ? `<div style="margin-top:10px; font-size:12.5px"><strong style="color:var(--danger)">${fmtNum(parados.length)} produto(s) comprados sem nenhuma venda nas lojas que compraram</strong> — ${fmtMoeda(parados.reduce((t, i) => t + i.compraValor, 0))}: ${esc(parados.slice(0, 6).map(i => `${i.codigo} ${_cliTitulo(i.descricao || '')}`).join('; '))}${parados.length > 6 ? '…' : ''}</div>` : ''}
+    <div style="margin-top:10px; font-size:12.5px; display:flex; gap:8px 18px; flex-wrap:wrap; align-items:center" onclick="event.stopPropagation()">
+      <label style="display:inline-flex; gap:6px; align-items:center; width:auto; margin:0">Frete médio <input class="forn-frete" type="number" min="0" max="100" step="0.5" placeholder="—" value="${x.frete ?? ''}" data-forn-frete="${esc(x.id)}" aria-label="Frete de ${esc(x.nome)} em % do pedido" style="width:70px"> % do pedido</label>
+      <span>Markup: <strong>${x.markup != null ? x.markup.toFixed(2).replace('.', ',') + '×' : '—'}</strong> o custo${x.frete != null ? ' com frete' : ''}</span>
+      <span>Já voltou: <strong>${x.retorno != null ? x.retorno.toFixed(2).replace('.', ',') + '×' : '—'}</strong> o valor gasto${x.retorno >= 1 ? ' (a compra se pagou)' : ''}</span>
+      <span>Lucro bruto: <strong>${x.lucroPeca != null ? fmtMoeda(x.lucroPeca) : '—'}</strong>/pç (rede ${fmtMoeda(x.T?.lucroPeca || 0)})</span>
+    </div>
+    ${x.aConferir?.length ? `<div style="margin-top:10px; font-size:12.5px"><strong style="color:var(--warn)">${fmtNum(x.aConferir.length)} produto(s) a conferir ficaram fora da conta</strong> (vendidos pelo custo ou abaixo — vínculo errado, kit ou display): ${esc(x.aConferir.slice(0, 5).map(i => `${_cliTitulo(i.descricao || i.codigo)} (custo ${fmtMoeda(i.precoCompra)}, venda ${fmtMoeda(i.precoVenda)})`).join('; '))}${x.aConferir.length > 5 ? '…' : ''}</div>` : ''}
+    ${parados.length ? `<div style="margin-top:10px; font-size:12.5px"><strong style="color:var(--danger)">${fmtNum(parados.length)} produto(s) comprados há mais de ${FORN_DIAS_RECENTE} dias sem nenhuma venda nas lojas que compraram</strong> — ${fmtMoeda(parados.reduce((t, i) => t + i.madPecas * i.precoCompra, 0))}: ${esc(parados.slice(0, 6).map(i => `${i.codigo} ${_cliTitulo(i.descricao || '')}`).join('; '))}${parados.length > 6 ? '…' : ''}</div>` : ''}
     ${top10.length ? `<div style="margin-top:14px"><div style="font-weight:650; font-size:13px; margin-bottom:6px">Top 10 mais vendidos de ${esc(x.nome)} <span style="font-weight:400; color:var(--muted)">(${dt2(_fornDados.P.desde)} até ${dt2(_fornDados.P.vendasAte)}, todas as lojas analisadas, inclusive estoque antigo)</span></div>
       <div style="overflow-x:auto"><table class="no-tools forn-tab"><thead><tr><th class="num">#</th><th>Produto</th><th class="num">Peças vendidas</th><th class="num">Faturamento</th><th class="num" title="Parte do faturamento do fornecedor">% do fornecedor</th><th class="num">R$ por peça</th><th class="num" title="Peças compradas no período (pedido da Central)">Comprado no período</th><th class="num">Giro</th></tr></thead><tbody>
       ${top10.map((i, n) => `<tr><td class="num">${n + 1}</td><td style="white-space:normal">${esc(_cliTitulo(i.descricao || i.codigo))}<span class="sub2">${esc(i.codigo || '')}${i.porMarca ? ' · ligado pela marca' : ''}</span></td>
@@ -5635,7 +5719,7 @@ function detalheFornecedor(x) {
           <td class="num">${i.compraPecas ? `${fmtNum(Math.round(i.compraPecas))} pç<span class="sub2">${fmtMoeda(i.compraValor)}</span>` : '—'}</td>
           <td class="num">${desta && i.compraPecas ? (i.daCompraPecas ? `${fmtNum(Math.round(i.daCompraPecas))} pç<span class="sub2">${fmtMoeda(i.daCompraFat)}${i.vendaPecas - i.daCompraPecas >= 1 ? ` · +${fmtNum(Math.round(i.vendaPecas - i.daCompraPecas))} antigo` : ''}</span>` : `<span style="color:var(--danger)">0</span>${i.vendaPecas ? `<span class="sub2">+${fmtNum(Math.round(i.vendaPecas))} antigo</span>` : ''}`) : (i.vendaPecas ? `<span class="sub2">${fmtNum(Math.round(i.vendaPecas))} pç de estoque antigo</span>` : '—')}</td>
           <td class="num ${precoI(i) != null && ref && precoI(i) < ref / 2 ? 'heat-ruim' : ''}">${precoI(i) != null ? fmtMoeda(precoI(i)) : '—'}</td>
-          <td class="num ${giroCls(i.giro)}">${i.giro != null ? fmtPct(i.giro * 100, 0) : '—'}</td></tr>`).join('')}
+          <td class="num ${giroCls(i.giro)}">${i.aConferir ? '<span class="tag-alto" title="Vendido pelo custo ou abaixo: fora da conta">a conferir</span>' : i.giro != null ? fmtPct(i.giro * 100, 0) : (i.recPecas ? '<span class="sub2">compra recente</span>' : '—')}</td></tr>`).join('')}
         </tbody></table></div>
     </div>
   </div>`;
