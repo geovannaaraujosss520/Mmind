@@ -406,6 +406,15 @@ async function moduloFornecedores(body: any, a: Acesso) {
     return { loja, de, ate: atePer, faturamento: r2(faturamento), pecas: r2(pecasLoja), custo: r2(custoLoja),
       produtos: [...agg.values()].map((x) => [x[0], x[1], x[2], x[3], r2(x[4]), r2(x[5]), r2(x[6])]) };
   }
+  // Cadastro completo de alguns produtos na VarejOnline (para conferir marca, fornecedor, classificação)
+  if (acao === 'cadastroProdutos') {
+    const loja = String(body.loja ?? ''); const tokens = await getLojasTokens();
+    if (!tokens[loja]) throw new Error('Loja inválida.');
+    const ids = (Array.isArray(body.ids) ? body.ids : []).map((x: any) => String(x)).filter((x: string) => /^\d+$/.test(x)).slice(0, 50);
+    const out: any[] = [];
+    if (ids.length) await fetchAllPages(`${Deno.env.get('VAREJONLINE_API_BASE')}/produtos?idsProdutos=${ids.join(',')}`, tokens[loja], (pg) => { out.push(...pg); });
+    return { produtos: out };
+  }
   // Liga os produtos vendidos de uma loja ao item/fornecedor da Central (mesma regra da tela Vínculos)
   // entrada: produtos [[produtoId, descricao, codigoSistema, codigoInterno]]; saída: produtoId → [fornecedorId, nome, códigoCentral, descrição, via] | 'ignorado' | null
   if (acao === 'mapearLoja') {
@@ -3733,7 +3742,7 @@ Deno.serve(async (req) => {
     if (modulo === 'sincronizarCentral') return resp(await moduloSincronizarCentral(body));
     if (modulo === 'fornecedores') {
       equipe(); // painel da franqueadora
-      if (body.acao === 'vendasLoja' || body.acao === 'mapearLoja') exigirLoja(a, body.loja);
+      if (body.acao === 'vendasLoja' || body.acao === 'mapearLoja' || body.acao === 'cadastroProdutos') exigirLoja(a, body.loja);
       return resp(await moduloFornecedores(body, a));
     }
     if (modulo === 'lojaEditar') { exigirPapel(a, 'admin'); return resp(await moduloLojaEditar(body)); }
