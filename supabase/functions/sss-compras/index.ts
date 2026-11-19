@@ -1826,18 +1826,33 @@ const chaveProduto = (r: { codigoSistema?: unknown; produtoId?: unknown }) => {
 };
 const resumoItemCentral = (c: any) => ({ chave: c.chave, codigo: c.codigo, descricao: c.descricao, variacao: c.variacao, variacaoDescricao: c.variacaoDescricao ?? c.variacao, corBase: c.corBase ?? corBase(c.variacaoDescricao ?? c.variacao), preco: c.preco, qtdMinima: c.qtdMinima, qtdMaxima: c.qtdMaxima, fatorConversao: c.fatorConversao, idProduto: c.idProduto, emEstoque: c.emEstoque, fornecedorId: c.fornecedorId, fornecedorNome: c.fornecedorNome, categoria: c.categoria, ultimaCompra: c.ultimaCompra, qtdRede: c.qtdTotal ?? 0 });
 
+// Formas alternativas de um código da Central: "0972/8062" vale 0972 e 8062; código da loja escrito na
+// descrição ("COLAR FIO ESPÍRITO SANTO 0104.0001") também vale.
+function codigosAlternativos(it: any): string[] {
+  const out = new Set<string>();
+  const c = codNorm(it.codigo);
+  if (c.includes('/')) for (const p of c.split('/')) if (p.length >= 3) out.add(p);
+  for (const m of String(it.descricao ?? '').toUpperCase().matchAll(/\b(\d{3,6}\.\d{2,4})\b/g)) out.add(m[1]);
+  out.delete(c);
+  return [...out];
+}
+const baseCodigo = (c: string) => { const b = c.split('.')[0]; return b.length >= 3 && b !== c ? b : ''; };
 function indexarCatalogo(cat: any) {
   const porCodigo = new Map<string, any[]>(), porDesc = new Map<string, any[]>(), porChave = new Map<string, any>(), porFamilia = new Map<string, any[]>();
+  const porCodigoAlt = new Map<string, any[]>(), porBase = new Map<string, any[]>();
+  const add = (m: Map<string, any[]>, k: string, it: any) => { if (!k) return; if (!m.has(k)) m.set(k, []); if (!m.get(k)!.includes(it)) m.get(k)!.push(it); };
   for (const it of cat.itens) {
     porChave.set(it.chave, it);
     const kf = familiaDoItem(it); if (kf) { if (!porFamilia.has(kf)) porFamilia.set(kf, []); porFamilia.get(kf)!.push(it); }
     const c = codNorm(it.codigo); if (c) { if (!porCodigo.has(c)) porCodigo.set(c, []); porCodigo.get(c)!.push(it); }
+    for (const alt of codigosAlternativos(it)) { add(porCodigoAlt, alt, it); add(porBase, baseCodigo(alt), it); if (!alt.includes('.')) add(porBase, alt, it); }
+    add(porBase, baseCodigo(c), it); if (!c.includes('.')) add(porBase, c, it);
     for (const desc of it.descricoes?.length ? it.descricoes : [it.descricao]) {
       for (const d of [limpa(desc), limpa(`${desc} ${it.variacao}`)]) { if (!d) continue; if (!porDesc.has(d)) porDesc.set(d, []); if (!porDesc.get(d)!.includes(it)) porDesc.get(d)!.push(it); }
     }
     if (it.referencia) { const rf = codNorm(it.referencia); if (!porCodigo.has(rf)) porCodigo.set(rf, []); if (!porCodigo.get(rf)!.includes(it)) porCodigo.get(rf)!.push(it); }
   }
-  return { porCodigo, porDesc, porChave, porFamilia, itens: cat.itens };
+  return { porCodigo, porCodigoAlt, porBase, porDesc, porChave, porFamilia, itens: cat.itens };
 }
 
 // Vinculos da propria loja (cada loja tem sua conta na VarejOnline e o id do produto pode coincidir entre contas).
@@ -1890,6 +1905,17 @@ function casarProduto(r: any, idx: ReturnType<typeof indexarCatalogo>, vinc: { n
   if (vc && idx.porCodigo.has(vc)) { cands = idx.porCodigo.get(vc)!; via = 'vínculo (código)'; }
   for (const cod of [r.codigoSistema, r.codigoInterno]) {
     if (!cands.length && cod && idx.porCodigo.has(codNorm(cod))) { cands = idx.porCodigo.get(codNorm(cod))!; via = 'código'; }
+  }
+  // código alternativo da Central ("0972/8062", código da loja escrito na descrição) e, por último,
+  // a base do código da loja ("8062.0001" → 8062) contra a base dos códigos da Central
+  for (const cod of [r.codigoSistema, r.codigoInterno]) {
+    if (!cands.length && cod && idx.porCodigoAlt?.has(codNorm(cod))) { cands = idx.porCodigoAlt.get(codNorm(cod))!; via = 'código'; }
+  }
+  for (const cod of [r.codigoSistema, r.codigoInterno]) {
+    const b = cod ? baseCodigo(codNorm(cod)) || codNorm(cod) : '';
+    // só aceita a base se a descrição for parecida (evita juntar produtos diferentes com o mesmo número)
+    const parecidos = !cands.length && b && idx.porBase?.has(b) ? idx.porBase.get(b)!.filter((c: any) => jaccard(tokens(r.descricao), tokens(c.descricao)) >= 0.4) : [];
+    if (parecidos.length) { cands = parecidos; via = 'código (base)'; }
   }
   if (!cands.length && idx.porDesc.has(limpa(r.descricao))) { cands = idx.porDesc.get(limpa(r.descricao))!; via = 'descrição'; }
   if (!cands.length) return { via: vn?.chave_central ? 'vínculo quebrado' : 'sem', item: null, variacaoIncerta: false, alternativas: [] as any[] };
