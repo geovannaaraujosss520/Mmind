@@ -3417,7 +3417,7 @@ function renderFinanceiro(data, box) {
     </div>
 
     <div class="panel">
-      <div style="font-size:13px; color:var(--muted); margin-bottom:4px;">Faturamento vs Meta — ${REDE()} (soma das metas cadastradas)</div>
+      <div style="font-size:13px; color:var(--muted); margin-bottom:4px;">Faturamento vs Meta — ${REDE()}${(data.lojas || []).filter(l => (data.metasPorLoja || {})[l.nomeLoja]).length > 1 ? ' (soma das metas das lojas)' : ''}</div>
       ${montarBarraMeta(data.redeConsolidado.receitaBruta, metaRede)}
     </div>
 
@@ -4157,7 +4157,7 @@ function renderCentral(a, box) {
       <div class="kpi"><div class="label">Faturamento do mês — ${REDE()}</div><div class="value">${r.semFin && !r.receita ? '—' : fmtMoeda(r.receita || 0)}</div>${r.semFin && !r.receita ? '<div class="hint">DRE não carregou: rode de novo</div>' : ''}
         ${r.temProj ? `<div class="hint">Projeção de fechamento: <strong>${fmtMoeda(r.proj)}</strong></div>` : ''}${deltaHTML(r.receita, ant.receita, { moeda: true })}</div>
       <div class="kpi"><div class="label">Meta projetada — ${REDE()}</div><div class="value" style="color:${corStatus(r.pctMetaProj)}">${fmtPct(r.pctMetaProj)}</div>
-        <div class="hint">${r.meta ? 'Meta somada: ' + fmtMoeda(r.meta) : 'Sem metas cadastradas'}</div>${deltaHTML(r.pctMetaProj, ant.pctMetaProj, { sufixo: ' p.p.' })}</div>
+        <div class="hint">${r.meta ? ((a.lojas || []).filter(l => l.meta).length > 1 ? 'Meta somada das lojas: ' : 'Meta do mês: ') + fmtMoeda(r.meta) : 'Sem meta cadastrada'}</div>${deltaHTML(r.pctMetaProj, ant.pctMetaProj, { sufixo: ' p.p.' })}</div>
       ${!DRE_LIBERADO() ? '' : `<div class="kpi"><div class="label">Resultado operacional — ${REDE()}</div><div class="value" style="color:${r.resultado >= 0 ? 'var(--good)' : 'var(--danger)'}">${r.semFin ? '—' : fmtMoeda(r.resultado || 0)}</div>
         <div class="hint">${r.semFin ? 'DRE não carregou: rode de novo · ' : ''}Margem operacional ${fmtPct(r.margemOp, 1)}</div>${deltaHTML(r.resultado, ant.resultado, { moeda: true })}</div>`}
       <div class="kpi"><div class="label">Itens em risco de ruptura</div><div class="value" style="color:${r.nRisco ? 'var(--danger)' : 'inherit'}">${r.nRisco}</div>
