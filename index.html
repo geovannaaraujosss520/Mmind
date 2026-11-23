@@ -652,7 +652,7 @@
   <div class="caixa-usuario" id="caixaUsuario">
     <input id="senhaAcesso" type="hidden" autocomplete="off" value="">
     <div class="u-nome" id="usuarioNome">—</div>
-    <div class="u-papel"><span id="usuarioPapel"></span> · <a href="#" id="btnSair">Sair</a><span id="instalarApp" style="display:none"> · <a href="#" id="btnInstalar">Instalar app</a></span></div>
+    <div class="u-papel"><span id="usuarioPapel"></span> · <a href="#" id="btnSair">Sair</a><span id="demoLink" style="display:none"> · <a href="#" id="btnDemo">Demonstração</a></span><span id="instalarApp" style="display:none"> · <a href="#" id="btnInstalar">Instalar app</a></span></div>
   </div>
 </div>
 
@@ -6707,11 +6707,84 @@ let sbAuth = null, perfilAtual = null, modoSenhaTime = false, loginObrigatorio =
 const ROTULO_PAPEL = { admin: 'Administrador', equipe: 'Equipe', franqueado: 'Franqueado' };
 // avisa o login quando o servidor diz que a sessão acabou
 const _fetchOriginal = window.fetch.bind(window);
+// =====================================================================
+// MODO DEMONSTRAÇÃO — mostra uma loja real como "SSS DEMONSTRAÇÃO", com clientes, telefones e vendedores
+// trocados por nomes inventados, na visão do franqueado. Nada é salvo nesse modo.
+// Liga/desliga no link "Demonstração" (só administrador). Fica guardado neste navegador.
+// =====================================================================
+const DEMO_NOME = 'SSS DEMONSTRAÇÃO';
+let _demo = null; try { _demo = JSON.parse(localStorage.getItem('sss_demo') || 'null'); } catch { }
+let _demoLojas = new Set();
+const _DEMO_PN = ['Ana', 'Beatriz', 'Camila', 'Daniela', 'Eduarda', 'Fernanda', 'Gabriela', 'Helena', 'Isabela', 'Juliana', 'Larissa', 'Mariana', 'Natália', 'Patrícia', 'Renata', 'Sofia', 'Tatiane', 'Vanessa', 'Carlos', 'Diego', 'Felipe', 'Gustavo', 'Lucas', 'Rafael'];
+const _DEMO_SN = ['Almeida', 'Barbosa', 'Cardoso', 'Costa', 'Duarte', 'Ferreira', 'Gomes', 'Lima', 'Machado', 'Martins', 'Melo', 'Moreira', 'Nunes', 'Oliveira', 'Pereira', 'Ribeiro', 'Rocha', 'Santos', 'Silva', 'Souza', 'Teixeira', 'Vieira'];
+const _demoHash = t => { let h = 2166136261; for (const c of String(t)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
+const _demoNome = t => { const h = _demoHash(String(t).trim().toUpperCase()); return `${_DEMO_PN[h % _DEMO_PN.length]} ${_DEMO_SN[(h >>> 8) % _DEMO_SN.length]}${(h >>> 16) % 3 === 0 ? ' ' + _DEMO_SN[(h >>> 20) % _DEMO_SN.length] : ''}`; };
+const _demoFone = t => { const h = String(_demoHash(t)).padStart(8, '0').slice(-8); return `(00) 9${h.slice(0, 4)}-${h.slice(4)}`; };
+const _DEMO_K_NOME = /^(nome|nomeCliente|cliente|vendedor|nomeVendedor|quemMaisVendeu|representante|aprovadoPor|aprovador|usuario)$/;
+const _DEMO_K_FONE = /^(telefone|celular|fone|telefones)$/;
+const _DEMO_K_SECRETO = /^(cpf|cnpj|cpfCnpj|documento|email|endereco|logradouro|numero|complemento|cep)$/;
+const _ehLoja = v => typeof v === 'string' && _demoLojas.has(v);
+function _demoResp(x, chave) {
+  if (Array.isArray(x)) {
+    // listas de lojas: fica só a loja da demonstração
+    const fora = it => (_ehLoja(it) && it !== _demo.base) || (it && typeof it === 'object' && ['nomeLoja', 'loja', 'nome'].some(k => _ehLoja(it[k]) && it[k] !== _demo.base));
+    return x.filter(it => !fora(it)).map(it => _demoResp(it, chave));
+  }
+  if (x && typeof x === 'object') {
+    const o = {};
+    for (const [k, v] of Object.entries(x)) {
+      if (_ehLoja(k) && k !== _demo.base) continue;
+      const k2 = k === _demo.base ? DEMO_NOME : k;
+      if (typeof v === 'string' && _DEMO_K_FONE.test(k)) o[k2] = v ? _demoFone(v) : v;
+      else if (typeof v === 'string' && /^whatsapp$/i.test(k)) o[k2] = v ? '5500' + String(_demoHash(v)).padStart(9, '9').slice(-9) : v;
+      else if (_DEMO_K_SECRETO.test(k) && (typeof v === 'string' || typeof v === 'number')) o[k2] = v ? '•••' : v;
+      else if (typeof v === 'string' && _DEMO_K_NOME.test(k) && v && !_ehLoja(v) && !/\d/.test(v) && v.length <= 70 && !/^(sem|Sem) /.test(v)) o[k2] = _demoNome(v);
+      else o[k2] = _demoResp(v, k);
+    }
+    return o;
+  }
+  if (typeof x === 'string') return _demo.base && x.includes(_demo.base) ? x.split(_demo.base).join(DEMO_NOME) : x;
+  return x;
+}
+function _demoReq(x) {
+  if (Array.isArray(x)) return x.map(_demoReq);
+  if (x && typeof x === 'object') { const o = {}; for (const [k, v] of Object.entries(x)) o[k === DEMO_NOME ? _demo.base : k] = _demoReq(v); if (Array.isArray(o.lojas) && !o.lojas.length) o.lojas = [_demo.base]; return o; }
+  if (typeof x === 'string') return x.includes(DEMO_NOME) ? x.split(DEMO_NOME).join(_demo.base) : x;
+  return x;
+}
+const _DEMO_GRAVA = /^(registrar|desfazer|salvar|aprovar|enviar|excluir|apagar|editar|criar|importar|vincular|desvincular|ignorar|marcar|atualizar|confirmar|cancelar|definir|alterar|trocar|remover|adicionar)/i;
+async function _fetchDemo(url, init) {
+  const u = String(url);
+  let body = init?.body, payload = null;
+  if (typeof body === 'string') { try { payload = JSON.parse(body); } catch { } }
+  if (payload) {
+    const modulo = String(payload.modulo || ''), acao = String(payload.acao || '');
+    const grava = _DEMO_GRAVA.test(acao) || ['lojaEditar', 'sincronizarCentral', 'pedidoSugerido_aprovar'].includes(modulo) || (modulo === 'usuarios' && acao !== 'meuPerfil') || (modulo === 'metasVendedores' && acao && acao !== 'listar') || (modulo === 'metas' && acao && acao !== 'listar');
+    if (grava) return new Response(JSON.stringify({ error: 'Modo demonstração: nada é salvo. Saia da demonstração para gravar.' }), { status: 400, headers: { 'content-type': 'application/json' } });
+    payload = _demoReq(payload);
+    init = { ...init, body: JSON.stringify(payload) };
+  }
+  const r = await _fetchOriginal(url, init);
+  let j; try { j = await r.clone().json(); } catch { return r; }
+  if (Array.isArray(j?.lojas) && j.lojas.every(x => typeof x === 'string')) j.lojas.forEach(n => _demoLojas.add(n)); // lista de lojas (GET de configuração)
+  if (j?.acesso === 'login' || (payload?.modulo === 'usuarios' && payload?.acao === 'meuPerfil')) return r;
+  return new Response(JSON.stringify(_demoResp(j)), { status: r.status, headers: { 'content-type': 'application/json' } });
+}
 window.fetch = async (...args) => {
-  const r = await _fetchOriginal(...args);
+  const r = _demo?.base && String(args[0]).includes('/functions/v1/') && !String(args[0]).includes('?config=1') ? await _fetchDemo(args[0], args[1]) : await _fetchOriginal(...args);
   if (r.status === 401 && String(args[0]).includes('/functions/v1/')) r.clone().json().then(d => { if (d && d.acesso === 'login') { if (/24 horas/.test(d.error || '')) encerrarPorTempo(); else mostrarLogin(d.error); } }).catch(() => {});
   return r;
 };
+document.getElementById('btnDemo')?.addEventListener('click', async e => {
+  e.preventDefault();
+  if (_demo?.base) { try { localStorage.removeItem('sss_demo'); } catch { } location.reload(); return; }
+  let lojas = []; try { const r = await _fetchOriginal(EDGE_URL, { method: 'GET', headers: headersComSenha() }); lojas = (await r.json()).lojas || []; } catch { }
+  const lista = lojas.map((n, i) => `${i + 1}. ${n}`).join('\n');
+  const esc1 = prompt(`Modo demonstração: a loja escolhida aparece como "${DEMO_NOME}", com clientes e vendedores com nomes inventados e nada é salvo.\n\nNúmero da loja de base:\n${lista}`, String(Math.max(1, lojas.indexOf('SSS INDAIATUBA') + 1)));
+  const base = lojas[Number(esc1) - 1]; if (!base) return;
+  try { localStorage.setItem('sss_demo', JSON.stringify({ base })); } catch { }
+  location.reload();
+});
 function mostrarLogin(msg) {
   $('telaLogin').hidden = false; $('login_form').style.display = ''; $('troca_form').style.display = 'none';
   $('login_msg').textContent = msg || '';
@@ -6750,6 +6823,12 @@ function REDE(toda = false) {
   return _lojasPerfil.length > 1 ? 'suas lojas' : 'sua loja';
 }
 function aplicarPerfil(p) {
+  if ($('demoLink')) $('demoLink').style.display = p.papel === 'admin' ? '' : 'none';
+  if (_demo?.base && p.papel === 'admin') {
+    (p.lojas || []).forEach(n => _demoLojas.add(n));
+    p = { ...p, papel: 'franqueado', nome: 'Franqueado Demonstração', lojas: [DEMO_NOME] };
+    if ($('btnDemo')) $('btnDemo').textContent = 'Sair da demonstração';
+  }
   _lojasPerfil = Array.isArray(p.lojas) ? p.lojas : [];
   { const h = new Date().getHours(), pn = String(p.nome || '').split(' ')[0]; const el = $('ini_saudacao'); if (el) el.textContent = p.tipo === 'usuario' && pn ? `${h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite'}, ${pn}` : ''; }
   { let pref = null; try { pref = localStorage.getItem('sss_ped_simples'); } catch { } $('ped_simples').checked = pref != null ? pref === '1' : p.papel === 'franqueado'; aplicarModoSimples(false); }
