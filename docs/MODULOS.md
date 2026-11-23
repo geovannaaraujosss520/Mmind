@@ -247,3 +247,9 @@ Item da Central vendido em pacote/caixa e vendido em unidades na loja (ex.: SANT
 
 ### Fornecedores: Visão geral × Por fornecedor
 A tela tem duas abas. **Visão geral**: resumo da rede, situações, comparador de esforço, tabela de fornecedores e itens a conferir; clicar num fornecedor abre a outra aba. **Por fornecedor** (com seletor): situação e motivo, números principais (comprado, giro, parado, % do faturamento, R$ por peça, markup, lucro por peça), gráfico **compra × venda mês a mês** (trechos de ~1 mês, os mesmos da leitura; `mesCompra`/`mesVenda`), itens a conferir do fornecedor com unidades no pacote, e o detalhe (top 10, por loja com valor parado, por produto, frete, marcas, insumo).
+
+### Visão do franqueado (revisão para apresentação)
+- Rótulos "— rede"/"rede toda" viram "sua loja"/"suas lojas" para o franqueado (`REDE()`); "Ranking da rede" vira "Ranking da equipe"; "Lojas (vazio = todas)" vira "Lojas (vazio = suas lojas)".
+- Escondidos para o franqueado: botões "Ver lojas configuradas", a opção técnica "Quantidade da Central é em embalagens", o diagnóstico técnico do estoque (só aparece se houver problema) e a aba "Comparativo de lojas" quando ele tem uma loja só.
+- Central de Decisão: quando o DRE, o estoque ou as compras não carregam, os cartões mostram "—" com o aviso, em vez de R$ 0,00.
+- Equipe: a lista de cadastros incompletos de clientes fica recolhida.
