@@ -3877,6 +3877,13 @@ function analisar(res) {
       titulo: !de.linhasSaldoUsadas ? 'Estoque da unidade não veio da VarejOnline' : `Estoque encontrado só para ${de.coberturaPercent}% dos produtos`,
       detalhe: 'Sem estoque correto a recomendação de compra fica superestimada. Confira a permissão do token desta loja na VarejOnline.' });
     if (l.erros.length) acoes.push({ sev: 'atencao', loja: l.nome, titulo: 'Dados incompletos nesta loja', detalhe: l.erros.join(' · '), impacto: null, ir: null });
+    // Prejuízo por falta de venda: produto que vende e está zerado deixa de faturar todo dia
+    { const zer = (l.rec?.recomendacoes || []).filter(r => (r.estoqueAtual ?? 0) <= 0 && (r.vendaMediaDiaria || 0) > 0);
+      const perdaDia = zer.reduce((t, r) => t + r.vendaMediaDiaria * (r.precoMedioVenda || 0), 0);
+      l.perdaDia = perdaDia;
+      if (zer.length) acoes.push({ sev: 'critico', loja: l.nome, ir: 'pedido', irLabel: 'Gerar pedido', impacto: perdaDia || null, impLabel: 'de venda perdida por dia',
+        titulo: `Perdendo venda: ${zer.length} ${zer.length === 1 ? 'produto que vende está zerado' : 'produtos que vendem estão zerados'}`,
+        detalhe: `${perdaDia ? `Cerca de ${fmtMoeda(perdaDia)} por dia (${fmtMoeda(perdaDia * 30)} em 30 dias) deixam de entrar enquanto não chegar reposição. ` : ''}Mais vendidos zerados: ` + zer.sort((a, b) => b.vendaMediaDiaria * (b.precoMedioVenda || 0) - a.vendaMediaDiaria * (a.precoMedioVenda || 0)).slice(0, 3).map(r => `${r.descricao} (${fmtNum(r.vendaMediaDiaria)}/dia)`).join('; ') }); }
     if (l.risco.length) acoes.push({ sev: 'critico', loja: l.nome, ir: 'pedido', irLabel: 'Gerar pedido', impacto: l.valorRisco, impLabel: 'compra p/ evitar ruptura',
       titulo: `${l.risco.length} ${l.risco.length === 1 ? 'item' : 'itens'} em risco de ruptura`,
       detalhe: 'Mais vendidos em risco: ' + l.risco.slice(0, 3).map(r => `${r.descricao} (${fmtNum(r.vendaMediaDiaria)}/dia, estoque ${fmtNum(r.estoqueAtual)})`).join('; ') });
@@ -3921,8 +3928,9 @@ function analisar(res) {
       impacto: l.receita ? (margemBrutaMedia - l.margemBruta) / 100 * l.receita : null, impLabel: 'lucro bruto se igualar a média',
       titulo: `Margem bruta ${fmtPct(l.margemBruta, 1)} — abaixo da média da rede (${fmtPct(margemBrutaMedia, 1)})`,
       detalhe: 'Possíveis causas: descontos acima do padrão, mix puxado por itens de margem baixa ou custo de reposição desatualizado.' });
-    if (l.nAlto + l.nParado > 0) acoes.push({ sev: 'oportunidade', loja: l.nome, ir: 'estoque', impacto: l.capitalParado || null, impLabel: 'capital parado (estimativa mínima)',
-      titulo: `${l.nAlto} ${l.nAlto === 1 ? 'item' : 'itens'} com excesso e ${l.nParado} sem venda`,
+    // Prejuízo por excesso: dinheiro parado em estoque que não gira. Vira "atenção" quando passa de 10% do faturamento do mês.
+    if (l.nAlto + l.nParado > 0) acoes.push({ sev: l.capitalParado && l.receita && l.capitalParado >= 0.1 * l.receita ? 'atencao' : 'oportunidade', loja: l.nome, ir: 'estoque', impacto: l.capitalParado || null, impLabel: 'parados em estoque (custo, estimativa mínima)',
+      titulo: `${l.capitalParado ? `Dinheiro parado: ${fmtMoeda(l.capitalParado)} em estoque — ` : ''}${l.nAlto} ${l.nAlto === 1 ? 'item' : 'itens'} com excesso e ${l.nParado} sem venda`,
       detalhe: `Candidatos a promoção ou kit. Não recomprar até normalizar.${l.coberturaCusto != null && l.coberturaCusto < 1 ? ` Valor calculado só para ${fmtPct(l.coberturaCusto * 100)} dos itens (custo conhecido).` : ''}` });
   }
   const ordemSev = { critico: 0, atencao: 1, oportunidade: 2 };
@@ -3938,7 +3946,7 @@ function analisar(res) {
     meta: soma(l => l.meta),
     proj: soma(l => l.proj?.projecao),
     temProj: lista.some(l => l.proj),
-    nRisco: soma(l => l.risco.length), valorRisco: soma(l => l.valorRisco),
+    nRisco: soma(l => l.risco.length), valorRisco: soma(l => l.valorRisco), perdaDia: soma(l => l.perdaDia),
     valorCompra: rec?.valorTotalEstimadoCompraRede ?? soma(l => l.valorCompra),
     capitalParado: soma(l => l.capitalParado),
     margemBrutaMedia,
@@ -4009,7 +4017,7 @@ function renderCentral(a, box) {
       ${!DRE_LIBERADO() ? '' : `<div class="kpi"><div class="label">Resultado operacional — ${REDE()}</div><div class="value" style="color:${r.resultado >= 0 ? 'var(--good)' : 'var(--danger)'}">${r.semFin ? '—' : fmtMoeda(r.resultado || 0)}</div>
         <div class="hint">${r.semFin ? 'DRE não carregou: rode de novo · ' : ''}Margem operacional ${fmtPct(r.margemOp, 1)}</div>${deltaHTML(r.resultado, ant.resultado, { moeda: true })}</div>`}
       <div class="kpi"><div class="label">Itens em risco de ruptura</div><div class="value" style="color:${r.nRisco ? 'var(--danger)' : 'inherit'}">${r.nRisco}</div>
-        <div class="hint">${fmtMoeda(r.valorRisco)} para cobrir</div>${deltaHTML(r.nRisco, ant.nRisco, { inverso: true })}</div>
+        <div class="hint">${fmtMoeda(r.valorRisco)} para cobrir${r.perdaDia ? ` · <span style="color:var(--danger)">${fmtMoeda(r.perdaDia)}/dia de venda perdida com zerados</span>` : ''}</div>${deltaHTML(r.nRisco, ant.nRisco, { inverso: true })}</div>
     </div>
     <div class="kpis">
       <div class="kpi"><div class="label">Ações críticas</div><div class="value" style="color:${nCrit ? 'var(--danger)' : 'var(--good)'}">${nCrit}</div><div class="hint">${a.acoes.length} ações no total</div></div>

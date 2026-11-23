@@ -260,3 +260,4 @@ A tela tem duas abas. **Visão geral**: resumo da rede, situações, comparador 
 
 ### DRE inativo para o franqueado (por enquanto)
 `DRE_LIBERADO()` é falso para o franqueado: a tela Financeiro some do menu, o botão "Ver financeiro" sai do Início e a Central de Decisão deixa de mostrar resultado operacional, margens e as ações de margem/prejuízo. Faturamento do mês, metas e projeção continuam (vêm do mesmo módulo). Para reativar, fazer `DRE_LIBERADO` devolver `true` e tirar `'financeiro'` da lista `ocultar` do franqueado em `aplicarPerfil`.
+- Central: alertas de prejuízo por falta de venda (valem com o DRE inativo): **Perdendo venda** (produtos que vendem e estão zerados, em R$ por dia e em 30 dias) e **Dinheiro parado** (excesso + sem venda, vira "atenção" quando passa de 10% do faturamento do mês). O cartão de ruptura mostra também a venda perdida por dia.
