@@ -117,6 +117,9 @@ function jaccard(a: Set<string>, b: Set<string>) {
 const CENTRAL = 'https://app.centraldofranqueado.com.br/api/v2/pedidos';
 const FINAIS = new Set(['finalizado', 'concluido', 'cancelado']); // situacoes que ja chegaram ou foram canceladas
 const DIAS_PARADO = 120; // pedido sem alteracao ha mais de 4 meses nao desconta
+// Pedido "Enviado" há mais que isso já chegou na loja (muita loja não confirma o recebimento na Central): não conta como "a caminho".
+const DIAS_ENVIADO = 15;
+const ehEnviado = (p: any) => /envi/i.test(String(p.situacao?.descricao ?? '')) || /envi/i.test(String(p.situacao?.status ?? ''));
 // Lojas da Central cujo nome nao bate sozinho com o nome no painel.
 const OVERRIDES: Record<string, string> = {
   'GOIANIA SETOR OESTE': 'SSS GOIANIA 1', 'GOIANIA JD GOIAS': 'SSS GOIANIA 2',
@@ -565,6 +568,7 @@ async function pedidosEmAndamento(listaPronta?: { lista: any[]; falhas: number; 
     if (ehFinal(p)) continue;
     const alt = Date.parse(String(p.situacao?.dataAlteracao ?? p.updatedAt ?? p.dataCriacao));
     if (Number.isFinite(alt) && agora - alt > DIAS_PARADO * 86400000) continue;
+    if (ehEnviado(p) && Number.isFinite(alt) && agora - alt > DIAS_ENVIADO * 86400000) continue;
     const k = lojaDoPedido(p);
     if (!porLoja.has(k)) porLoja.set(k, []);
     porLoja.get(k)!.push(p);
@@ -739,14 +743,14 @@ async function moduloRecorrente(apiBase: string, lojasTokens: Record<string, str
         const ch = andamento.idVar(i).chave;
         const cur = itens.get(ch) ?? { cod: c, chave: ch, codigoCentral: String(i.codigo).trim(), descricao: i.descricaoProduto, forn: p.fornecedor?.nome ?? '', qtd: 0, pedidos: [] };
         cur.qtd += q;
-        cur.pedidos.push({ pedido: p.codigo, situacao: p.situacao?.descricao, quantidade: q, criadoEm: p.dataCriacao });
+        cur.pedidos.push({ pedido: p.codigo, situacao: p.situacao?.descricao, quantidade: q, criadoEm: p.dataCriacao, desde: p.situacao?.dataAlteracao ?? null });
         itens.set(ch, cur);
       }
     }
 
     const vl = vinc.mapa.get(nomeLoja) ?? new Map<string, any>();
     const andamentoProd = new Map<string, { qtd: number; pedidos: any[] }>();
-    const revisao: any[] = [];
+    const revisao: any[] = [], semLigacao: any[] = [];
     let vinculados = 0, ignorados = 0, semVenda = 0;
     // vinculos exatos (produto -> codigo+variacao) desta loja, invertidos: item da Central -> produto
     const exatos = new Map<string, string[]>();
@@ -797,6 +801,7 @@ async function moduloRecorrente(apiBase: string, lojasTokens: Record<string, str
         // Sem vinculo seguro: so sugere (nao desconta) quando ha candidato parecido entre os produtos que venderam.
         const tc = tokens(it.descricao);
         const cands = toks.map((x) => ({ id: x.id, sc: jaccard(tc, x.t) })).filter((x) => x.sc >= 0.6).sort((a, b) => b.sc - a.sc).slice(0, 3);
+        if (!cands.length) semLigacao.push({ codigoCentral: it.codigoCentral, descricaoCentral: it.descricao, quantidade: it.qtd, fornecedor: it.forn, pedidos: it.pedidos.slice(0, 2) });
         if (cands.length) {
           revisao.push({
             codigoCentral: it.codigoCentral, descricaoCentral: it.descricao, quantidade: it.qtd, pedidos: it.pedidos.slice(0, 3),
@@ -856,6 +861,7 @@ async function moduloRecorrente(apiBase: string, lojasTokens: Record<string, str
       recomendacoes: linhas,
       pedidosCentral: { pedidosAbertos: pedidos.length, itensEmAndamento: itens.size, vinculados, aRevisar: revisao.length, ignorados, semVendaNoPeriodo: semVenda, aguardandoFranqueado, atrasados },
       revisao: revisao.slice(0, 40),
+      semLigacao: semLigacao.sort((a, b) => b.quantidade - a.quantidade).slice(0, 400).map((x) => [x.codigoCentral, x.descricaoCentral, x.quantidade, x.fornecedor, x.pedidos[0]?.pedido ?? null, x.pedidos[0]?.situacao ?? null]),
       diagEstoque: {
         linhasSaldoSemFiltro: linhasSemFiltro, consultaComEntidade, filtrouEntidade, linhasSaldoUsadas: saldos.length,
         unidadesQueVenderam: [...entVenda.values()], unidadesNoSaldo: [...entSaldo.values()].map((e) => ({ ...e, total: Math.round(e.total) })),
