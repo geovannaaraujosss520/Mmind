@@ -257,3 +257,6 @@ A tela tem duas abas. **Visão geral**: resumo da rede, situações, comparador 
 - Central: "vs última análise" compara só com a última análise das mesmas lojas; capital parado mostra "—" quando há itens parados mas sem custo conhecido.
 - Estoque: "Estoque baixo" mostra primeiro os produtos que vendem (≥ 2 por mês), do que mais vende para o que menos vende; os que quase não vendem ficam atrás de um botão.
 - Sazonal: com uma loja só, sem a opção "Rede toda".
+
+### DRE inativo para o franqueado (por enquanto)
+`DRE_LIBERADO()` é falso para o franqueado: a tela Financeiro some do menu, o botão "Ver financeiro" sai do Início e a Central de Decisão deixa de mostrar resultado operacional, margens e as ações de margem/prejuízo. Faturamento do mês, metas e projeção continuam (vêm do mesmo módulo). Para reativar, fazer `DRE_LIBERADO` devolver `true` e tirar `'financeiro'` da lista `ocultar` do franqueado em `aplicarPerfil`.
