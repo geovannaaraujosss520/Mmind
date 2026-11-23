@@ -5180,9 +5180,9 @@ function desenharPicos(l) {
       <table class="no-tools" style="font-size:12.5px"><thead><tr><th>Dia</th><th>Venda média</th><th class="num">Atend.</th><th class="num">vs média</th></tr></thead><tbody>
       ${dias.map(d => `<tr><td>${esc(d.dia)}</td><td><span style="display:inline-block; height:8px; border-radius:4px; background:${d.vsMedia <= -10 ? 'var(--warn)' : 'var(--line-strong)'}; width:${Math.max(4, d.faturamentoMedioDia / maxD * 110)}px; margin-right:6px; vertical-align:middle"></span>${fmtMoeda(d.faturamentoMedioDia)}</td><td class="num">${fmtNum(d.atendimentosMedioDia)}</td><td class="num" style="color:${d.vsMedia <= -10 ? 'var(--warn)' : d.vsMedia >= 10 ? 'var(--good)' : 'inherit'}">${d.vsMedia > 0 ? '+' : ''}${fmtPct(d.vsMedia, 0)}</td></tr>`).join('')}
       </tbody></table>
-      <div><div style="font-size:12.5px; font-weight:650; margin-bottom:4px">Horários mais fracos (loja aberta)</div>
+      ${!(B.horarios || []).length ? '' : `<div><div style="font-size:12.5px; font-weight:650; margin-bottom:4px">Horários mais fracos (loja aberta)</div>
         <ul style="margin:0; padding-left:18px; font-size:12.5px; line-height:1.6">${(B.horarios || []).map(v => `<li><strong>${esc(v.dia)}, ${v.de}h às ${v.ate}h</strong> — média de ${fmtMoeda(v.faturamentoMedioDia)} e ${fmtNum(v.atendimentosMedioDia)} atendimento(s)</li>`).join('')}</ul>
-        <div class="sub" style="font-size:11.5px; max-width:none; margin-top:4px">Bons para almoço e pausas, reposição, organização de vitrine, treinamento e para chamar clientes pelo WhatsApp.</div></div>
+        <div class="sub" style="font-size:11.5px; max-width:none; margin-top:4px">Bons para almoço e pausas, reposição, organização de vitrine, treinamento e para chamar clientes pelo WhatsApp.</div></div>`}
     </div>`; })();
   const linhas = vend.map(v => { const P = H.porVendedor[v.id]; return `<tr><td class="prod-name">${esc(v.nome)}</td><td>${esc(P.diaForte || '—')}</td><td>${P.horarioForte ? `${P.horarioForte.de}h às ${P.horarioForte.ate}h` : '—'}</td><td title="Dia da semana em que a pessoa menos vende, entre os dias em que trabalha">${esc(P.diaFraco || '—')}</td>
     <td class="${P.percentNoPicoDaLoja >= 40 ? 'heat-bom' : P.percentNoPicoDaLoja < 15 ? 'heat-medio' : ''}">${fmtPct(P.percentNoPicoDaLoja, 0)}</td>
@@ -5973,9 +5973,9 @@ async function abrirProdutosVendedor(btn, vs) {
   if (td.dataset.chave === chave && td.style.display !== 'none') { td.style.display = 'none'; return; }
   td.dataset.chave = chave; td.style.display = '';
   const v = vs.find(x => String(x.id) === String(id) && (x.loja || '') === lojaV); if (!v) return;
-  const top = `<div style="font-weight:650; font-size:13px; margin-bottom:6px">Top 10 de ${esc(v.nome)} no período</div>
+  const top = `<div><div style="font-weight:650; font-size:13px; margin-bottom:6px">Top 10 de ${esc(v.nome)} no período</div>
     <table class="no-tools" style="font-size:12.5px"><thead><tr><th>#</th><th>Produto</th><th class="num">Peças</th><th class="num">Faturamento</th></tr></thead><tbody>
-    ${v.topProdutos.map((x, i) => `<tr><td>${i + 1}</td><td class="prod-name">${esc(x.descricao)}${x.codigoSistema ? `<br><span style="font-size:10.5px; color:var(--muted)">${esc(x.codigoSistema)}</span>` : ''}</td><td class="num">${fmtNum(x.pecas)}</td><td class="num">${fmtMoeda(x.faturamento)}</td></tr>`).join('')}</tbody></table>`;
+    ${v.topProdutos.map((x, i) => `<tr><td>${i + 1}</td><td class="prod-name">${esc(x.descricao)}${x.codigoSistema ? `<br><span style="font-size:10.5px; color:var(--muted)">${esc(x.codigoSistema)}</span>` : ''}</td><td class="num">${fmtNum(x.pecas)}</td><td class="num">${fmtMoeda(x.faturamento)}</td></tr>`).join('')}</tbody></table></div>`;
   td.innerHTML = `<div style="display:flex; justify-content:space-between; gap:8px; align-items:center; margin-bottom:6px"><strong style="font-size:14px">${esc(v.nome)}${v.loja ? ` — ${esc(v.loja)}` : ''}</strong><button type="button" class="secondary" data-ven-fechar style="font-size:12px; padding:3px 10px">Fechar</button></div>
     <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:18px; padding:4px">${top}<div data-ven-sug><div class="sub" style="font-size:12px">Buscando o estoque em excesso e parado da loja…</div></div></div>`;
   td.querySelector('[data-ven-fechar]').addEventListener('click', () => { td.style.display = 'none'; });
