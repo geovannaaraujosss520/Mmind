@@ -1512,9 +1512,9 @@ async function moduloVendedores(apiBase: string, lojasTokens: Record<string, str
     const ehParceiro = (t: any) => (t?.classes ?? []).some((c: string) => /FORNECEDOR|PRESTADOR_SERVICO/.test(String(c)));
     const idsParceiros = new Set<string>(parceiros.filter(ehParceiro).map((t: any) => String(t.id)));
 
-    type Acc = { id: string; atend: Set<string>; atend1: number; atend1Barata: number; pecas: number; fat: number; desc: number; pecasBaratas: number; fatBarato: number; baratasSozinhas: number; baratasAcrescimo: number; dias: Set<string>; atendCliente: Set<string> };
+    type Acc = { id: string; atend: Set<string>; atend1: number; atend1Barata: number; pecas: number; fat: number; desc: number; pecasBaratas: number; fatBarato: number; baratasSozinhas: number; baratasAcrescimo: number; dias: Set<string>; atendCliente: Set<string>; atipAt: Set<string>; atipPecas: number; atipFat: number; prods: Map<string, any> };
     const acc = new Map<string, Acc>();
-    const loja = { atend: 0, pecas: 0, fat: 0, desc: 0, pecasBaratas: 0, fatBarato: 0, atendCliente: 0, atend1Barata: 0, baratasSozinhas: 0, baratasAcrescimo: 0, baratasSoBaratas: 0 };
+    const loja = { atipAt: 0, atipPecas: 0, atipFat: 0, atend: 0, pecas: 0, fat: 0, desc: 0, pecasBaratas: 0, fatBarato: 0, atendCliente: 0, atend1Barata: 0, baratasSozinhas: 0, baratasAcrescimo: 0, baratasSoBaratas: 0 };
     const entidadesLoja = new Set<string>();
     const pendente1Barata: string[] = [];
     // pecas abaixo do preco-limite, por produto (quais sao e quem vende)
@@ -1528,9 +1528,19 @@ async function moduloVendedores(apiBase: string, lojasTokens: Record<string, str
     const diaHora = (x: unknown) => { const t = String(x ?? ''); let m = t.match(/(\d{2})[-/](\d{2})[-/](\d{4})\D+(\d{2}):\d{2}/); if (m) return { dow: new Date(Date.UTC(+m[3], +m[2] - 1, +m[1])).getUTCDay(), h: +m[4] };
       m = t.match(/(\d{4})-(\d{2})-(\d{2})\D+(\d{2}):\d{2}/); return m ? { dow: new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).getUTCDay(), h: +m[4] } : null; };
     let semHora = 0;
+    // ---- Venda atípica: atendimento muito acima do normal da loja (atacado, kit grande, venda para outra loja/evento).
+    // Conta no faturamento, mas fica fora do PA, do ticket e da venda por dia usados para comparar vendedores —
+    // senão um único atendimento de 1.700 peças vira "PA 66" e todo o resto da equipe aparece em vermelho.
+    const totAt = (sd: any) => { let q = 0, v = 0; for (const it of sd.mercadorias ?? []) { const x = Number(it.quantidade ?? 0); if (x > 0) { q += x; v += Number(it.valorTotal ?? 0); } } return { q, v }; };
+    const medianaN = (xs: number[]) => { if (!xs.length) return 0; const o = [...xs].sort((a, b) => a - b); return o[Math.floor(o.length / 2)]; };
+    const tamanhos = saidas.filter(ehVenda).map(totAt).filter((t) => t.q > 0);
+    const medQ = medianaN(tamanhos.map((t) => t.q)), medV = medianaN(tamanhos.map((t) => t.v));
+    const limQ = Math.max(30, 15 * medQ), limV = Math.max(3000, 15 * medV);
+    const ehAtipica = (sd: any) => { const t = totAt(sd); return t.q > limQ || t.v > limV; };
     for (const sd of saidas) {
       if (!ehVenda(sd)) continue;
       const idAt = String(sd.id ?? sd.numeroDocumento ?? Math.random());
+      const atipica = ehAtipica(sd);
       const dia = String(sd.data ?? sd.dataSaida ?? sd.dataEmissao ?? '').slice(0, 10);
       const porVend = new Map<string, number>(); // pecas por vendedor neste atendimento
       const valPorVend = new Map<string, number>();
@@ -1555,8 +1565,11 @@ async function moduloVendedores(apiBase: string, lojasTokens: Record<string, str
         const d = Number(it.valorTotalDesconto ?? it.valorDescontoItem ?? 0);
         const unit = v / q;
         const vid = it.idRepresentante != null ? String(it.idRepresentante) : 'sem';
-        const a = acc.get(vid) ?? { id: vid, atend: new Set(), atend1: 0, atend1Barata: 0, pecas: 0, fat: 0, desc: 0, pecasBaratas: 0, fatBarato: 0, baratasSozinhas: 0, baratasAcrescimo: 0, dias: new Set(), atendCliente: new Set() };
+        const a = acc.get(vid) ?? { id: vid, atend: new Set(), atend1: 0, atend1Barata: 0, pecas: 0, fat: 0, desc: 0, pecasBaratas: 0, fatBarato: 0, baratasSozinhas: 0, baratasAcrescimo: 0, dias: new Set(), atendCliente: new Set(), atipAt: new Set(), atipPecas: 0, atipFat: 0, prods: new Map() };
         a.atend.add(idAt); a.pecas += q; a.fat += v; a.desc += d; if (dia) a.dias.add(dia);
+        if (atipica) { a.atipAt.add(idAt); a.atipPecas += q; a.atipFat += v; loja.atipPecas += q; loja.atipFat += v; }
+        // produtos de cada vendedor (top 10 na tela Equipe), sem as vendas atípicas
+        else { const pr = it.produto, kp = pr?.id != null ? String(pr.id) : `d:${limpa(pr?.descricao)}`; const m = a.prods.get(kp) ?? { produtoId: pr?.id ?? null, descricao: String(pr?.descricao ?? ''), codigoSistema: pr?.codigoSistema ?? null, q: 0, v: 0 }; m.q += q; m.v += v; a.prods.set(kp, m); }
         if (unit < precoLimite) {
           a.pecasBaratas += q; a.fatBarato += v; loja.pecasBaratas += q; loja.fatBarato += v;
           const pr = it.produto, kb = pr?.id != null ? String(pr.id) : `d:${limpa(pr?.descricao)}`;
@@ -1573,7 +1586,7 @@ async function moduloVendedores(apiBase: string, lojasTokens: Record<string, str
         loja.pecas += q; loja.fat += v; loja.desc += d;
       }
       if (algum) {
-        loja.atend++;
+        loja.atend++; if (atipica) loja.atipAt++;
         if (comCliente) loja.atendCliente++;
         const tid = sd.terceiro?.id != null && !idsParceiros.has(String(sd.terceiro.id)) ? String(sd.terceiro.id) : null;
         if (tid) {
@@ -1618,19 +1631,21 @@ async function moduloVendedores(apiBase: string, lojasTokens: Record<string, str
       cadPorVend.set(vid, c);
       if (faltando.length) incompletos.push({ clienteId: t.id, nome: String(t.nome ?? '').trim() || '(sem nome)', faltando, vendedorId: vid, criadoEm: t.dataCriacao ?? null });
     }
-    const paLoja = loja.atend ? loja.pecas / loja.atend : 0;
-    const ticketLoja = loja.atend ? loja.fat / loja.atend : 0;
+    // PA e ticket de referência SEM as vendas atípicas
+    const atN = loja.atend - loja.atipAt;
+    const paLoja = atN ? (loja.pecas - loja.atipPecas) / atN : 0;
+    const ticketLoja = atN ? (loja.fat - loja.atipFat) / atN : 0;
     const vendedoresTodos = [...acc.values()].map((a) => {
       const r = repInfo.get(a.id);
-      const at = a.atend.size;
-      const pa = at ? a.pecas / at : 0, ticket = at ? a.fat / at : 0;
+      const at = a.atend.size, atT = at - a.atipAt.size, fatT = a.fat - a.atipFat;
+      const pa = atT ? (a.pecas - a.atipPecas) / atT : 0, ticket = atT ? fatT / atT : 0;
       const pctBaratas = a.pecas ? a.pecasBaratas / a.pecas * 100 : 0;
       const pct1 = at ? a.atend1 / at * 100 : 0;
       const idxPA = paLoja ? pa / paLoja : null, idxTicket = ticketLoja ? ticket / ticketLoja : null;
       // Perfil indicativo (comparado com a propria loja). Precisa de volume minimo para nao julgar por poucos atendimentos.
       let perfil = 'sem_volume';
       if (a.id === 'sem') perfil = 'sem_vendedor';
-      else if (at >= 15 && idxPA != null && idxTicket != null) perfil = 'classificar'; // decidido abaixo, junto com o volume por dia
+      else if (atT >= 15 && idxPA != null && idxTicket != null) perfil = 'classificar'; // decidido abaixo, junto com o volume por dia
       return {
         id: a.id, nome: a.id === 'sem' ? 'Sem vendedor informado' : (r?.nome ?? `Vendedor ${a.id}`),
         perfilSistema: r?.perfilVendedor ?? null, ativo: r?.ativo ?? null,
@@ -1648,7 +1663,9 @@ async function moduloVendedores(apiBase: string, lojasTokens: Record<string, str
         cadastrosNovos: cadPorVend.get(a.id)?.novos ?? 0,
         cadastrosCompletos: cadPorVend.get(a.id)?.completos ?? 0,
         cadastrosFaltando: cadPorVend.get(a.id)?.falta ?? {},
-        faturamentoPorDia: a.dias.size ? r2(a.fat / a.dias.size) : 0, atendimentosPorDia: a.dias.size ? r2(at / a.dias.size) : 0, pct1,
+        faturamentoPorDia: a.dias.size ? r2(fatT / a.dias.size) : 0, atendimentosPorDia: a.dias.size ? r2(atT / a.dias.size) : 0, pct1,
+        vendasAtipicas: a.atipAt.size ? { atendimentos: a.atipAt.size, pecas: r2(a.atipPecas), faturamento: r2(a.atipFat) } : null,
+        topProdutos: [...a.prods.values()].sort((x, y) => y.q - x.q || y.v - x.v).slice(0, 10).map((m) => ({ produtoId: m.produtoId, descricao: m.descricao, codigoSistema: m.codigoSistema, pecas: r2(m.q), faturamento: r2(m.v) })),
       };
     }).sort((x, y) => y.faturamento - x.faturamento);
     // ---- Perfil: COMO vende (PA e ticket) + QUANTO vende (venda por dia trabalhado) ----
@@ -1656,8 +1673,8 @@ async function moduloVendedores(apiBase: string, lojasTokens: Record<string, str
     // Referência = média da loja por vendedor por dia (soma do faturamento ÷ soma dos dias trabalhados dos vendedores com volume).
     const classificaveis = vendedoresTodos.filter((v: any) => v.perfil === 'classificar');
     const diasTot = classificaveis.reduce((t: number, v: any) => t + v.diasComVenda, 0);
-    const refFatDia = diasTot ? classificaveis.reduce((t: number, v: any) => t + v.faturamento, 0) / diasTot : 0;
-    const refAtendDia = diasTot ? classificaveis.reduce((t: number, v: any) => t + v.atendimentos, 0) / diasTot : 0;
+    const refFatDia = diasTot ? classificaveis.reduce((t: number, v: any) => t + v.faturamentoPorDia * v.diasComVenda, 0) / diasTot : 0;
+    const refAtendDia = diasTot ? classificaveis.reduce((t: number, v: any) => t + v.atendimentosPorDia * v.diasComVenda, 0) / diasTot : 0;
     for (const v of vendedoresTodos as any[]) {
       v.indiceVendaDia = refFatDia && v.diasComVenda ? r2(v.faturamentoPorDia / refFatDia) : null;
       v.indiceAtendDia = refAtendDia && v.diasComVenda ? r2(v.atendimentosPorDia / refAtendDia) : null;
@@ -1704,6 +1721,7 @@ async function moduloVendedores(apiBase: string, lojasTokens: Record<string, str
         atendimentosComCliente: loja.atendCliente, percentClienteIdentificado: loja.atend ? r2(loja.atendCliente / loja.atend * 100) : 0,
         atendimentos1PecaBarata: loja.atend1Barata, percentAtendimentos1PecaBarata: loja.atend ? r2(loja.atend1Barata / loja.atend * 100) : 0,
         pecasBaratasSozinhas: r2(loja.baratasSozinhas), pecasBaratasAcrescimo: r2(loja.baratasAcrescimo), pecasBaratasSoBaratas: r2(loja.baratasSoBaratas),
+        vendasAtipicas: loja.atipAt ? { atendimentos: loja.atipAt, pecas: r2(loja.atipPecas), faturamento: r2(loja.atipFat), limitePecas: r2(limQ), limiteValor: r2(limV) } : null,
       },
       vendedores,
       inativosOcultos: inativos.length, faturamentoInativos: r2(inativos.reduce((t, v) => t + v.faturamento, 0)),
