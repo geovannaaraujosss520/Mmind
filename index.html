@@ -668,7 +668,7 @@
         <div style="grid-column: span 2"><label>Lojas (vazio = todas)</label><input id="cen_lojas" placeholder="ex: SSS NATAL, SSS BAURU"></div>
         <div style="display:flex; flex-direction:column; justify-content:flex-end; gap:6px;"><label class="opt-row"><input type="checkbox" id="cen_vend" checked> Incluir vendedores</label><label class="opt-row"><input type="checkbox" id="cen_bench"> Incluir benchmark (mais lento)</label></div>
       </div>
-      <div class="sub" style="margin-top:10px; font-size:12px">Usa os parâmetros já preenchidos em Compra Recorrente e Alertas de Estoque. O DRE considera do dia 1º do mês até hoje. Ao terminar, as outras telas também ficam preenchidas.</div>
+      <div class="sub" style="margin-top:10px; font-size:12px">Usa os parâmetros já preenchidos em Compra Recorrente e Alertas de Estoque. O faturamento do mês considera do dia 1º até hoje. Ao terminar, as outras telas também ficam preenchidas.</div>
       <div class="actions">
         <button id="cen_rodar">Rodar diagnóstico completo</button>
         <button class="secondary" id="cen_copiar" style="display:none">Copiar resumo executivo</button>
@@ -1452,7 +1452,7 @@ async function desenharMinhaLoja(d) {
     <div class="actions" style="margin-top:6px; flex-wrap:wrap">
       <button data-ir="pedido">Fazer pedido para a Central</button>
       <button class="secondary" data-ir="vendedores">Ver minha equipe</button>
-      <button class="secondary" data-ir="financeiro">Ver financeiro</button>
+      ${DRE_LIBERADO() ? '<button class="secondary" data-ir="financeiro">Ver financeiro</button>' : ''}
     </div>`;
   ligarIrPara($('ini_conteudo'), l.loja);
   carregarProdutosInicio(l.loja);
@@ -3752,7 +3752,7 @@ async function rodarCentral() {
   if ($('cen_vend').checked) fontes.vendedores = () => vendedoresPorLoja(payloadVendedores(lojas));
   if ($('cen_bench').checked) fontes.benchmark = () => consultarModulo({ modulo: 'benchmark', diasJanela: Number($('bench_diasJanela').value || 365), lojas });
 
-  const nomesFonte = { recorrente: 'Compras', estoque: 'Estoque', financeiro: 'DRE + metas', vendedores: 'Vendedores', benchmark: 'Benchmark' };
+  const nomesFonte = { recorrente: 'Compras', estoque: 'Estoque', financeiro: DRE_LIBERADO() ? 'DRE + metas' : 'Faturamento e metas', vendedores: 'Vendedores', benchmark: 'Benchmark' };
   const estado = {};
   const pintarChips = () => chips.innerHTML = Object.keys(fontes).map(k =>
     `<span class="chip ${estado[k] || 'run'}">${nomesFonte[k]} · ${estado[k] === 'ok' ? 'ok' : estado[k] === 'fail' ? 'falhou' : 'carregando…'}</span>`).join('');
@@ -3842,8 +3842,8 @@ function analisar(res) {
 
     if (l.fin && !l.fin.erro && l.fin.dre) {
       const d = l.fin.dre;
-      l.receita = d.receitaBruta; l.resultado = d.resultadoOperacional;
-      l.margemBruta = Number(d.margemBrutaPercent); l.margemOp = Number(d.margemOperacionalPercent);
+      l.receita = d.receitaBruta; l.resultado = DRE_LIBERADO() ? d.resultadoOperacional : null;
+      l.margemBruta = DRE_LIBERADO() ? Number(d.margemBrutaPercent) : null; l.margemOp = DRE_LIBERADO() ? Number(d.margemOperacionalPercent) : null;
       l.meta = fin.metasPorLoja?.[l.nome] || 0;
       l.proj = projecaoMes(d.receitaBruta, fin.parametros?.periodo);
       l.pctMetaProj = l.proj && l.meta ? pct(l.proj.projecao, l.meta) : null;
@@ -3909,11 +3909,11 @@ function analisar(res) {
     if (pc?.atrasados?.length) acoes.push({ sev: 'atencao', loja: l.nome, ir: null, impacto: null,
       titulo: `${pc.atrasados.length} pedido(s) da Central com entrega atrasada`,
       detalhe: pc.atrasados.slice(0, 4).map(p => `#${p.pedido} ${p.fornecedor} (previsto ${new Date(p.previsao).toLocaleDateString('pt-BR')})`).join('; ') + '. Cobrar o fornecedor; o estoque projetado conta com essa mercadoria.' });
-    if (l.pctMetaProj != null && l.pctMetaProj < 100) acoes.push({ sev: l.pctMetaProj < 85 ? 'critico' : 'atencao', loja: l.nome, ir: 'financeiro',
+    if (l.pctMetaProj != null && l.pctMetaProj < 100) acoes.push({ sev: l.pctMetaProj < 85 ? 'critico' : 'atencao', loja: l.nome, ir: DRE_LIBERADO() ? 'financeiro' : 'vendedores', irLabel: DRE_LIBERADO() ? null : 'Ver metas da equipe',
       impacto: l.meta - l.proj.projecao, impLabel: 'gap projetado p/ meta',
       titulo: `Projeção fecha o mês em ${fmtPct(l.pctMetaProj)} da meta`,
       detalhe: `Ritmo atual ${fmtMoeda(l.proj.ritmoDia)}/dia; precisa de ${fmtMoeda(l.ritmoNecessario || 0)}/dia nos ${l.proj.restantes} dias restantes (${l.ritmoNecessario && l.proj.ritmoDia ? '+' + fmtPct(pct(l.ritmoNecessario - l.proj.ritmoDia, l.proj.ritmoDia)) : '—'}).` });
-    if (l.meta === 0 && l.receita != null) acoes.push({ sev: 'atencao', loja: l.nome, ir: 'financeiro', impacto: null, titulo: 'Sem meta cadastrada para o mês', detalhe: 'Sem meta não dá pra medir ritmo nem projetar gap. Cadastre na tela Financeiro → DRE por Loja.' });
+    if (l.meta === 0 && l.receita != null) acoes.push({ sev: 'atencao', loja: l.nome, ir: DRE_LIBERADO() ? 'financeiro' : null, impacto: null, titulo: 'Sem meta cadastrada para o mês', detalhe: DRE_LIBERADO() ? 'Sem meta não dá pra medir ritmo nem projetar gap. Cadastre na tela Financeiro → DRE por Loja.' : 'A meta da loja é cadastrada pela franqueadora. Sem ela não dá pra medir o ritmo do mês.' });
     if (l.resultado != null && l.resultado < 0) acoes.push({ sev: 'critico', loja: l.nome, ir: 'financeiro', impacto: -l.resultado, impLabel: 'prejuízo operacional no mês',
       titulo: `Resultado operacional negativo (margem ${fmtPct(l.margemOp, 1)})`,
       detalhe: l.maiorDespesa ? `Maior despesa: ${l.maiorDespesa.categoria} (${fmtMoeda(l.maiorDespesa.valor)}, ${fmtPct(pct(l.maiorDespesa.valor, l.receita), 1)} da receita).` : 'Revise despesas operacionais do mês.' });
@@ -3933,8 +3933,8 @@ function analisar(res) {
   const soma = f => lista.reduce((s, l) => s + (Number(f(l)) || 0), 0);
   const rede = {
     receita: fin?.redeConsolidado?.receitaBruta ?? soma(l => l.receita),
-    resultado: fin?.redeConsolidado?.resultadoOperacional ?? soma(l => l.resultado),
-    margemOp: fin?.redeConsolidado ? Number(fin.redeConsolidado.margemOperacionalPercent) : null,
+    resultado: DRE_LIBERADO() ? (fin?.redeConsolidado?.resultadoOperacional ?? soma(l => l.resultado)) : null,
+    margemOp: DRE_LIBERADO() && fin?.redeConsolidado ? Number(fin.redeConsolidado.margemOperacionalPercent) : null,
     meta: soma(l => l.meta),
     proj: soma(l => l.proj?.projecao),
     temProj: lista.some(l => l.proj),
@@ -4001,13 +4001,13 @@ function renderCentral(a, box) {
 
   box.innerHTML = `
     ${quandoAnt ? `<div class="sub" style="font-size:12px; margin-bottom:10px">Comparando com a análise anterior de ${quandoAnt}.</div>` : ''}
-    <div class="kpis k4">
+    <div class="kpis ${DRE_LIBERADO() ? 'k4' : ''}">
       <div class="kpi"><div class="label">Faturamento do mês — ${REDE()}</div><div class="value">${r.semFin && !r.receita ? '—' : fmtMoeda(r.receita || 0)}</div>${r.semFin && !r.receita ? '<div class="hint">DRE não carregou: rode de novo</div>' : ''}
         ${r.temProj ? `<div class="hint">Projeção de fechamento: <strong>${fmtMoeda(r.proj)}</strong></div>` : ''}${deltaHTML(r.receita, ant.receita, { moeda: true })}</div>
       <div class="kpi"><div class="label">Meta projetada — ${REDE()}</div><div class="value" style="color:${corStatus(r.pctMetaProj)}">${fmtPct(r.pctMetaProj)}</div>
         <div class="hint">${r.meta ? 'Meta somada: ' + fmtMoeda(r.meta) : 'Sem metas cadastradas'}</div>${deltaHTML(r.pctMetaProj, ant.pctMetaProj, { sufixo: ' p.p.' })}</div>
-      <div class="kpi"><div class="label">Resultado operacional — ${REDE()}</div><div class="value" style="color:${r.resultado >= 0 ? 'var(--good)' : 'var(--danger)'}">${r.semFin ? '—' : fmtMoeda(r.resultado || 0)}</div>
-        <div class="hint">${r.semFin ? 'DRE não carregou: rode de novo · ' : ''}Margem operacional ${fmtPct(r.margemOp, 1)}</div>${deltaHTML(r.resultado, ant.resultado, { moeda: true })}</div>
+      ${!DRE_LIBERADO() ? '' : `<div class="kpi"><div class="label">Resultado operacional — ${REDE()}</div><div class="value" style="color:${r.resultado >= 0 ? 'var(--good)' : 'var(--danger)'}">${r.semFin ? '—' : fmtMoeda(r.resultado || 0)}</div>
+        <div class="hint">${r.semFin ? 'DRE não carregou: rode de novo · ' : ''}Margem operacional ${fmtPct(r.margemOp, 1)}</div>${deltaHTML(r.resultado, ant.resultado, { moeda: true })}</div>`}
       <div class="kpi"><div class="label">Itens em risco de ruptura</div><div class="value" style="color:${r.nRisco ? 'var(--danger)' : 'inherit'}">${r.nRisco}</div>
         <div class="hint">${fmtMoeda(r.valorRisco)} para cobrir</div>${deltaHTML(r.nRisco, ant.nRisco, { inverso: true })}</div>
     </div>
@@ -4035,7 +4035,7 @@ function renderCentral(a, box) {
 
     <div class="subsecao-titulo">Saúde por loja (pior → melhor)</div>
     <div class="panel" style="overflow-x:auto">
-      <table><thead><tr><th>Loja</th><th>Nota</th><th>Faturamento mês</th><th>Projeção</th><th>% meta proj.</th><th>Precisa/dia</th><th>Margem bruta</th><th>Margem op.</th><th>PA</th><th>Itens risco</th><th>Excesso + parado</th></tr></thead>
+      <table><thead><tr><th>Loja</th><th>Nota</th><th>Faturamento mês</th><th>Projeção</th><th>% meta proj.</th><th>Precisa/dia</th>${DRE_LIBERADO() ? '<th>Margem bruta</th><th>Margem op.</th>' : ''}<th>PA</th><th>Itens risco</th><th>Excesso + parado</th></tr></thead>
       <tbody>${lojasOrd.map(l => {
         const mb = l.margemBruta, mbClass = mb == null || r.margemBrutaMedia == null ? '' : mb < r.margemBrutaMedia - 5 ? 'heat-ruim' : mb > r.margemBrutaMedia + 3 ? 'heat-bom' : '';
         return `<tr>
@@ -4045,14 +4045,14 @@ function renderCentral(a, box) {
           <td>${l.proj ? fmtMoeda(l.proj.projecao) : '—'}</td>
           <td class="${l.pctMetaProj == null ? '' : l.pctMetaProj >= 100 ? 'heat-bom' : l.pctMetaProj >= 85 ? 'heat-medio' : 'heat-ruim'}">${fmtPct(l.pctMetaProj)}</td>
           <td>${l.ritmoNecessario != null ? fmtMoeda(l.ritmoNecessario) : '—'}</td>
-          <td class="${mbClass}">${fmtPct(mb, 1)}</td>
-          <td class="${l.margemOp == null ? '' : l.margemOp < 0 ? 'heat-ruim' : ''}">${fmtPct(l.margemOp, 1)}</td>
+          ${DRE_LIBERADO() ? `<td class="${mbClass}">${fmtPct(mb, 1)}</td>
+          <td class="${l.margemOp == null ? '' : l.margemOp < 0 ? 'heat-ruim' : ''}">${fmtPct(l.margemOp, 1)}</td>` : ''}
           <td class="${l.vend?.loja?.alertaMixBarato ? 'heat-ruim' : ''}" title="${l.vend ? 'Peças < limite: ' + fmtPct(l.vend.loja.percentPecasAbaixoLimite, 1) : ''}">${l.vend ? fmtNum(l.vend.loja.pecasPorAtendimento) : '—'}</td>
           <td class="${l.risco.length ? 'heat-ruim' : ''}">${l.risco.length}</td>
           <td>${l.nAlto + l.nParado}</td>
         </tr>`;
       }).join('')}</tbody></table>
-      <div class="sub" style="font-size:11px; margin-top:10px">Nota 0–100 = meta projetada (30) + margem operacional (30) + ruptura (25) + excesso/parado (15). Componentes sem dado são redistribuídos. Passe o mouse na nota para ver a composição.</div>
+      <div class="sub" style="font-size:11px; margin-top:10px">Nota 0–100 = meta projetada (30) + ${DRE_LIBERADO() ? 'margem operacional (30) + ' : ''}ruptura (25) + excesso/parado (15). Componentes sem dado são redistribuídos. Passe o mouse na nota para ver a composição.</div>
     </div>
 
     <div class="subsecao-titulo">Resumo executivo (pronto para enviar)</div>
@@ -4077,7 +4077,7 @@ function renderCentral(a, box) {
   const hoje = new Date().toLocaleDateString('pt-BR');
   const linhas = [`📊 INSIGHT SSS — Diagnóstico ${hoje}`, ''];
   linhas.push(`Faturamento do mês: ${fmtMoeda(r.receita || 0)}${r.temProj ? ` · projeção ${fmtMoeda(r.proj)}` : ''}${r.pctMetaProj != null ? ` (${fmtPct(r.pctMetaProj)} da meta)` : ''}`);
-  linhas.push(`Resultado operacional: ${fmtMoeda(r.resultado || 0)} (margem ${fmtPct(r.margemOp, 1)})`);
+  if (DRE_LIBERADO()) linhas.push(`Resultado operacional: ${fmtMoeda(r.resultado || 0)} (margem ${fmtPct(r.margemOp, 1)})`);
   linhas.push(`Ruptura: ${r.nRisco} itens em risco (${fmtMoeda(r.valorRisco)}) · Capital parado ≥ ${fmtMoeda(r.capitalParado)}`);
   const vl = a.lojas.filter(l => l.vend); if (vl.length) { const pa = vl.reduce((s2, l) => s2 + l.vend.loja.pecas, 0) / Math.max(1, vl.reduce((s2, l) => s2 + l.vend.loja.atendimentos, 0)); linhas.push(`Peças por atendimento (rede): ${fmtNum(pa)}`); }
   const criticas = a.acoes.filter(x => x.sev === 'critico').slice(0, 6);
@@ -6532,6 +6532,8 @@ async function carregarPerfil() {
 
 // Rótulo do conjunto analisado: "rede" para administrador/equipe; "sua loja"/"suas lojas" para o franqueado.
 let _lojasPerfil = [];
+// DRE (resultado, margens, CMV, despesas) fica inativo para o franqueado por enquanto. Faturamento e metas continuam.
+const DRE_LIBERADO = () => _papelAtual !== 'franqueado';
 function REDE(toda = false) {
   if (_papelAtual !== 'franqueado') return toda ? 'rede toda' : 'rede';
   return _lojasPerfil.length > 1 ? 'suas lojas' : 'sua loja';
@@ -6544,7 +6546,7 @@ function aplicarPerfil(p) {
   const mudouPapel = _papelAtual !== p.papel; _papelAtual = p.papel; if (mudouPapel) _inicioDados = null;
   $('usuarioNome').textContent = p.nome || '—';
   $('usuarioPapel').textContent = p.tipo === 'senha' ? 'senha do time' : (ROTULO_PAPEL[p.papel] || p.papel) + (p.papel === 'franqueado' ? ` · ${p.lojas.length} loja(s)` : '');
-  const ocultar = new Set(p.papel === 'franqueado' ? ['benchmark', 'fornecedores', 'lojas', 'vinculos', 'usuarios'] : p.papel === 'equipe' ? ['lojas', 'usuarios'] : []);
+  const ocultar = new Set(p.papel === 'franqueado' ? ['benchmark', 'fornecedores', 'lojas', 'vinculos', 'usuarios', 'financeiro'] : p.papel === 'equipe' ? ['lojas', 'usuarios'] : []);
   if (p.tipo === 'senha') ocultar.delete('usuarios'); // a senha do time cria o 1º administrador
   document.querySelectorAll('.nav-item[data-view]').forEach(n => { n.style.display = ocultar.has(n.dataset.view) ? 'none' : ''; });
   marcarGrupos();
