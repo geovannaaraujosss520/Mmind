@@ -3878,7 +3878,7 @@ function analisar(res) {
       detalhe: 'Sem estoque correto a recomendação de compra fica superestimada. Confira a permissão do token desta loja na VarejOnline.' });
     if (l.erros.length) acoes.push({ sev: 'atencao', loja: l.nome, titulo: 'Dados incompletos nesta loja', detalhe: l.erros.join(' · '), impacto: null, ir: null });
     // Prejuízo por falta de venda: produto que vende e está zerado deixa de faturar todo dia
-    { const zer = (l.rec?.recomendacoes || []).filter(r => (r.estoqueAtual ?? 0) <= 0 && (r.vendaMediaDiaria || 0) > 0);
+    { const zer = (l.rec?.recomendacoes || []).filter(r => (r.estoqueAtual ?? 0) <= 0 && (r.vendaMediaDiaria || 0) >= 2 / 30); // vende ao menos 2 por mês
       const perdaDia = zer.reduce((t, r) => t + r.vendaMediaDiaria * (r.precoMedioVenda || 0), 0);
       l.perdaDia = perdaDia;
       if (zer.length) acoes.push({ sev: 'critico', loja: l.nome, ir: 'pedido', irLabel: 'Gerar pedido', impacto: perdaDia || null, impLabel: 'de venda perdida por dia',
