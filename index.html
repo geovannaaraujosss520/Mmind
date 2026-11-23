@@ -405,6 +405,24 @@
   .cli-termo-leg{ display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--muted); }
   .cli-termo-leg i{ display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:5px; }
   .cli-termo-dica{ font-size:13px; margin-top:6px; }
+  .plano-exec{ border:1px solid var(--line); border-radius:14px; padding:14px 16px; margin:8px 0 16px; background:var(--panel); }
+  .plano-topo{ display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-start; margin-bottom:8px; }
+  .plano-tit{ font-weight:700; font-size:15px; color:var(--accent-deep); }
+  .plano-sub{ font-size:12.5px; color:var(--muted); margin-top:2px; }
+  .plano-prog{ font-size:12.5px; color:var(--muted); text-align:right; min-width:140px; }
+  .plano-prog b{ font-size:18px; color:var(--text); margin-right:4px; }
+  .plano-prog span{ display:block; height:6px; border-radius:3px; background:var(--panel-2); margin-top:4px; overflow:hidden; }
+  .plano-prog i{ display:block; height:100%; background:var(--good); }
+  .plano-lista{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:10px; }
+  .plano-lista > li{ display:grid; grid-template-columns:34px 1fr; gap:10px; padding:10px 0; border-top:1px solid var(--line); }
+  .plano-lista > li.feito .plano-titulo{ text-decoration:line-through; color:var(--muted); }
+  .plano-check{ display:flex; flex-direction:column; align-items:center; gap:4px; width:auto; margin:0; cursor:pointer; }
+  .plano-check input{ width:18px; height:18px; margin:0; }
+  .plano-n{ font-size:11px; color:var(--muted); }
+  .plano-quando{ font-size:11.5px; font-weight:650; color:var(--accent); text-transform:none; }
+  .plano-titulo{ font-weight:650; font-size:14px; margin:1px 0 3px; }
+  .plano-meta{ font-size:12.5px; margin-bottom:4px; }
+  .plano-como{ margin:0 0 6px; padding-left:18px; font-size:12.5px; line-height:1.55; color:var(--text); }
   .acao-cal{ display:grid; grid-template-columns:repeat(12, 1fr); gap:4px; margin:6px 0 14px; }
   .acao-cal div{ text-align:center; border-radius:8px; padding:6px 0; font-size:11.5px; border:1px solid var(--line); }
   .acao-cal div b{ display:block; font-size:12.5px; }
@@ -2045,6 +2063,73 @@ async function desenharMapaClientes(d) {
   L.circleMarker(c, { radius: 8, color: '#fff', weight: 2, fillColor: '#FAA918', fillOpacity: 1 }).bindTooltip(d.loja.estimado ? 'centro dos clientes (loja não localizada)' : 'Loja').addTo(m);
 }
 
+// ---- Ação comercial: PLANO DE EXECUÇÃO — passo a passo com data, meta e como fazer; marca o que já foi feito ----
+// O "feito" fica guardado neste navegador (por loja e mês). Datas contadas a partir de hoje, em dias corridos.
+function planoExecucao(d, loja) {
+  const A = d.acaoComercial || {}, R = d.resumo || {}, H = A.proximaAlta, B = A.proximaBaixa;
+  const hoje = new Date(); hoje.setHours(12, 0, 0, 0);
+  const dt = n => { const x = new Date(hoje.getTime() + n * 864e5); return `${String(x.getDate()).padStart(2, '0')}/${String(x.getMonth() + 1).padStart(2, '0')}`; };
+  const MESN = m => _MESES_NOME[m][0].toUpperCase() + _MESES_NOME[m].slice(1);
+  // foco: a próxima alta se vier antes da próxima baixa (ou se já estamos nela); senão, a baixa
+  const foco = A.tipoMesAtual === 'alta' || (H && (!B || H.emMeses <= B.emMeses)) ? 'alta' : B ? 'baixa' : 'normal';
+  const alvo = foco === 'alta' ? H : foco === 'baixa' ? B : null;
+  // dias até o começo do mês-alvo (mínimo 14 para montar o plano)
+  const iniAlvo = alvo ? new Date(hoje.getFullYear(), hoje.getMonth() + (alvo.emMeses || 0), 1) : null;
+  const diasAte = Math.max(14, iniAlvo ? Math.round((iniAlvo - hoje) / 864e5) : 28);
+  const janela = Math.min(diasAte, 28);
+  const nHora = R.horaDeChamar || 0, nSum = Math.min(R.sumidos || 0, 120), nAlta = foco === 'alta' ? (H?.clientes || 0) : 0;
+  const nAniv = (d.aniversariantes || []).filter(c => !c.jaPassou).length;
+  const diasUteis = Math.max(1, Math.round(janela * 6 / 7));
+  const porDia = n => Math.max(1, Math.ceil(n / diasUteis));
+  const top = (H?.maisVendidos || []).slice(0, 5).map(p => _cliTitulo(p.modelo));
+  const passos = [];
+  const add = (id, quando, titulo, meta, como, botao) => passos.push({ id, quando, titulo, meta, como, botao });
+  add('reuniao', `Hoje (${dt(0)})`, 'Reunir a equipe e dividir as tarefas',
+    `Todos sabem o objetivo${alvo ? ` de ${_MESES_NOME[alvo.mes]}` : ''} e quem chama quais clientes`,
+    ['Mostre este plano para a equipe (botão "Copiar plano" abaixo).', 'Divida as listas de clientes entre os vendedores: cada um fica com a sua parte.', 'Combine quantos contatos por dia cada vendedor faz (a meta da loja está em cada passo).'], null);
+  if (foco === 'alta') add('pedido', `Até ${dt(2)}`, 'Fazer o pedido da temporada na Central',
+    `Estoque garantido antes de ${_MESES_NOME[H.mes]}${top.length ? `, principalmente: ${top.join(', ')}` : ''}`,
+    ['Abra Compras › Pedido Central e clique em "Gerar pedido sugerido".', 'Confira no Início o alerta de ruptura: a coluna "Pedir até" mostra o último dia de cada peça, pelo prazo do fornecedor.', 'Aumente a quantidade dos mais vendidos da temporada e aprove cada fornecedor.'], ['pedido', 'Fazer o pedido']);
+  if (nHora) add('hora', `${dt(0)} a ${dt(Math.min(7, janela))}`, `Chamar quem está na hora de voltar (${fmtNum(nHora)} clientes)`,
+    `${porDia(Math.min(nHora, 7 * 20))} contatos por dia até ${dt(Math.min(7, janela))}`,
+    ['Abra a aba "Hora de chamar".', 'Clique em WhatsApp: a mensagem já vem pronta com o nome e a sugestão de peça.', 'Se chamou por outro meio, clique em "Já chamei" — é assim que o painel mede quem voltou.'], ['hora', 'Hora de chamar']);
+  if (nAlta) add('alta', `${dt(3)} a ${dt(Math.min(14, janela))}`, `Avisar quem comprou em ${_MESES_NOME[H.mes]} no ano passado (${fmtNum(nAlta)} clientes)`,
+    `${porDia(nAlta)} contatos por dia, começando por quem mais gastou; avisar antes de ${dt(Math.min(14, janela))}`,
+    ['Use a lista "Quem comprou em ' + _MESES_NOME[H.mes] + '" no fim desta aba (mensagem pronta).', 'Ofereça reservar as peças que a pessoa costuma comprar nessa época.', 'Marque "Já chamei" em cada contato.'], null);
+  if (nSum) add('volta', `${dt(7)} a ${dt(janela)}`, `Trazer de volta quem sumiu (${fmtNum(R.sumidos)} clientes${R.fatSumidos ? `, que gastaram ${fmtMoeda(R.fatSumidos)}` : ''})`,
+    `${porDia(nSum)} contatos por dia, começando por quem mais gastava`,
+    ['Abra a aba "Chamar de volta" (já vem ordenada por quem mais gastava).', 'Mande a mensagem pronta; para quem gastava mais, ofereça uma condição ou um mimo.', 'Marque "Já chamei".'], ['volta', 'Chamar de volta']);
+  if (nAniv) add('aniv', `Todo dia (no dia do aniversário)`, `Parabenizar os aniversariantes do mês (${fmtNum(nAniv)} clientes)`,
+    'Mensagem no dia, com um convite para passar na loja',
+    ['Abra "Aniversariantes do mês" e veja quem faz aniversário hoje.', 'Mande a mensagem pronta pelo WhatsApp.'], ['aniversario', 'Aniversariantes']);
+  add('vitrine', `${dt(0)} a ${dt(7)}`, 'Girar o estoque parado e em excesso',
+    'Vitrine e balcão com as peças paradas; cada vendedor oferecendo as dele',
+    ['Abra Equipe › "Produtos e o que oferecer" de cada vendedor: lá estão as peças paradas do tipo que ele mais vende.', 'Monte kit ou vitrine com essas peças (junto de um campeão de venda).', 'Combine que cada vendedor ofereça pelo menos uma delas por atendimento.'], ['vendedores', 'Ver a equipe']);
+  add('escala', `Até ${dt(3)}`, 'Ajustar a escala',
+    'Quem vende melhor no salão nos horários de pico; folgas nos dias mais fracos',
+    ['Abra Equipe › Horários de pico.', 'Escale os melhores nos 3 horários mais fortes.', 'Use "Onde o movimento cai" para marcar folgas e pausas.'], ['vendedores', 'Horários de pico']);
+  add('acomp', `Toda segunda`, 'Acompanhar o resultado',
+    'Ver quantos clientes chamados voltaram e se a venda está acima do ano passado',
+    ['Aba "Hora de chamar": o quadro de acompanhamento mostra chamados × voltaram (em 30 dias).', 'Comparativo: venda da semana × mês e ano anterior.', 'Repita com quem ainda não foi chamado.'], ['comparativo', 'Comparativo']);
+  const chave = `sss_plano:${loja}:${hoje.getFullYear()}-${hoje.getMonth() + 1}`;
+  let feitos = {}; try { feitos = JSON.parse(localStorage.getItem(chave) || '{}'); } catch { }
+  const nFeitos = passos.filter(p => feitos[p.id]).length;
+  const totContatos = Math.min(nHora, 7 * 20) + nAlta + nSum;
+  return `<div class="plano-exec" data-plano-chave="${esc(chave)}">
+    <div class="plano-topo"><div><div class="plano-tit">Plano de execução — ${foco === 'alta' ? `preparar a alta de ${MESN(H.mes)}` : foco === 'baixa' ? `atravessar a baixa de ${MESN(B.mes)}` : 'próximas semanas'}</div>
+      <div class="plano-sub">${fmtNum(passos.length)} passos para os próximos ${janela} dias · ${fmtNum(totContatos)} clientes para chamar (${fmtNum(porDia(totContatos))} por dia, dividido pela equipe)</div></div>
+      <div class="plano-prog"><b>${nFeitos}/${passos.length}</b> feitos<span><i style="width:${(nFeitos / passos.length * 100).toFixed(0)}%"></i></span></div></div>
+    <ol class="plano-lista">${passos.map((p, i) => `<li class="${feitos[p.id] ? 'feito' : ''}">
+      <label class="plano-check"><input type="checkbox" data-plano-id="${p.id}" ${feitos[p.id] ? 'checked' : ''}><span class="plano-n">${i + 1}</span></label>
+      <div><div class="plano-quando">${esc(p.quando)}</div><div class="plano-titulo">${esc(p.titulo)}</div>
+        <div class="plano-meta"><b>Meta:</b> ${esc(p.meta)}</div>
+        <ol class="plano-como">${p.como.map(c => `<li>${esc(c)}</li>`).join('')}</ol>
+        ${p.botao ? (['hora', 'volta', 'aniversario', 'vip', 'oferecer'].includes(p.botao[0]) ? `<button type="button" class="secondary" data-cli-ir-aba="${p.botao[0]}">${esc(p.botao[1])}</button>` : `<button type="button" class="secondary" data-ir="${p.botao[0]}">${esc(p.botao[1])}</button>`) : ''}</div></li>`).join('')}</ol>
+    <div class="actions" style="margin-top:8px"><button type="button" class="secondary" data-plano-copiar>Copiar plano (para o grupo da equipe)</button><span class="ini-prod-sub" style="align-self:center">O que está marcado como feito fica guardado neste aparelho.</span></div>
+    <textarea data-plano-texto style="display:none">${esc(`Plano de ação — ${loja}\n` + passos.map((p, i) => `${i + 1}. ${p.titulo} (${p.quando})\n   Meta: ${p.meta}\n` + p.como.map(c => `   - ${c}`).join('\n')).join('\n'))}</textarea>
+  </div>`;
+}
+
 // ---- Clientes › Ação comercial: o que fazer nos meses de baixa e de alta da loja ----
 const _MESES_NOME = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 function conteudoAcaoComercial(d, loja) {
@@ -2069,7 +2154,7 @@ function conteudoAcaoComercial(d, loja) {
       <li><strong>Gire o estoque parado.</strong> Use as peças sem venda há 90 dias em vitrine, kit ou condição especial.<br><button type="button" class="secondary" data-ir="inicio">Ver produtos parados no Início</button></li>
       <li><strong>Ofereça a peça certa.</strong> Escolha um produto e mande para quem tem o perfil de comprar.<br><button type="button" class="secondary" data-cli-ir-aba="oferecer">Oferecer uma peça</button></li>
       <li><strong>Use os aniversários.</strong> Aniversário é um bom motivo para chamar no mês fraco.<br><button type="button" class="secondary" data-cli-ir-aba="aniversario">Aniversariantes do mês</button></li>
-      <li><strong>Ajuste a meta.</strong> Uma meta realista para o mês de baixa mantém a equipe motivada.<br><button type="button" class="secondary" data-ir="financeiro">Metas em Financeiro</button></li>
+      <li><strong>Ajuste a meta.</strong> Uma meta realista para o mês de baixa mantém a equipe motivada.<br>${DRE_LIBERADO() ? '<button type="button" class="secondary" data-ir="financeiro">Metas em Financeiro</button>' : '<button type="button" class="secondary" data-ir="vendedores">Metas da equipe</button>'}</li>
     </ol></div>`;
   const top = H?.maisVendidos || [];
   const blocoAlta = !H ? '' : `<div class="acao-bloco">
@@ -2084,6 +2169,7 @@ function conteudoAcaoComercial(d, loja) {
     </ol></div>`;
   const blocos = A.tipoMesAtual === 'alta' || (H && B && H.emMeses < B.emMeses) ? blocoAlta + blocoBaixa : blocoBaixa + blocoAlta;
   return `<div class="cli-intro">${agora} Meses de alta e de baixa calculados com as vendas dos últimos ${d.parametros.meses} meses da loja.</div>
+    ${planoExecucao(d, loja)}
     ${cal}
     ${blocos ? `<div class="acao-blocos">${blocos}</div>` : '<div class="empty">A venda da loja é estável no ano: nenhum mês fica 15% acima ou abaixo da média.</div>'}
     ${H && (A.clientesDaAlta || []).length ? `<div class="subsecao-titulo" style="margin-top:16px">Quem comprou em ${_MESES_NOME[H.mes]}: avise antes da alta</div>${_cliLista(A.clientesDaAlta, 'alta', loja, null, '')}` : ''}`;
@@ -2206,6 +2292,15 @@ function desenharClientes() {
   $('cli_contatos_rede')?.addEventListener('click', carregarContatosRede);
   box.querySelectorAll('[data-cli-mais]').forEach(b => b.addEventListener('click', () => { _cliMostrar[b.dataset.cliMais] = (_cliMostrar[b.dataset.cliMais] || 10) + 10; desenharClientes(); }));
   box.querySelectorAll('[data-cli-prod]').forEach(b => b.addEventListener('click', () => rodarClientes(b.dataset.cliProd)));
+  box.querySelectorAll('[data-plano-id]').forEach(cb => cb.addEventListener('change', () => {
+    const pl = cb.closest('[data-plano-chave]'); const k = pl.dataset.planoChave; let f = {}; try { f = JSON.parse(localStorage.getItem(k) || '{}'); } catch { }
+    if (cb.checked) f[cb.dataset.planoId] = Date.now(); else delete f[cb.dataset.planoId];
+    try { localStorage.setItem(k, JSON.stringify(f)); } catch { }
+    cb.closest('li').classList.toggle('feito', cb.checked);
+    const n = pl.querySelectorAll('[data-plano-id]:checked').length, t = pl.querySelectorAll('[data-plano-id]').length;
+    pl.querySelector('.plano-prog b').textContent = `${n}/${t}`; pl.querySelector('.plano-prog i').style.width = `${(n / t * 100).toFixed(0)}%`;
+  }));
+  box.querySelector('[data-plano-copiar]')?.addEventListener('click', async e => { const t = box.querySelector('[data-plano-texto]').value; try { await navigator.clipboard.writeText(t); e.target.textContent = 'Plano copiado ✓'; } catch { e.target.textContent = 'Não deu para copiar'; } });
   box.querySelectorAll('[data-cli-ir-aba]').forEach(b => b.addEventListener('click', () => { _cliAba = b.dataset.cliIrAba; desenharClientes(); $('cli_oferecer')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }));
   ligarIrPara(box, loja);
   const buscar = () => { const v = $('cli_of_prod')?.value.trim(); if (v) rodarClientes(v); };
