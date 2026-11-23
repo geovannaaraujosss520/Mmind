@@ -6718,7 +6718,7 @@ let _demoLojas = new Set();
 const _DEMO_PN = ['Ana', 'Beatriz', 'Camila', 'Daniela', 'Eduarda', 'Fernanda', 'Gabriela', 'Helena', 'Isabela', 'Juliana', 'Larissa', 'Mariana', 'Natália', 'Patrícia', 'Renata', 'Sofia', 'Tatiane', 'Vanessa', 'Carlos', 'Diego', 'Felipe', 'Gustavo', 'Lucas', 'Rafael'];
 const _DEMO_SN = ['Almeida', 'Barbosa', 'Cardoso', 'Costa', 'Duarte', 'Ferreira', 'Gomes', 'Lima', 'Machado', 'Martins', 'Melo', 'Moreira', 'Nunes', 'Oliveira', 'Pereira', 'Ribeiro', 'Rocha', 'Santos', 'Silva', 'Souza', 'Teixeira', 'Vieira'];
 const _demoHash = t => { let h = 2166136261; for (const c of String(t)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
-const _demoNome = t => { const h = _demoHash(String(t).trim().toUpperCase()); return `${_DEMO_PN[h % _DEMO_PN.length]} ${_DEMO_SN[(h >>> 8) % _DEMO_SN.length]}${(h >>> 16) % 3 === 0 ? ' ' + _DEMO_SN[(h >>> 20) % _DEMO_SN.length] : ''}`; };
+const _demoNome = t => { const h = _demoHash(String(t).trim().toUpperCase()), a = (h >>> 8) % _DEMO_SN.length, b = (a + 1 + ((h >>> 20) % (_DEMO_SN.length - 1))) % _DEMO_SN.length; return `${_DEMO_PN[h % _DEMO_PN.length]} ${_DEMO_SN[a]}${(h >>> 16) % 3 === 0 ? ' ' + _DEMO_SN[b] : ''}`; };
 const _demoFone = t => { const h = String(_demoHash(t)).padStart(8, '0').slice(-8); return `(00) 9${h.slice(0, 4)}-${h.slice(4)}`; };
 const _DEMO_K_NOME = /^(nome|nomeCliente|cliente|vendedor|nomeVendedor|quemMaisVendeu|representante|aprovadoPor|aprovador|usuario)$/;
 const _DEMO_K_FONE = /^(telefone|celular|fone|telefones)$/;
