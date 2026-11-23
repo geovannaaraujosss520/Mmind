@@ -1357,7 +1357,7 @@ function painelHoje(x, d, rede) {
     </div>`;
   }
   return `<div class="panel ini-hoje">
-    <div class="ini-hoje-rot">Vendido hoje${rede ? ' — rede' : ''}</div>
+    <div class="ini-hoje-rot">Vendido hoje${rede ? ` — ${REDE()}` : ''}</div>
     <div class="valor-destaque ini-hoje-valor">${fmtMoeda(x.faturadoHoje)}</div>
     <div class="ini-hoje-sub">${fmtNum(x.atendimentosHoje || 0)} atendimento(s) até ${d.horaAgora || 'agora'}</div>
     ${aa}
@@ -1380,10 +1380,10 @@ function desenharVisaoRede(d) {
   $('ini_conteudo').innerHTML = `
     ${R.faturadoHoje != null && R.metaHoje !== undefined ? painelHoje(R, d, true) : ''}
     <div class="kpis k5">
-      ${kpi('Faturado no mês — rede', fmtMoeda(R.faturadoMes), `ontem ${fmtMoeda(R.faturadoOntem)} · hoje ${fmtMoeda(R.faturadoHoje)}`)}
+      ${kpi(`Faturado no mês — ${REDE()}`, fmtMoeda(R.faturadoMes), `ontem ${fmtMoeda(R.faturadoOntem)} · hoje ${fmtMoeda(R.faturadoHoje)}`)}
       ${kpi('Meta da rede', R.percentMeta != null ? fmtPct(R.percentMeta, 0) : '—', R.meta ? `de ${fmtMoeda(R.meta)}${semMeta ? ` · ${semMeta} loja(s) sem meta` : ''}` : 'cadastre as metas no Financeiro', corPct(R.meta ? R.projecao / R.meta * 100 : null))}
       ${kpi('Projeção de fechamento', fmtMoeda(R.projecao), R.meta ? `${fmtPct(R.projecao / R.meta * 100, 0)} da meta no ritmo atual` : 'no ritmo dos dias fechados', corPct(R.meta ? R.projecao / R.meta * 100 : null))}
-      ${R.ticketMedio != null ? `<div class="kpi"><div class="label">Ticket médio — rede</div><div class="value">${fmtMoeda(R.ticketMedio)}</div>${R.ticketMedioMesAnterior !== undefined ? refTicketAnterior(d, R.ticketMedio, R.ticketMedioMesAnterior) : ''}<div class="hint">${fmtNum(R.atendimentos)} atendimentos · <a href="#" data-ir="comparativo">comparar dia a dia</a></div></div>` : ''}
+      ${R.ticketMedio != null ? `<div class="kpi"><div class="label">Ticket médio — ${REDE()}</div><div class="value">${fmtMoeda(R.ticketMedio)}</div>${R.ticketMedioMesAnterior !== undefined ? refTicketAnterior(d, R.ticketMedio, R.ticketMedioMesAnterior) : ''}<div class="hint">${fmtNum(R.atendimentos)} atendimentos · <a href="#" data-ir="comparativo">comparar dia a dia</a></div></div>` : ''}
       ${kpi('Compras na Central no mês', fmtMoeda(R.comprasCentralMes), `${fmtPct(R.faturadoMes ? R.comprasCentralMes / R.faturadoMes * 100 : 0, 0)} do faturado${d.centralIncompleta ? ' · Central incompleta' : ''}`)}
     </div>
     <div class="acoes" style="margin-bottom:16px">
@@ -2771,6 +2771,7 @@ function htmlDiagEstoque(de) {
   const msg = !de.linhasSaldoUsadas
     ? `<strong>A VarejOnline não devolveu nenhum saldo de estoque para esta loja.</strong> Todos os estoques aparecem como 0 e a compra fica superestimada. Verifique se o token desta loja tem permissão de consulta de estoque.`
     : `Estoque encontrado para <strong>${de.coberturaPercent}%</strong> dos ${fmtNum(de.produtosVendidos)} produtos vendidos (${fmtNum(de.comSaldoPorId)} pelo id, ${fmtNum(de.comSaldoPorCodigo)} pelo código; ${fmtNum(de.semSaldo)} sem saldo = 0).`;
+  if (!ruim && _papelAtual === 'franqueado') return ''; // detalhe técnico: o franqueado só vê quando há problema
   return `<div class="${ruim ? 'err' : 'sub'}" style="font-size:12px; margin:8px 0; ${ruim ? '' : 'max-width:none'}">
     ${msg}${notas.length ? '<br>' + notas.map(esc).join(' · ') : ''}<br><span style="opacity:.8">Unidades no saldo: ${unid}</span></div>`;
 }
@@ -2829,8 +2830,8 @@ function renderRecorrente(data, box) {
   box.innerHTML = `
     <div class="kpis">
       <div class="kpi"><div class="label">Lojas analisadas</div><div class="value">${data.lojas.length}</div></div>
-      <div class="kpi"><div class="label">Valor estimado — rede toda</div><div class="value">${fmtMoeda(data.valorTotalEstimadoCompraRede)}</div></div>
-      <div class="kpi"><div class="label">Itens em risco — rede toda</div><div class="value">${data.lojas.reduce((s,l)=>s+(l.recomendacoes||[]).filter(r=>r.riscoRuptura).length,0)}</div></div>
+      <div class="kpi"><div class="label">Valor estimado — ${REDE(true)}</div><div class="value">${fmtMoeda(data.valorTotalEstimadoCompraRede)}</div></div>
+      <div class="kpi"><div class="label">Itens em risco — ${REDE(true)}</div><div class="value">${data.lojas.reduce((s,l)=>s+(l.recomendacoes||[]).filter(r=>r.riscoRuptura).length,0)}</div></div>
       <div class="kpi"><div class="label">Pedidos em andamento (Central)</div><div class="value">${data.pedidos?.totalEmAndamento ?? 0}</div></div>
     </div>
     ${aviso ? `<div class="panel err">${aviso}</div>` : ''}
@@ -3263,13 +3264,13 @@ function renderFinanceiro(data, box) {
 
   box.innerHTML = `
     <div class="kpis">
-      <div class="kpi"><div class="label">Faturamento (receita bruta) — rede</div><div class="value">${fmtMoeda(data.redeConsolidado.receitaBruta)}</div></div>
-      <div class="kpi"><div class="label">Resultado operacional — rede</div><div class="value" style="color:${data.redeConsolidado.resultadoOperacional>=0?'var(--good)':'var(--danger)'}">${fmtMoeda(data.redeConsolidado.resultadoOperacional)}</div></div>
+      <div class="kpi"><div class="label">Faturamento (receita bruta) — ${REDE()}</div><div class="value">${fmtMoeda(data.redeConsolidado.receitaBruta)}</div></div>
+      <div class="kpi"><div class="label">Resultado operacional — ${REDE()}</div><div class="value" style="color:${data.redeConsolidado.resultadoOperacional>=0?'var(--good)':'var(--danger)'}">${fmtMoeda(data.redeConsolidado.resultadoOperacional)}</div></div>
       <div class="kpi"><div class="label">Período</div><div class="value" style="font-size:15px">${data.parametros.periodo.desde} a ${data.parametros.periodo.ate}</div></div>
     </div>
 
     <div class="panel">
-      <div style="font-size:13px; color:var(--muted); margin-bottom:4px;">Faturamento vs Meta — rede (soma das metas cadastradas)</div>
+      <div style="font-size:13px; color:var(--muted); margin-bottom:4px;">Faturamento vs Meta — ${REDE()} (soma das metas cadastradas)</div>
       ${montarBarraMeta(data.redeConsolidado.receitaBruta, metaRede)}
     </div>
 
@@ -3303,7 +3304,7 @@ function renderFinanceiro(data, box) {
       <div class="panel"><div class="empty">Em investigação — a API da VarejOnline ainda não confirmou o endpoint correto para essa informação. Assim que confirmado, essa seção volta a aparecer.</div></div>
     </div>
 
-    <div class="subsecao-titulo">% por bandeira de cartão — rede toda</div>
+    <div class="subsecao-titulo">% por bandeira de cartão — ${REDE(true)}</div>
     <div class="panel"><div class="empty">Em investigação — a API da VarejOnline ainda não confirmou o endpoint correto para essa informação. Assim que confirmado, essa seção volta a aparecer.</div></div>
   `;
 
@@ -3932,6 +3933,7 @@ function analisar(res) {
     valorCompra: rec?.valorTotalEstimadoCompraRede ?? soma(l => l.valorCompra),
     capitalParado: soma(l => l.capitalParado),
     margemBrutaMedia,
+    semFin: !fin, semEst: !est, semRec: !rec,
   };
   rede.pctMetaProj = rede.meta && rede.temProj ? pct(rede.proj, rede.meta) : null;
   return { lojas: lista, acoes, rede, bench };
@@ -3989,19 +3991,19 @@ function renderCentral(a, box) {
   box.innerHTML = `
     ${quandoAnt ? `<div class="sub" style="font-size:12px; margin-bottom:10px">Comparando com a análise anterior de ${quandoAnt}.</div>` : ''}
     <div class="kpis k4">
-      <div class="kpi"><div class="label">Faturamento do mês — rede</div><div class="value">${fmtMoeda(r.receita || 0)}</div>
+      <div class="kpi"><div class="label">Faturamento do mês — ${REDE()}</div><div class="value">${r.semFin && !r.receita ? '—' : fmtMoeda(r.receita || 0)}</div>${r.semFin && !r.receita ? '<div class="hint">DRE não carregou: rode de novo</div>' : ''}
         ${r.temProj ? `<div class="hint">Projeção de fechamento: <strong>${fmtMoeda(r.proj)}</strong></div>` : ''}${deltaHTML(r.receita, ant.receita, { moeda: true })}</div>
-      <div class="kpi"><div class="label">Meta projetada — rede</div><div class="value" style="color:${corStatus(r.pctMetaProj)}">${fmtPct(r.pctMetaProj)}</div>
+      <div class="kpi"><div class="label">Meta projetada — ${REDE()}</div><div class="value" style="color:${corStatus(r.pctMetaProj)}">${fmtPct(r.pctMetaProj)}</div>
         <div class="hint">${r.meta ? 'Meta somada: ' + fmtMoeda(r.meta) : 'Sem metas cadastradas'}</div>${deltaHTML(r.pctMetaProj, ant.pctMetaProj, { sufixo: ' p.p.' })}</div>
-      <div class="kpi"><div class="label">Resultado operacional — rede</div><div class="value" style="color:${r.resultado >= 0 ? 'var(--good)' : 'var(--danger)'}">${fmtMoeda(r.resultado || 0)}</div>
-        <div class="hint">Margem operacional ${fmtPct(r.margemOp, 1)}</div>${deltaHTML(r.resultado, ant.resultado, { moeda: true })}</div>
+      <div class="kpi"><div class="label">Resultado operacional — ${REDE()}</div><div class="value" style="color:${r.resultado >= 0 ? 'var(--good)' : 'var(--danger)'}">${r.semFin ? '—' : fmtMoeda(r.resultado || 0)}</div>
+        <div class="hint">${r.semFin ? 'DRE não carregou: rode de novo · ' : ''}Margem operacional ${fmtPct(r.margemOp, 1)}</div>${deltaHTML(r.resultado, ant.resultado, { moeda: true })}</div>
       <div class="kpi"><div class="label">Itens em risco de ruptura</div><div class="value" style="color:${r.nRisco ? 'var(--danger)' : 'inherit'}">${r.nRisco}</div>
         <div class="hint">${fmtMoeda(r.valorRisco)} para cobrir</div>${deltaHTML(r.nRisco, ant.nRisco, { inverso: true })}</div>
     </div>
     <div class="kpis">
       <div class="kpi"><div class="label">Ações críticas</div><div class="value" style="color:${nCrit ? 'var(--danger)' : 'var(--good)'}">${nCrit}</div><div class="hint">${a.acoes.length} ações no total</div></div>
-      <div class="kpi"><div class="label">Compra recomendada — rede</div><div class="value">${fmtMoeda(r.valorCompra || 0)}</div><div class="hint">Soma da compra recorrente sugerida</div></div>
-      <div class="kpi"><div class="label">Capital parado (mín. estimado)</div><div class="value" style="color:var(--warn)">${fmtMoeda(r.capitalParado)}</div><div class="hint">Excesso acima do limite + itens sem venda</div></div>
+      <div class="kpi"><div class="label">Compra recomendada — ${REDE()}</div><div class="value">${r.semRec ? '—' : fmtMoeda(r.valorCompra || 0)}</div><div class="hint">${r.semRec ? 'Compras não carregou: rode de novo' : 'Soma da compra recorrente sugerida'}</div></div>
+      <div class="kpi"><div class="label">Capital parado (mín. estimado)</div><div class="value" style="color:var(--warn)">${r.semEst ? '—' : fmtMoeda(r.capitalParado)}</div><div class="hint">${r.semEst ? 'Estoque não carregou: rode de novo' : 'Excesso acima do limite + itens sem venda'}</div></div>
     </div>
 
     <div class="subsecao-titulo">O que fazer agora — ações priorizadas</div>
@@ -4088,7 +4090,7 @@ function extrasFinanceiro(data, box) {
   painel.innerHTML = `
     ${projRede ? `<div class="subsecao-titulo">Projeção de fechamento do mês</div>
     <div class="kpis">
-      <div class="kpi"><div class="label">Ritmo atual — rede</div><div class="value">${fmtMoeda(projRede.ritmoDia)}/dia</div><div class="hint">${projRede.decorridos} de ${projRede.diasNoMes} dias</div></div>
+      <div class="kpi"><div class="label">Ritmo atual — ${REDE()}</div><div class="value">${fmtMoeda(projRede.ritmoDia)}/dia</div><div class="hint">${projRede.decorridos} de ${projRede.diasNoMes} dias</div></div>
       <div class="kpi"><div class="label">Projeção de fechamento</div><div class="value">${fmtMoeda(projRede.projecao)}</div><div class="hint">${metaRede ? fmtPct(pct(projRede.projecao, metaRede)) + ' da meta' : 'sem meta'}</div></div>
       <div class="kpi"><div class="label">Necessário por dia p/ bater meta</div><div class="value">${metaRede && projRede.restantes ? fmtMoeda(Math.max(0, (metaRede - data.redeConsolidado.receitaBruta) / projRede.restantes)) : '—'}</div><div class="hint">${projRede.restantes} dias restantes</div></div>
     </div>` : ''}
@@ -4131,7 +4133,7 @@ function extrasSazonal(data, box) {
   }).sort((x, y) => (y.q[ult] || 0) - (x.q[ult] || 0));
   const cls = { 'subindo': 'heat-bom', 'novo no top': 'heat-bom', 'caindo': 'heat-ruim', 'saiu do top': 'heat-ruim', 'estável': '' };
   const painel = document.createElement('div');
-  painel.innerHTML = `<div class="subsecao-titulo">Tendência entre anos — rede (${penult} → ${ult})</div>
+  painel.innerHTML = `<div class="subsecao-titulo">Tendência entre anos — ${REDE()} (${penult} → ${ult})</div>
     <div class="panel" style="overflow-x:auto">
       <table><thead><tr><th>Produto</th>${anos.map(a => `<th>${a}</th>`).join('')}<th>Variação ${penult}→${ult}</th><th>Sinal</th></tr></thead><tbody>
       ${linhas.map(p => `<tr><td class="prod-name">${esc(p.desc)}<br><span style="color:var(--muted);font-size:11px">${esc(p.cod || '')}</span></td>
@@ -4273,7 +4275,7 @@ function renderPedido() {
       <div class="sub" style="font-size:11.5px; margin-top:8px; max-width:none" id="ped_retorno_nota"></div>
     </div>
     ${d.avisoCentral ? `<div class="panel err">${esc(d.avisoCentral)}</div>` : ''}
-    ${d.diagEstoque ? `<div class="panel" style="padding:12px 18px"><div style="font-size:12px; font-weight:600; color:var(--accent-deep); text-transform:uppercase; letter-spacing:.4px">Estoque da unidade (VarejOnline)</div>${htmlDiagEstoque(d.diagEstoque)}</div>` : ''}
+    ${d.diagEstoque && htmlDiagEstoque(d.diagEstoque) ? `<div class="panel" style="padding:12px 18px"><div style="font-size:12px; font-weight:600; color:var(--accent-deep); text-transform:uppercase; letter-spacing:.4px">Estoque da unidade (VarejOnline)</div>${htmlDiagEstoque(d.diagEstoque)}</div>` : ''}
     ${alertas.length ? `<div class="acoes" style="margin-bottom:20px">${alertas.join('')}</div>` : ''}
     ${d.fornecedores.length > 1 || (d.outrosFornecedores || []).length ? `<div class="filtros-compra" style="margin-bottom:12px">
       <div class="loja-select"><label>Fornecedor</label><select id="ped_filtroForn"><option value="">Todos com sugestão (${d.fornecedores.length})</option>
@@ -4854,7 +4856,7 @@ function renderVendedores(d, box) {
   box.innerHTML = `
     <div class="kpis k4">
       <div class="kpi"><div class="label">Faturamento — ${p.desde.replace(/-/g, '/')} a ${p.ate.replace(/-/g, '/')}</div><div class="value">${fmtMoeda(d.rede.faturamento)}</div><div class="hint">${p.dias} dia(s)</div></div>
-      <div class="kpi"><div class="label">Peças por atendimento — rede</div><div class="value">${fmtNum(d.rede.pecasPorAtendimento)}</div><div class="hint">${fmtNum(d.rede.atendimentos)} atendimentos</div></div>
+      <div class="kpi"><div class="label">Peças por atendimento — ${REDE()}</div><div class="value">${fmtNum(d.rede.pecasPorAtendimento)}</div><div class="hint">${fmtNum(d.rede.atendimentos)} atendimentos</div></div>
       <div class="kpi"><div class="label">Ticket médio · cliente identificado</div><div class="value">${fmtMoeda(d.rede.ticketMedio)}</div><div class="hint">${(() => { const at = lojas.reduce((s2, l) => s2 + l.loja.atendimentos, 0), cl = lojas.reduce((s2, l) => s2 + (l.loja.atendimentosComCliente || 0), 0); return `cliente identificado em ${fmtPct(at ? cl / at * 100 : 0)} das vendas (meta ${p.metaIdentificacao}%)`; })()}</div></div>
       <div class="kpi"><div class="label">Peças abaixo de ${limTxt}</div><div class="value" style="color:${d.rede.percentPecasAbaixoLimite >= p.percentAlerta ? 'var(--danger)' : 'inherit'}">${fmtPct(d.rede.percentPecasAbaixoLimite, 1)}</div><div class="hint">do volume de peças · alerta em ${p.percentAlerta}%</div></div>
     </div>
@@ -4865,9 +4867,9 @@ function renderVendedores(d, box) {
         <div class="imp">${fmtPct(l.loja.percentPecasAbaixoLimite, 0)}<small>das peças</small></div></div>`).join('')}</div>` : ''}
     <div class="tabs">
       <div class="tab active" data-ven-tab="loja">Por loja</div>
-      <div class="tab" data-ven-tab="rede">Ranking da rede (${todos.length})</div>
-      <div class="tab" data-ven-tab="lojas">Comparativo de lojas</div>
-      <div class="tab" data-ven-tab="baratas">Peças &lt; ${limTxt} (rede)</div>
+      <div class="tab" data-ven-tab="rede">${_papelAtual === 'franqueado' ? 'Ranking da equipe' : 'Ranking da rede'} (${todos.length})</div>
+      ${_papelAtual === 'franqueado' && _lojasPerfil.length <= 1 ? '' : '<div class="tab" data-ven-tab="lojas">Comparativo de lojas</div>'}
+      <div class="tab" data-ven-tab="baratas">Peças &lt; ${limTxt} (${REDE()})</div>
     </div>
     <div id="ven_v_baratas" class="panel" style="display:none"></div>
     <div id="ven_v_loja" class="panel">
@@ -4939,10 +4941,10 @@ function renderVendedores(d, box) {
         ${falt.map(([k, n]) => `<span class="chip fail">${n} sem ${esc(k)}</span>`).join('')}
         ${C.semVendaNoPeriodo ? `<span class="chip" title="Cliente cadastrado na loja sem venda no período — não dá para atribuir a um vendedor">${C.semVendaNoPeriodo} sem venda vinculada</span>` : ''}
       </div>
-      ${(C.incompletos || []).length ? `<div class="sub" style="font-size:12px; margin-bottom:8px">Cadastros incompletos para corrigir na VarejOnline (busque pelo código do cliente):</div>
+      ${(C.incompletos || []).length ? `<details><summary style="cursor:pointer; font-size:13px; margin-bottom:8px">Ver os ${fmtNum(C.incompletos.length)} cadastros incompletos para corrigir na VarejOnline (busque pelo código do cliente)</summary>
       <div style="overflow-x:auto"><table><thead><tr><th>Código do cliente</th><th>Nome no cadastro</th><th>Falta</th><th>Vendedor da 1ª venda</th></tr></thead><tbody>
       ${C.incompletos.map(x => `<tr><td>${esc(x.clienteId)}</td><td class="prod-name">${esc(x.nome)}</td><td>${x.faltando.map(f => `<span class="tag-risco" style="margin-right:4px">${esc(f)}</span>`).join('')}</td><td class="prod-name">${esc(x.vendedor)}</td></tr>`).join('')}
-      </tbody></table></div>` : ''}`}`;
+      </tbody></table></div></details>` : ''}`}`;
   };
   $('ven_sel').addEventListener('change', desenhar);
   desenhar();
@@ -6516,7 +6518,14 @@ async function carregarPerfil() {
   }
 }
 
+// Rótulo do conjunto analisado: "rede" para administrador/equipe; "sua loja"/"suas lojas" para o franqueado.
+let _lojasPerfil = [];
+function REDE(toda = false) {
+  if (_papelAtual !== 'franqueado') return toda ? 'rede toda' : 'rede';
+  return _lojasPerfil.length > 1 ? 'suas lojas' : 'sua loja';
+}
 function aplicarPerfil(p) {
+  _lojasPerfil = Array.isArray(p.lojas) ? p.lojas : [];
   { const h = new Date().getHours(), pn = String(p.nome || '').split(' ')[0]; const el = $('ini_saudacao'); if (el) el.textContent = p.tipo === 'usuario' && pn ? `${h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite'}, ${pn}` : ''; }
   { let pref = null; try { pref = localStorage.getItem('sss_ped_simples'); } catch { } $('ped_simples').checked = pref != null ? pref === '1' : p.papel === 'franqueado'; aplicarModoSimples(false); }
   _usuarioCache = String(p.email || p.nome || '');
@@ -6532,6 +6541,12 @@ function aplicarPerfil(p) {
   if (ativa && ocultar.has(ativa.dataset.view)) document.querySelector('.nav-item[data-view="inicio"]').click();
   for (const id of ['ped_aprovador', 'vin_usuario']) { const el = $(id); if (!el) continue; if (p.tipo === 'usuario') { el.value = p.nome; el.readOnly = true; } else el.readOnly = false; }
   if (p.papel === 'franqueado') document.querySelectorAll('input[id$="_lojas"]').forEach(i => { i.placeholder = 'suas lojas: ' + p.lojas.join(', '); });
+  // franqueado: rótulos sem "rede", sem botões de configuração de lojas e sem opções técnicas
+  const fr = p.papel === 'franqueado';
+  document.querySelectorAll('label').forEach(l => { if (/^Lojas \(vazio = (todas|suas lojas)\)$/.test(l.textContent.trim())) l.textContent = fr ? 'Lojas (vazio = suas lojas)' : 'Lojas (vazio = todas)'; });
+  document.querySelectorAll('[data-listlojas]').forEach(b => { b.style.display = fr ? 'none' : ''; });
+  { const sub = document.querySelector('#view-central .sub'); if (sub && /na rede agora|nas suas lojas agora|na sua loja agora/.test(sub.textContent)) sub.textContent = fr ? `O que pede atenção ${(p.lojas || []).length > 1 ? 'nas suas lojas' : 'na sua loja'} agora, em ordem de impacto.` : 'O que pede atenção na rede agora, em ordem de impacto.'; }
+  { const emb = $('ped_fator')?.closest('label'); if (emb) emb.style.display = fr ? 'none' : ''; }
   _lojasConfig = null; document.querySelectorAll('select[data-ok]').forEach(s => delete s.dataset.ok);
   if (document.querySelector('.nav-item.active')?.dataset.view === 'inicio') carregarInicio(mudouPapel);
 }
