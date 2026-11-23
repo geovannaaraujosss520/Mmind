@@ -2964,7 +2964,7 @@ function renderSazonal(data, box) {
     seletorBox.style.display = 'block';
     const anoData = data.porAno.find(a => a.ano === Number(ano));
     const sel = document.getElementById('saz_seletorLoja');
-    sel.innerHTML = `<option value="__rede__">Rede toda (${anoData.porLoja.length} lojas)</option>` + anoData.porLoja.map(l => `<option value="${l.loja}">${l.loja}</option>`).join('');
+    sel.innerHTML = (anoData.porLoja.length > 1 ? `<option value="__rede__">${REDE() === 'rede' ? 'Rede toda' : 'Todas as suas lojas'} (${anoData.porLoja.length} lojas)</option>` : '') + anoData.porLoja.map(l => `<option value="${l.loja}">${l.loja}</option>`).join('');
     function desenhar(lojaEscolhida) {
       let lista, totalUnidades, totalValor;
       if (lojaEscolhida === '__rede__') { lista = anoData.topProdutosRede; totalUnidades = anoData.totalUnidadesRede; totalValor = anoData.totalValorRede; }
@@ -2977,22 +2977,26 @@ function renderSazonal(data, box) {
       renderLinhas(lista);
     }
     sel.onchange = e => desenhar(e.target.value);
-    desenhar('__rede__');
+    desenhar(sel.value);
   }
   tabsBox.querySelectorAll('.tab').forEach(el => el.addEventListener('click', () => mostrarAno(el.dataset.ano === '__combinado__' ? '__combinado__' : Number(el.dataset.ano))));
   mostrarAno(data.porAno[0].ano);
 }
 
 // ---------- Render: ESTOQUE ----------
+let _estVerTodos = false;
 function renderEstoque(data, box) {
   if (!data.lojas.length) { box.innerHTML = '<div class="empty">Nenhuma loja retornou dados.</div>'; return; }
-  const totalBaixo = data.lojas.reduce((s,l)=>s+(l.totalAlertasBaixo||0),0);
+  // Estoque baixo que importa: produto que vende (≥ 2 por mês). Os que quase não vendem ficam atrás de um botão.
+  const VENDE = 2 / 30;
+  const baixoVende = l => (l.alertasBaixo || []).filter(p => (p.vendaMediaDiaria || 0) >= VENDE).sort((a, b) => (b.vendaMediaDiaria || 0) - (a.vendaMediaDiaria || 0));
+  const totalBaixo = data.lojas.reduce((s,l)=>s+baixoVende(l).length,0);
   const totalAlto = data.lojas.reduce((s,l)=>s+(l.totalAlertasAlto||0),0);
   const totalSemMov = data.lojas.reduce((s,l)=>s+(l.totalSemMovimento||0),0);
 
   box.innerHTML = `
     <div class="kpis">
-      <div class="kpi"><div class="label">Itens em risco de ruptura (baixo)</div><div class="value" style="color:var(--danger)">${totalBaixo}</div></div>
+      <div class="kpi"><div class="label">Itens em risco de ruptura (que vendem)</div><div class="value" style="color:var(--danger)">${totalBaixo}</div></div>
       <div class="kpi"><div class="label">Itens com estoque muito alto</div><div class="value" style="color:var(--warn)">${totalAlto}</div></div>
       <div class="kpi"><div class="label">Itens parados (sem venda no período)</div><div class="value">${totalSemMov}</div></div>
     </div>
@@ -3004,6 +3008,7 @@ function renderEstoque(data, box) {
         <div class="tab" data-tipo="semmov">Sem movimento</div>
       </div>
       <table><thead><tr><th>Produto</th><th>Estoque atual</th><th>Venda média/dia</th><th>Dias de cobertura</th></tr></thead><tbody id="est_tbody"></tbody></table>
+      <div id="est_mais" style="margin-top:8px"></div>
       <div class="empty" id="est_vazio" style="display:none"></div>
     </div>
   `;
@@ -3016,8 +3021,12 @@ function renderEstoque(data, box) {
     const tbody = document.getElementById('est_tbody');
     const vazio = document.getElementById('est_vazio');
     if (!loja) { tbody.innerHTML=''; return; }
-    const mapaLista = { baixo: loja.alertasBaixo, alto: loja.alertasAlto, semmov: loja.semMovimento };
+    const quaseNada = (loja.alertasBaixo || []).length - baixoVende(loja).length;
+    const mapaLista = { baixo: _estVerTodos ? [...baixoVende(loja), ...(loja.alertasBaixo || []).filter(p => (p.vendaMediaDiaria || 0) < VENDE)] : baixoVende(loja), alto: loja.alertasAlto, semmov: loja.semMovimento };
     const lista = mapaLista[tipoAtivo] || [];
+    const mais = document.getElementById('est_mais');
+    mais.innerHTML = tipoAtivo === 'baixo' && quaseNada > 0 ? `<button type="button" class="secondary" id="est_ver_todos">${_estVerTodos ? 'Esconder' : 'Mostrar também'} os ${fmtNum(quaseNada)} com estoque baixo que quase não vendem (menos de 2 por mês)</button>` : '';
+    document.getElementById('est_ver_todos')?.addEventListener('click', () => { _estVerTodos = !_estVerTodos; desenhar(); });
     if (loja.erro) { tbody.innerHTML=''; vazio.style.display='block'; vazio.textContent = `Erro nesta loja: ${loja.erro}`; return; }
     if (!lista.length) { tbody.innerHTML=''; vazio.style.display='block'; vazio.textContent='Nenhum item nesta categoria.'; return; }
     vazio.style.display = 'none';
@@ -3025,7 +3034,7 @@ function renderEstoque(data, box) {
       <tr>
         <td class="prod-name">${p.descricao}<br><span style="color:var(--muted);font-size:11px">${p.codigoSistema||''}</span></td>
         <td>${fmtNum(p.estoqueAtual)}</td>
-        <td>${p.vendaMediaDiaria != null ? fmtNum(p.vendaMediaDiaria) : '—'}</td>
+        <td>${p.vendaMediaDiaria != null ? (p.vendaMediaDiaria > 0 && p.vendaMediaDiaria < 1 ? p.vendaMediaDiaria.toFixed(2).replace('.', ',') : fmtNum(p.vendaMediaDiaria)) : '—'}</td>
         <td>${p.diasCobertura != null ? fmtNum(p.diasCobertura) : '—'}</td>
       </tr>
     `).join('');
@@ -3260,7 +3269,7 @@ async function desenharComparacaoDRE(loja, periodo) {
 function renderFinanceiro(data, box) {
   if (!data.lojas.length) { box.innerHTML = '<div class="empty">Nenhuma loja retornou dados.</div>'; return; }
 
-  const metaRede = Object.values(data.metasPorLoja || {}).reduce((s, v) => s + v, 0);
+  const metaRede = (data.lojas || []).reduce((s, l) => s + (Number((data.metasPorLoja || {})[l.nomeLoja]) || 0), 0); // só as metas das lojas analisadas
 
   box.innerHTML = `
     <div class="kpis">
@@ -3275,7 +3284,7 @@ function renderFinanceiro(data, box) {
     </div>
 
     <div class="tabs">
-      <div class="tab active" data-fin-tab="rede">DRE Consolidado — Rede</div>
+      <div class="tab active" data-fin-tab="rede">${_papelAtual === 'franqueado' && _lojasPerfil.length <= 1 ? 'DRE da loja' : `DRE Consolidado — ${REDE() === 'rede' ? 'Rede' : 'suas lojas'}`}</div>
       <div class="tab" data-fin-tab="loja">DRE por Loja</div>
     </div>
 
@@ -3954,8 +3963,10 @@ function deltaHTML(atual, anterior, { moeda = false, inverso = false, sufixo = '
 function renderCentral(a, box) {
   const r = a.rede;
   let anterior = null;
-  try { anterior = JSON.parse(localStorage.getItem('sss_central_snapshot') || 'null'); } catch { }
-  try { localStorage.setItem('sss_central_snapshot', JSON.stringify({ quando: Date.now(), receita: r.receita, resultado: r.resultado, nRisco: r.nRisco, pctMetaProj: r.pctMetaProj, capitalParado: r.capitalParado })); } catch { }
+  // comparação com a última análise DAS MESMAS lojas (antes comparava a loja com a rede inteira)
+  const chaveSnap = 'sss_central_snapshot:' + (a.lojas || []).map(l => l.nome).sort().join(',');
+  try { anterior = JSON.parse(localStorage.getItem(chaveSnap) || 'null'); } catch { }
+  try { localStorage.setItem(chaveSnap, JSON.stringify({ quando: Date.now(), receita: r.receita, resultado: r.resultado, nRisco: r.nRisco, pctMetaProj: r.pctMetaProj, capitalParado: r.capitalParado })); } catch { }
   const ant = anterior || {};
   const quandoAnt = anterior ? new Date(anterior.quando).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : null;
 
@@ -4003,7 +4014,8 @@ function renderCentral(a, box) {
     <div class="kpis">
       <div class="kpi"><div class="label">Ações críticas</div><div class="value" style="color:${nCrit ? 'var(--danger)' : 'var(--good)'}">${nCrit}</div><div class="hint">${a.acoes.length} ações no total</div></div>
       <div class="kpi"><div class="label">Compra recomendada — ${REDE()}</div><div class="value">${r.semRec ? '—' : fmtMoeda(r.valorCompra || 0)}</div><div class="hint">${r.semRec ? 'Compras não carregou: rode de novo' : 'Soma da compra recorrente sugerida'}</div></div>
-      <div class="kpi"><div class="label">Capital parado (mín. estimado)</div><div class="value" style="color:var(--warn)">${r.semEst ? '—' : fmtMoeda(r.capitalParado)}</div><div class="hint">${r.semEst ? 'Estoque não carregou: rode de novo' : 'Excesso acima do limite + itens sem venda'}</div></div>
+      <div class="kpi"><div class="label">Capital parado (mín. estimado)</div>${(() => { const nExc = (a.lojas || []).reduce((t, l) => t + (l.nAlto || 0) + (l.nParado || 0), 0); const semCusto = !r.semEst && !r.capitalParado && nExc > 0;
+        return `<div class="value" style="color:var(--warn)">${r.semEst || semCusto ? '—' : fmtMoeda(r.capitalParado)}</div><div class="hint">${r.semEst ? 'Estoque não carregou: rode de novo' : semCusto ? `${fmtNum(nExc)} itens com excesso ou sem venda, mas sem custo conhecido para calcular o valor` : 'Excesso acima do limite + itens sem venda'}</div>`; })()}</div>
     </div>
 
     <div class="subsecao-titulo">O que fazer agora — ações priorizadas</div>
@@ -4083,7 +4095,7 @@ function extrasFinanceiro(data, box) {
   const lojas = data.lojas.filter(l => !l.erro && l.dre);
   if (!lojas.length) return;
   const projRede = projecaoMes(data.redeConsolidado.receitaBruta, data.parametros?.periodo);
-  const metaRede = Object.values(data.metasPorLoja || {}).reduce((s, v) => s + v, 0);
+  const metaRede = (data.lojas || []).reduce((s, l) => s + (Number((data.metasPorLoja || {})[l.nomeLoja]) || 0), 0); // só as metas das lojas analisadas
   const mbs = lojas.map(l => Number(l.dre.margemBrutaPercent)).filter(n => !isNaN(n));
   const mbMedia = mbs.length ? mbs.reduce((a, b) => a + b, 0) / mbs.length : null;
   const painel = document.createElement('div');
@@ -4108,7 +4120,7 @@ function extrasFinanceiro(data, box) {
           <td class="${Number(d.margemOperacionalPercent) < 0 ? 'heat-ruim' : ''}">${fmtPct(d.margemOperacionalPercent, 1)}</td>
           <td class="${d.resultadoOperacional < 0 ? 'heat-ruim' : 'heat-bom'}">${fmtMoeda(d.resultadoOperacional)}</td></tr>`;
       }).join('')}</tbody></table>
-      <div class="sub" style="font-size:11px; margin-top:10px">Margem bruta em vermelho = mais de 5 p.p. abaixo da média da rede (${fmtPct(mbMedia, 1)}). Clique nos cabeçalhos para ordenar.</div>
+      <div class="sub" style="font-size:11px; margin-top:10px">Margem bruta em vermelho = mais de 5 p.p. abaixo da média ${REDE() === 'rede' ? 'da rede' : 'das lojas da tabela'} (${fmtPct(mbMedia, 1)}). Clique nos cabeçalhos para ordenar.</div>
     </div>`;
   box.insertBefore(painel, box.querySelector('.tabs'));
 }
