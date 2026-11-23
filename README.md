@@ -124,3 +124,8 @@ Para deixar no ar para as lojas, publique em um serviço que roda Node (Render, 
 
 ## Pendências conhecidas
 - Lista de frete da Central (`/api/v3/order/options`): o frete vem do último pedido do fornecedor quando a lista não é reconhecida.
+
+## Melhorias futuras
+- **Compra Sazonal com sugestão de compra:** hoje a tela só mostra o ranking do que vendeu no mesmo período dos anos anteriores. Melhoria: calcular, por produto e loja, *venda no mesmo período do ano passado × crescimento − estoque atual − em andamento (pedidos da Central e aprovados no Insight) = comprar*, com o "pedir até" pelo prazo de entrega de cada fornecedor (o mesmo da ruptura), para a mercadoria chegar antes da temporada. Caminho sugerido: permitir que o módulo `recorrente` receba a janela de vendas (de/até do ano anterior) e a duração da temporada, reaproveitando o estoque e o "em andamento" que ele já calcula.
+- **Fornecedores — estoque × faturamento por unidade:** visão por loja e fornecedor comparando quanto o fornecedor ocupa do estoque com quanto devolve de faturamento (estoque parado e peça barata). A ação `estoqueLoja` já existe; falta definir o formato da tela com a franqueadora.
+- **DRE para o franqueado:** está inativo (`DRE_LIBERADO` em `index.html`). Reativar quando o DRE estiver validado.
