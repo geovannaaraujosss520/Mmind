@@ -1473,7 +1473,39 @@ function montarHorariosPico(gl: { at: number[][]; fat: number[][] }, gv: Map<str
       percentNoPicoDaLoja: tot ? r2(noPico / tot * 100) : 0 };
   }
   const celPico = horas.length ? Array.from({ length: 7 }, (_, w) => horas.map((h) => ehPico(w, h) ? 1 : 0)) : [];
-  return { horas, ocorrencias: ocorr, loja: { at: corta(gl.at), fat: corta(gl.fat, 2) }, celulasPico: celPico, picos, porVendedor, semHora };
+  // ---- Baixas: dias da semana e blocos de 2h mais fracos (com a loja aberta) — apoio para folga, pausa e escala ----
+  const diasSemana = [];
+  for (let w = 0; w < 7; w++) {
+    if (!ocorr[w]) continue;
+    const fat = gl.fat[w].reduce((t, v) => t + v, 0), at = gl.at[w].reduce((t, v) => t + v, 0);
+    if (!at) continue; // loja fechada nesse dia
+    diasSemana.push({ dow: w, dia: DIAS_SEMANA[w], faturamentoMedioDia: r2(fat / ocorr[w]), atendimentosMedioDia: r2(at / ocorr[w]) });
+  }
+  const mediaDia = diasSemana.length ? diasSemana.reduce((t, d) => t + d.faturamentoMedioDia, 0) / diasSemana.length : 0;
+  for (const d of diasSemana as any[]) d.vsMedia = mediaDia ? r2((d.faturamentoMedioDia / mediaDia - 1) * 100) : 0;
+  const diasFracos = [...diasSemana].sort((a: any, b: any) => a.faturamentoMedioDia - b.faturamentoMedioDia);
+  // horário aberto de cada dia = da primeira à última hora com venda naquele dia da semana
+  const vales: any[] = [];
+  for (let w = 0; w < 7; w++) {
+    if (!ocorr[w]) continue;
+    const hs = horas.filter((h) => gl.at[w][h] > 0); if (hs.length < 3) continue;
+    const ini = hs[0], fim = hs[hs.length - 1];
+    for (let h = ini; h < fim; h++) {
+      const fat = gl.fat[w][h] + gl.fat[w][h + 1], at = gl.at[w][h] + gl.at[w][h + 1];
+      vales.push({ dow: w, dia: DIAS_SEMANA[w], de: h, ate: h + 2, faturamentoMedioDia: r2(fat / ocorr[w]), atendimentosMedioDia: r2(at / ocorr[w]) });
+    }
+  }
+  vales.sort((a, b) => a.faturamentoMedioDia - b.faturamentoMedioDia);
+  const valesEsc: any[] = [];
+  for (const v of vales) { if (valesEsc.length >= 4) break; if (valesEsc.some((e) => e.dow === v.dow && Math.abs(e.de - v.de) < 2)) continue; valesEsc.push(v); }
+  // por vendedor: dia em que menos vende (entre os dias em que trabalha) — ajuda a escolher a folga de cada um
+  for (const [id, pv] of Object.entries(porVendedor) as any) {
+    const g = gv.get(id)!; let menor: any = null;
+    for (const d of diasSemana as any[]) { const fat = g.fat[d.dow].reduce((t: number, v: number) => t + v, 0); const at = g.at[d.dow].reduce((t: number, v: number) => t + v, 0); if (!at) continue; const m = fat / ocorr[d.dow]; if (!menor || m < menor.m) menor = { dia: d.dia, m }; }
+    pv.diaFraco = menor?.dia ?? null;
+  }
+  return { horas, ocorrencias: ocorr, loja: { at: corta(gl.at), fat: corta(gl.fat, 2) }, celulasPico: celPico, picos, porVendedor, semHora,
+    baixas: { dias: diasFracos, mediaDia: r2(mediaDia), horarios: valesEsc } };
 }
 
 async function moduloVendedores(apiBase: string, lojasTokens: Record<string, string>, body: any) {
@@ -1597,7 +1629,7 @@ async function moduloVendedores(apiBase: string, lojasTokens: Record<string, str
         }
       }
       for (const [vid, q] of porVend) if (q <= 1) acc.get(vid)!.atend1++;
-      if (algum) {
+      if (algum && !atipica) { // venda atípica (atacado, evento) não é movimento de salão: fora do mapa de pico
         const dh = diaHora(sd.data ?? sd.dataSaida ?? sd.dataEmissao);
         if (!dh) semHora++;
         else {
