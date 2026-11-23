@@ -4969,6 +4969,7 @@ function renderVendedores(d, box) {
     </div>
     <div class="sub" style="font-size:11px; margin-top:10px">PA = peças ÷ atendimentos. Atendimento = uma venda; se dois vendedores participaram, conta para os dois. Só aparecem vendedores ativos no cadastro da VarejOnline (as vendas dos inativos continuam nos totais da loja). O perfil compara o vendedor com a média da <strong>própria loja</strong> e só é calculado com 15 atendimentos ou mais — é um indicativo para conversa e treinamento, não um veredito.</div>
   `;
+  $('ven_v_rede')?.querySelectorAll('[data-ven-prod]').forEach(b => b.addEventListener('click', () => abrirProdutosVendedor(b, todos)));
   box.querySelectorAll('[data-ven-tab]').forEach(t => t.addEventListener('click', () => {
     box.querySelectorAll('[data-ven-tab]').forEach(x => x.classList.remove('active')); t.classList.add('active');
     ['loja', 'rede', 'lojas', 'baratas'].forEach(k => $('ven_v_' + k).style.display = t.dataset.venTab === k ? 'block' : 'none');
@@ -4993,6 +4994,7 @@ function renderVendedores(d, box) {
         <div class="barra-trilho"><div class="barra-fill" style="width:${(v.pecasPorAtendimento / esc0 * 100).toFixed(1)}%; background:${cor}"></div><div class="barra-ref" style="left:${(L.pecasPorAtendimento / esc0 * 100).toFixed(1)}%"></div></div>
         <span class="v">${fmtNum(v.pecasPorAtendimento)}</span></div>`; }).join('')}</div>` : '';
     const RD = l.referenciaDia;
+    setTimeout(() => $('ven_loja_tabela')?.querySelectorAll('[data-ven-prod]').forEach(b => b.addEventListener('click', () => abrirProdutosVendedor(b, l.vendedores))), 0);
     $('ven_loja_tabela').innerHTML = `<div style="overflow-x:auto">${tabelaVendedores(l.vendedores, p, false)}</div>
       <div class="sub" style="font-size:11.5px; margin-top:8px; max-width:none">O perfil olha <strong>como</strong> a pessoa vende (PA e ticket, comparados com a loja) e <strong>quanto</strong> vende (<strong>venda por dia</strong> = faturamento ÷ dias com venda${RD?.faturamento ? `; média da loja: ${fmtMoeda(RD.faturamento)} e ${fmtNum(RD.atendimentos)} atendimentos por vendedor por dia` : ''}). Assim, quem tem PA e ticket altos mas atende poucos clientes não aparece como destaque, e quem trabalhou menos dias (folga, meio período, férias, gerente com outras tarefas) não é prejudicado pelo total. Passe o mouse no perfil para ver a leitura de cada um.</div>`;
     desenharMetasVendedores(l, p);
@@ -5925,9 +5927,9 @@ function tabelaVendedores(vs, p, comLoja) {
   const clsId = v => v.id === 'sem' ? '' : v.percentClienteIdentificado >= p.metaIdentificacao ? 'heat-bom' : v.percentClienteIdentificado < p.metaIdentificacao * 0.6 ? 'heat-ruim' : 'heat-medio';
   return `<table><thead><tr><th>Vendedor</th>${comLoja ? '<th>Loja</th>' : ''}<th>Perfil</th><th>Faturamento</th><th>% da loja</th><th>Atendimentos</th><th title="Dias em que o vendedor teve pelo menos uma venda no período">Dias com venda</th><th title="Faturamento ÷ dias com venda. Compara de forma justa quem trabalhou menos dias.">Venda por dia</th><th>PA</th><th>Ticket médio</th><th>Cliente identificado</th><th>Cadastros completos / novos</th><th>Preço médio/peça</th><th>Peças &lt; ${fmtMoeda(p.precoLimite)}</th><th title="Atendimentos em que o cliente levou só 1 peça, e ela custava menos que o limite">Atend. só 1 peça &lt; ${fmtMoeda(p.precoLimite)}</th><th>Atend. de 1 peça</th><th>Desconto</th></tr></thead><tbody>
   ${vs.map(v => `<tr>
-    <td class="prod-name">${esc(v.nome)}${v.perfilSistema && v.perfilSistema !== 'VENDEDOR' ? `<br><span style="font-size:10px; color:var(--muted)">${esc(v.perfilSistema)}</span>` : ''}${v.ativo === false ? '<br><span style="font-size:10px; color:var(--muted)">inativo</span>' : ''}</td>
+    <td class="prod-name">${esc(v.nome)}${v.perfilSistema && v.perfilSistema !== 'VENDEDOR' ? `<br><span style="font-size:10px; color:var(--muted)">${esc(v.perfilSistema)}</span>` : ''}${v.ativo === false ? '<br><span style="font-size:10px; color:var(--muted)">inativo</span>' : ''}${v.topProdutos?.length ? `<br><button type="button" class="secondary" data-ven-prod="${esc((v.loja || '') + '|' + v.id)}" data-ven-loja="${esc(v.loja || $('ven_sel')?.value || '')}" style="font-size:11px; padding:2px 8px; margin-top:4px">Produtos e o que oferecer</button>` : ''}</td>
     ${comLoja ? `<td class="prod-name">${esc(v.loja)}</td>` : ''}
-    <td>${tagPerfil(v.perfil, v.leitura)}</td><td>${fmtMoeda(v.faturamento)}</td><td>${fmtPct(v.participacao, 1)}</td><td>${fmtNum(v.atendimentos)}</td>
+    <td>${tagPerfil(v.perfil, v.leitura)}</td><td>${fmtMoeda(v.faturamento)}${v.vendasAtipicas ? `<br><span style="font-size:10.5px; color:var(--warn)" title="Atendimentos muito acima do normal da loja (atacado, kit grande, venda para evento). Contam no faturamento, mas ficam fora do PA, do ticket e da venda por dia — senão distorcem a comparação.">inclui ${fmtMoeda(v.vendasAtipicas.faturamento)} em ${v.vendasAtipicas.atendimentos} venda(s) atípica(s) · ${fmtNum(v.vendasAtipicas.pecas)} pç</span>` : ''}</td><td>${fmtPct(v.participacao, 1)}</td><td>${fmtNum(v.atendimentos)}</td>
     <td>${v.diasComVenda != null ? fmtNum(v.diasComVenda) : '—'}</td>
     <td class="${v.indiceVendaDia == null ? '' : v.indiceVendaDia >= 1.15 ? 'heat-bom' : v.indiceVendaDia < 0.75 ? 'heat-ruim' : ''}" title="${v.indiceVendaDia != null ? fmtNum(Math.round(v.indiceVendaDia * 100)) + '% da média da loja' : ''}">${v.faturamentoPorDia != null ? `${fmtMoeda(v.faturamentoPorDia)}<br><span style="font-size:11px; color:var(--muted)">${fmtNum(v.atendimentosPorDia)} atend./dia</span>` : '—'}</td>
     <td class="${v.indicePA == null ? '' : v.indicePA >= 1.1 ? 'heat-bom' : v.indicePA < 0.8 ? 'heat-ruim' : ''}" title="${v.indicePA != null ? fmtNum(v.indicePA * 100) + '% da média da loja' : ''}">${fmtNum(v.pecasPorAtendimento)}</td>
@@ -5938,8 +5940,43 @@ function tabelaVendedores(vs, p, comLoja) {
     <td class="${v.alertaMixBarato ? 'heat-ruim' : ''}" title="${v.percentBaratasAcrescimo != null ? `das peças baratas: ${fmtPct(v.percentBaratasSozinhas, 0)} sozinhas · ${fmtPct(v.percentBaratasAcrescimo, 0)} como acréscimo` : ''}">${fmtPct(v.percentPecasAbaixoLimite, 1)}</td>
     <td class="${(v.percentAtendimentos1PecaBarata || 0) >= 30 ? 'heat-ruim' : (v.percentAtendimentos1PecaBarata || 0) >= 15 ? 'heat-medio' : ''}">${v.atendimentos1PecaBarata != null ? `${fmtNum(v.atendimentos1PecaBarata)} <span style="color:var(--muted); font-size:11px">(${fmtPct(v.percentAtendimentos1PecaBarata, 0)})</span>` : '—'}</td>
     <td class="${v.percentAtendimentos1Peca >= 50 ? 'heat-medio' : ''}">${fmtPct(v.percentAtendimentos1Peca, 0)}</td>
-    <td>${fmtPct(v.descontoPercent, 1)}</td></tr>`).join('')}
+    <td>${fmtPct(v.descontoPercent, 1)}</td></tr>
+    <tr data-ven-prod-linha="${esc((v.loja || '') + '|' + v.id)}" style="display:none"><td colspan="20" style="white-space:normal; background:var(--panel-2)"></td></tr>`).join('')}
   </tbody></table>`;
+}
+// ---- Produtos de cada vendedor: top 10 + o que oferecer do estoque em excesso ou parado da loja ----
+const _estoquePorLoja = new Map();
+const _tipoProduto = d => { const w = String(d || '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Z ]/g, ' ').split(/\s+/).filter(x => x.length >= 3 && !/^(SSS|KIT|MINI|PEQ|GDE|MED)$/.test(x))[0] || '';
+  return ({ PUL: 'PULSEIRA', PULSEIRAS: 'PULSEIRA', TERCOS: 'TERCO', COLARES: 'COLAR', BRINCOS: 'BRINCO', ANEIS: 'ANEL', DEZENAS: 'DEZENA', IMAGENS: 'IMAGEM', QUADROS: 'QUADRO', VELAS: 'VELA', MEDALHAS: 'MEDALHA' })[w] || w; };
+async function abrirProdutosVendedor(btn, vs) {
+  const chave = btn.dataset.venProd, id = chave.slice(chave.indexOf('|') + 1), lojaV = chave.slice(0, chave.indexOf('|')), loja = btn.dataset.venLoja;
+  const tr = btn.closest('table').querySelector(`[data-ven-prod-linha="${CSS.escape(chave)}"]`); if (!tr) return;
+  if (tr.style.display !== 'none') { tr.style.display = 'none'; return; }
+  tr.style.display = ''; const td = tr.firstElementChild;
+  const v = vs.find(x => String(x.id) === String(id) && (x.loja || '') === lojaV); if (!v) return;
+  const top = `<div style="font-weight:650; font-size:13px; margin-bottom:6px">Top 10 de ${esc(v.nome)} no período</div>
+    <table class="no-tools" style="font-size:12.5px"><thead><tr><th>#</th><th>Produto</th><th class="num">Peças</th><th class="num">Faturamento</th></tr></thead><tbody>
+    ${v.topProdutos.map((x, i) => `<tr><td>${i + 1}</td><td class="prod-name">${esc(x.descricao)}${x.codigoSistema ? `<br><span style="font-size:10.5px; color:var(--muted)">${esc(x.codigoSistema)}</span>` : ''}</td><td class="num">${fmtNum(x.pecas)}</td><td class="num">${fmtMoeda(x.faturamento)}</td></tr>`).join('')}</tbody></table>`;
+  td.innerHTML = `<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:18px; padding:8px 4px">${top}<div data-ven-sug><div class="sub" style="font-size:12px">Buscando o estoque em excesso e parado da loja…</div></div></div>`;
+  const alvo = td.querySelector('[data-ven-sug]');
+  try {
+    if (!_estoquePorLoja.has(loja)) _estoquePorLoja.set(loja, consultarModulo({ modulo: 'estoque', diasHistorico: 90, limiteBaixoDias: 7, limiteAltoDias: 90, lojas: [loja] }));
+    const est = await _estoquePorLoja.get(loja);
+    const L = (est.lojas || [])[0] || {};
+    // tipos que o vendedor mais vende (pulseira, terço, colar…), pesados pelas peças
+    const peso = new Map(); for (const x of v.topProdutos) { const t = _tipoProduto(x.descricao); if (t) peso.set(t, (peso.get(t) || 0) + x.pecas); }
+    const cands = [...(L.alertasAlto || []).map(x => ({ ...x, motivo: `excesso: ${x.diasCobertura != null ? fmtNum(Math.round(x.diasCobertura)) + ' dias de estoque' : 'estoque alto'}` })),
+                   ...(L.semMovimento || []).map(x => ({ ...x, motivo: 'sem venda no período' }))].filter(x => (x.estoqueAtual || 0) > 0);
+    const visto = new Set();
+    const sug = cands.map(x => ({ ...x, sc: (peso.get(_tipoProduto(x.descricao)) || 0) * Math.min(20, x.estoqueAtual) }))
+      .sort((a, b) => b.sc - a.sc || b.estoqueAtual - a.estoqueAtual)
+      .filter(x => { const k = String(x.descricao); if (visto.has(k)) return false; visto.add(k); return true; }).slice(0, 8);
+    const doTipo = sug.filter(x => x.sc > 0).length;
+    alvo.innerHTML = `<div style="font-weight:650; font-size:13px; margin-bottom:4px">O que oferecer — estoque em excesso ou parado</div>
+      <div class="sub" style="font-size:11.5px; margin-bottom:6px; max-width:none">${doTipo ? `Peças paradas ou em excesso do mesmo tipo que ${esc(v.nome.split(' ')[0])} mais vende (${esc([...peso.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([t]) => t.toLowerCase()).join(', '))}): é onde ela/ele já tem facilidade.` : 'Não há excesso do tipo de peça que este vendedor mais vende; abaixo, as peças com mais estoque parado da loja.'}</div>
+      ${sug.length ? `<table class="no-tools" style="font-size:12.5px"><thead><tr><th>Produto</th><th class="num">Estoque</th><th>Por quê</th></tr></thead><tbody>
+      ${sug.map(x => `<tr><td class="prod-name">${esc(x.descricao)}${x.codigoSistema ? `<br><span style="font-size:10.5px; color:var(--muted)">${esc(x.codigoSistema)}</span>` : ''}</td><td class="num">${fmtNum(x.estoqueAtual)}</td><td style="font-size:12px">${esc(x.motivo)}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">A loja não tem estoque em excesso nem parado.</div>'}`;
+  } catch (e) { alvo.innerHTML = `<div class="panel err">Não foi possível ler o estoque da loja: ${esc(e.message)}</div>`; }
 }
 
 // =====================================================================
