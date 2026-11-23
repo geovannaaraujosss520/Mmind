@@ -5940,8 +5940,7 @@ function tabelaVendedores(vs, p, comLoja) {
     <td class="${v.alertaMixBarato ? 'heat-ruim' : ''}" title="${v.percentBaratasAcrescimo != null ? `das peças baratas: ${fmtPct(v.percentBaratasSozinhas, 0)} sozinhas · ${fmtPct(v.percentBaratasAcrescimo, 0)} como acréscimo` : ''}">${fmtPct(v.percentPecasAbaixoLimite, 1)}</td>
     <td class="${(v.percentAtendimentos1PecaBarata || 0) >= 30 ? 'heat-ruim' : (v.percentAtendimentos1PecaBarata || 0) >= 15 ? 'heat-medio' : ''}">${v.atendimentos1PecaBarata != null ? `${fmtNum(v.atendimentos1PecaBarata)} <span style="color:var(--muted); font-size:11px">(${fmtPct(v.percentAtendimentos1PecaBarata, 0)})</span>` : '—'}</td>
     <td class="${v.percentAtendimentos1Peca >= 50 ? 'heat-medio' : ''}">${fmtPct(v.percentAtendimentos1Peca, 0)}</td>
-    <td>${fmtPct(v.descontoPercent, 1)}</td></tr>
-    <tr data-ven-prod-linha="${esc((v.loja || '') + '|' + v.id)}" style="display:none"><td colspan="20" style="white-space:normal; background:var(--panel-2)"></td></tr>`).join('')}
+    <td>${fmtPct(v.descontoPercent, 1)}</td></tr>`).join('')}
   </tbody></table>`;
 }
 // ---- Produtos de cada vendedor: top 10 + o que oferecer do estoque em excesso ou parado da loja ----
@@ -5950,14 +5949,20 @@ const _tipoProduto = d => { const w = String(d || '').toUpperCase().normalize('N
   return ({ PUL: 'PULSEIRA', PULSEIRAS: 'PULSEIRA', TERCOS: 'TERCO', COLARES: 'COLAR', BRINCOS: 'BRINCO', ANEIS: 'ANEL', DEZENAS: 'DEZENA', IMAGENS: 'IMAGEM', QUADROS: 'QUADRO', VELAS: 'VELA', MEDALHAS: 'MEDALHA' })[w] || w; };
 async function abrirProdutosVendedor(btn, vs) {
   const chave = btn.dataset.venProd, id = chave.slice(chave.indexOf('|') + 1), lojaV = chave.slice(0, chave.indexOf('|')), loja = btn.dataset.venLoja;
-  const tr = btn.closest('table').querySelector(`[data-ven-prod-linha="${CSS.escape(chave)}"]`); if (!tr) return;
-  if (tr.style.display !== 'none') { tr.style.display = 'none'; return; }
-  tr.style.display = ''; const td = tr.firstElementChild;
+  // painel logo abaixo da tabela (linhas extras dentro da tabela atrapalhavam o filtro e a ordenação)
+  const tab = btn.closest('table');
+  let td = tab.nextElementSibling?.classList?.contains('ven-prod-det') ? tab.nextElementSibling : null;
+  if (!td) { td = document.createElement('div'); td.className = 'ven-prod-det panel'; td.style.cssText = 'margin-top:12px; padding:12px 14px; background:var(--panel-2); position:sticky; left:0; max-width:calc(100vw - 80px)'; tab.after(td); }
+  if (td.dataset.chave === chave && td.style.display !== 'none') { td.style.display = 'none'; return; }
+  td.dataset.chave = chave; td.style.display = '';
   const v = vs.find(x => String(x.id) === String(id) && (x.loja || '') === lojaV); if (!v) return;
   const top = `<div style="font-weight:650; font-size:13px; margin-bottom:6px">Top 10 de ${esc(v.nome)} no período</div>
     <table class="no-tools" style="font-size:12.5px"><thead><tr><th>#</th><th>Produto</th><th class="num">Peças</th><th class="num">Faturamento</th></tr></thead><tbody>
     ${v.topProdutos.map((x, i) => `<tr><td>${i + 1}</td><td class="prod-name">${esc(x.descricao)}${x.codigoSistema ? `<br><span style="font-size:10.5px; color:var(--muted)">${esc(x.codigoSistema)}</span>` : ''}</td><td class="num">${fmtNum(x.pecas)}</td><td class="num">${fmtMoeda(x.faturamento)}</td></tr>`).join('')}</tbody></table>`;
-  td.innerHTML = `<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:18px; padding:8px 4px">${top}<div data-ven-sug><div class="sub" style="font-size:12px">Buscando o estoque em excesso e parado da loja…</div></div></div>`;
+  td.innerHTML = `<div style="display:flex; justify-content:space-between; gap:8px; align-items:center; margin-bottom:6px"><strong style="font-size:14px">${esc(v.nome)}${v.loja ? ` — ${esc(v.loja)}` : ''}</strong><button type="button" class="secondary" data-ven-fechar style="font-size:12px; padding:3px 10px">Fechar</button></div>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:18px; padding:4px">${top}<div data-ven-sug><div class="sub" style="font-size:12px">Buscando o estoque em excesso e parado da loja…</div></div></div>`;
+  td.querySelector('[data-ven-fechar]').addEventListener('click', () => { td.style.display = 'none'; });
+  td.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   const alvo = td.querySelector('[data-ven-sug]');
   try {
     if (!_estoquePorLoja.has(loja)) _estoquePorLoja.set(loja, consultarModulo({ modulo: 'estoque', diasHistorico: 90, limiteBaixoDias: 7, limiteAltoDias: 90, lojas: [loja] }));
