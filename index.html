@@ -1495,18 +1495,20 @@ function prazoDoFornecedor(nome, prazos) {
 }
 // Itens de pedidos em andamento que não estão ligados a nenhum produto da loja: se um parece com o produto do alerta,
 // avisa "pode já estar pedido" (falta o vínculo para o painel descontar).
-const _tokRup = t => new Set(String(t || '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length >= 3));
+const _RUP_VAZIAS = new Set(['UNIDADE', 'UND', 'UNID', 'COM', 'PARA', 'DOS', 'DAS', 'EAN', 'REF', 'COD']);
+const _tokRup = t => new Set(String(t || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length >= 3 && !/\d/.test(w) && !_RUP_VAZIAS.has(w)));
+// Parecido = um nome contém todas as palavras do outro (ao menos 2 em comum). "Kit N. Sra. de Fátima" ≠ "Kit N. Sra. do Carmo".
 function talvezEmPedido(r, semLig) {
   if (!semLig?.length) return null;
   const cod = String(r.codigoSistema || '').toUpperCase().replace(/\s+/g, '').replace(/^0+/, '');
-  const ta = _tokRup(r.descricao); let melhor = null, sc = 0;
+  const ta = _tokRup(r.descricao);
   for (const it of semLig) {
     const c2 = String(it[0] || '').toUpperCase().replace(/\s+/g, '').replace(/^0+/, '');
     if (cod && c2 && cod === c2) return it;
     const tb = _tokRup(it[1]); let inter = 0; for (const w of ta) if (tb.has(w)) inter++;
-    const j = inter / (ta.size + tb.size - inter || 1); if (j > sc) { sc = j; melhor = it; }
+    if (inter >= 2 && (inter === ta.size || inter === tb.size)) return it;
   }
-  return sc >= 0.5 ? melhor : null;
+  return null;
 }
 function rupturaChegando(recs, prazos = {}, semLig = []) {
   const lista = [];
