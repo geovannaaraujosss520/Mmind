@@ -1207,7 +1207,7 @@ async function contarMetasVendedores(l) {
 function acoesDaLoja(l, estoque) {
   const it = [];
   if (estoque?.zerados?.length) it.push({ sev: 'critico', rot: 'Ruptura', tit: `${estoque.zerados.length} produto(s) que vendem estão zerados`, det: `${estoque.zerados.slice(0, 3).map(x => x.descricao).join(' · ')}${estoque.perdaDia ? ` · cerca de ${fmtMoeda(estoque.perdaDia)} por dia deixando de vender` : ''}`, ir: 'pedido', bt: 'Fazer pedido' });
-  if (estoque?.ate7?.length) it.push({ sev: 'critico', rot: 'Ruptura', tit: `${estoque.ate7.length} produto(s) acabam em até 7 dias`, det: estoque.ate7.slice(0, 3).map(x => `${x.descricao} (${Math.floor(x.dias) <= 0 ? 'hoje' : Math.floor(x.dias) + ' d'})`).join(' · '), ir: 'pedido', bt: 'Fazer pedido' });
+  if (estoque?.ate7?.length) it.push({ sev: 'critico', rot: 'Ruptura', tit: `${estoque.ate7.length} produto(s) precisam ser pedidos hoje`, det: estoque.ate7.slice(0, 3).map(x => `${x.descricao} (acaba em ${Math.max(0, Math.floor(x.dias))} d, fornecedor leva ${x.prazo} d)`).join(' · ') + ' — se esperar, o pedido chega depois de acabar.', ir: 'pedido', bt: 'Fazer pedido' });
   if (!l.meta) it.push({ sev: 'atencao', rot: 'Meta', tit: 'A loja ainda está sem meta neste mês', det: 'A meta da loja é cadastrada pela franqueadora. Se já combinaram o valor, peça para ela cadastrar.' });
   else {
     if (estoque?.metasVendedores === 0) it.push({ sev: 'atencao', rot: 'Equipe', tit: 'Divida a meta da loja entre os vendedores', det: `A meta de ${fmtMoeda(l.meta)} ainda não foi dividida. Cada vendedor passa a ver quanto falta para ele.`, ir: 'vendedores', bt: 'Dividir meta' });
@@ -1442,7 +1442,7 @@ async function desenharMinhaLoja(d) {
       <div class="kpi"><div class="label">Peças por atendimento</div><div class="value">${fmtNum(l.pecasPorAtendimento)}</div><div class="hint">quanto maior, melhor a venda</div></div>
       <div class="kpi"><div class="label">Última compra na Central</div><div class="value" style="color:${l.diasSemComprar == null || l.diasSemComprar > 21 ? 'var(--warn)' : 'inherit'}">${l.ultimaCompraCentral ? dataCurta(l.ultimaCompraCentral) : '—'}</div><div class="hint">${l.diasSemComprar != null ? `${l.diasSemComprar} dia(s) atrás` : 'sem pedido nos últimos 60 dias'}${l.pedidosCentralEmAndamento ? ` · ${l.pedidosCentralEmAndamento} em andamento` : ''}</div></div>
     </div>
-    <div class="subsecao-titulo">Alerta de ruptura <span class="ini-rup-sub">produtos que vão acabar nos próximos 15 dias</span></div>
+    <div class="subsecao-titulo">Alerta de ruptura <span class="ini-rup-sub">o que pedir agora, contando quanto tempo cada fornecedor leva para entregar</span></div>
     <div class="panel" id="ini_ruptura"><span class="loader"></span> Analisando o estoque da loja…</div>
     <div class="subsecao-titulo">O que fazer hoje</div>
     <div class="acoes" id="ini_acoes">
@@ -1458,14 +1458,14 @@ async function desenharMinhaLoja(d) {
   carregarProdutosInicio(l.loja);
   // o que comprar: itens zerados e em risco (Compra Recorrente da loja)
   try {
-    const r = await chamarEdge({ modulo: 'recorrente', lojas: [l.loja], diasHistorico: 60, diasPeriodoAlvo: 30 }, EDGE_COMPRAS_URL);
+    const r = await chamarEdge({ modulo: 'recorrente', lojas: [l.loja], diasHistorico: 60, diasPeriodoAlvo: 30, prazos: true }, EDGE_COMPRAS_URL);
     if (($('ini_titulo').textContent || '') !== l.loja) return; // trocou de loja enquanto carregava
     const recs = (r.lojas?.[0]?.recomendacoes || []);
     const zerados = recs.filter(x => (x.estoqueAtual ?? 0) <= 0 && x.vendaMediaDiaria > 0);
     const perdaDia = zerados.reduce((t, x) => t + x.vendaMediaDiaria * (x.precoMedioVenda || 0), 0);
     const comprar = recs.filter(x => x.riscoRuptura && x.qtdRecomendadaCompra > 0).sort((a, b) => b.vendaMediaDiaria * (b.precoMedioVenda || 0) - a.vendaMediaDiaria * (a.precoMedioVenda || 0));
-    const rup = rupturaChegando(recs);
-    if (_inicioFresco) mostrarAcoesDia(acoesDaLoja(l, { zerados, comprar, perdaDia, ate7: rup.lista.filter(x => x.faixa === '7' && !x.cobre), metasVendedores: await contarMetasVendedores(l) }), l.loja);
+    const rup = rupturaChegando(recs, r.prazosFornecedores || {});
+    if (_inicioFresco) mostrarAcoesDia(acoesDaLoja(l, { zerados, comprar, perdaDia, ate7: rup.lista.filter(x => (x.faixa === 'atrasado' || x.faixa === 'hoje') && !x.cobre), metasVendedores: await contarMetasVendedores(l) }), l.loja);
     desenharRuptura(rup, l.loja, perdaDia);
     const box = $('ini_compra_status'); if (!box) return;
     box.outerHTML = `${comprar.length ? `<div class="acao atencao"><div class="sev atencao">Comprar</div><div><div class="tit">${comprar.length} produto(s) vão faltar antes da próxima reposição</div>
@@ -1481,47 +1481,72 @@ async function desenharMinhaLoja(d) {
   }
 }
 
-// ---- Alerta de ruptura: em quantos dias cada produto acaba (estoque ÷ venda média por dia) ----
-function rupturaChegando(recs) {
+// ---- Alerta de ruptura: quando PEDIR, não só quando acaba ----
+// Acaba = estoque ÷ venda média por dia. O pedido precisa sair antes: acaba − prazo de entrega do fornecedor − 2 dias
+// (para montar, aprovar e a Central lançar). Prazo do fornecedor = mediana real dos pedidos entregues; sem histórico,
+// o maior número do prazo informado ("20 A 30 DIAS" = 30); sem nada, 15 dias.
+const RUP_FOLGA = 2, RUP_PRAZO_PADRAO = 15;
+function prazoDoFornecedor(nome, prazos) {
+  const p = nome && prazos[nome];
+  if (p?.leadTimeMedianoDias != null && p.amostras >= 2) return { dias: Math.max(1, Math.ceil(p.leadTimeMedianoDias)), fonte: `prazo real de entrega (mediana de ${p.amostras} pedidos)` };
+  const nums = String(p?.prazoInformado || '').match(/\d+/g);
+  if (nums?.length) return { dias: Math.max(...nums.map(Number)), fonte: `prazo informado pelo fornecedor (${p.prazoInformado})` };
+  return { dias: RUP_PRAZO_PADRAO, fonte: 'prazo padrão (fornecedor sem histórico)', padrao: true };
+}
+function rupturaChegando(recs, prazos = {}) {
   const lista = [];
   for (const r of recs) {
-    const vel = Number(r.vendaMediaDiaria) || 0; if (!(vel > 0)) continue;
+    const vel = Number(r.vendaMediaDiaria) || 0; if (!(vel >= 2 / 30)) continue; // vende ao menos 2 por mês
     const est = Math.max(0, Number(r.estoqueAtual) || 0), dias = est / vel;
-    const faixa = est <= 0 ? 'zerado' : dias <= 7 ? '7' : dias <= 15 ? '15' : null;
+    const pz = prazoDoFornecedor(r.fornecedorNome, prazos);
+    const pedirEm = dias - pz.dias - RUP_FOLGA; // dias até a data limite do pedido (negativo = já passou)
+    const faixa = est <= 0 ? 'zerado' : pedirEm < 0 ? 'atrasado' : pedirEm <= 2 ? 'hoje' : pedirEm <= 7 ? 'semana' : null;
     if (!faixa) continue;
-    const cobre = (est + (Number(r.emAndamento) || 0)) / vel > 15;
-    lista.push({ ...r, dias, faixa, cobre, valorDia: vel * (r.precoMedioVenda || 0) });
+    const cobre = (est + (Number(r.emAndamento) || 0)) / vel > pz.dias + RUP_FOLGA; // o que está a caminho segura até a próxima entrega
+    lista.push({ ...r, dias, prazo: pz.dias, prazoFonte: pz.fonte, prazoPadrao: !!pz.padrao, pedirEm, faixa, cobre, falta: Math.max(0, pz.dias + RUP_FOLGA - dias), valorDia: vel * (r.precoMedioVenda || 0) });
   }
-  const ordem = { zerado: 0, '7': 1, '15': 2 };
-  lista.sort((a, b) => (a.cobre - b.cobre) || (ordem[a.faixa] - ordem[b.faixa]) || (a.dias - b.dias) || (b.valorDia - a.valorDia));
+  const ordem = { zerado: 0, atrasado: 1, hoje: 2, semana: 3 };
+  lista.sort((a, b) => (a.cobre - b.cobre) || (ordem[a.faixa] - ordem[b.faixa]) || (a.pedirEm - b.pedirEm) || (b.valorDia - a.valorDia));
   const conta = f => lista.filter(x => x.faixa === f && !x.cobre).length;
-  return { lista, zerados: conta('zerado'), ate7: conta('7'), ate15: conta('15'), cobertos: lista.filter(x => x.cobre).length };
+  return { lista, zerados: conta('zerado'), atrasados: conta('atrasado'), hoje: conta('hoje'), semana: conta('semana'), cobertos: lista.filter(x => x.cobre).length,
+    perdaAtraso: lista.filter(x => x.faixa === 'atrasado' && !x.cobre).reduce((t, x) => t + x.falta * x.valorDia, 0) };
 }
 function desenharRuptura(rup, loja, perdaDia) {
   const box = $('ini_ruptura'); if (!box) return;
-  if (!rup.lista.length) { box.innerHTML = '<div class="ini-rup-ok">✓ Nenhum produto vai acabar nos próximos 15 dias no ritmo atual de vendas.</div>'; return; }
+  if (!rup.lista.length) { box.innerHTML = '<div class="ini-rup-ok">✓ Nenhum produto precisa ser pedido nos próximos 7 dias, contando o prazo de entrega de cada fornecedor.</div>'; return; }
   const hoje = new Date();
+  const dt = n => { const d = new Date(hoje.getTime() + n * 864e5); return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`; };
   const quando = x => {
     if (x.faixa === 'zerado') return '<strong style="color:var(--danger)">Zerado</strong>';
-    const d = Math.floor(x.dias), dt = new Date(hoje.getTime() + d * 864e5);
-    return `<strong>${d <= 0 ? 'hoje' : d === 1 ? 'amanhã' : `em ${d} dias`}</strong><br><span class="ini-prod-sub">≈ ${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')}</span>`;
+    const d = Math.floor(x.dias);
+    return `<strong>${d <= 0 ? 'hoje' : d === 1 ? 'amanhã' : `em ${d} dias`}</strong><br><span class="ini-prod-sub">≈ ${dt(d)}</span>`;
   };
-  const sit = x => x.cobre ? '<span class="rup-tag ok">Pedido a caminho</span>' : x.faixa === 'zerado' ? '<span class="rup-tag z">Ruptura</span>' : x.faixa === '7' ? '<span class="rup-tag c">Até 7 dias</span>' : '<span class="rup-tag a">8 a 15 dias</span>';
+  const pedir = x => {
+    if (x.cobre) return '<span class="ini-prod-sub">pedido a caminho cobre</span>';
+    if (x.faixa === 'zerado') return '<strong style="color:var(--danger)">já</strong>';
+    if (x.faixa === 'atrasado') return `<strong style="color:var(--danger)">já</strong><br><span class="ini-prod-sub">pedindo hoje, fica ~${Math.ceil(x.falta)} dia(s) sem</span>`;
+    const d = Math.floor(x.pedirEm); return `<strong>${d <= 0 ? 'hoje' : `até ${dt(d)}`}</strong>${d > 0 ? `<br><span class="ini-prod-sub">em ${d} dia(s)</span>` : ''}`;
+  };
+  const sit = x => x.cobre ? '<span class="rup-tag ok">Pedido a caminho</span>' : x.faixa === 'zerado' ? '<span class="rup-tag z">Ruptura</span>' : x.faixa === 'atrasado' ? '<span class="rup-tag z">Pedir já</span>' : x.faixa === 'hoje' ? '<span class="rup-tag c">Pedir hoje</span>' : '<span class="rup-tag a">Pedir esta semana</span>';
   const linha = (x, i) => `<tr ${i >= 10 ? 'data-rup-extra style="display:none"' : ''}><td class="prod-name"><div class="prod-com-foto" style="align-items:center">${fotoProdutoHtml(x.produtoId, 38)}<div>${esc(x.descricao)}${x.codigoSistema ? `<br><span class="ini-prod-sub">${esc(x.codigoSistema)}</span>` : ''}</div></div></td>
-    <td>${sit(x)}</td><td class="num">${quando(x)}</td><td class="num">${fmtNum(Math.max(0, x.estoqueAtual || 0))}</td><td class="num">${fmtNum(x.vendaMediaDiaria)}</td>
+    <td>${sit(x)}</td><td class="num">${quando(x)}</td>
+    <td class="num" title="${esc(x.prazoFonte)}">${x.prazo} dias${x.prazoPadrao ? '*' : ''}<br><span class="ini-prod-sub">${esc(x.fornecedorNome || 'sem fornecedor')}</span></td>
+    <td class="num">${pedir(x)}</td>
+    <td class="num">${fmtNum(Math.max(0, x.estoqueAtual || 0))}</td><td class="num">${fmtNum(x.vendaMediaDiaria)}</td>
     <td class="num">${x.emAndamento ? `+${fmtNum(x.emAndamento)}` : '—'}</td><td class="num">${x.qtdRecomendadaCompra > 0 ? `<strong>${fmtNum(x.qtdRecomendadaCompra)}</strong>` : '—'}</td></tr>`;
   box.innerHTML = `<div class="rup-chips">
       ${rup.zerados ? `<span class="rup-chip z"><b>${rup.zerados}</b> zerado(s)${perdaDia ? ` · ${fmtMoeda(perdaDia)}/dia sem vender` : ''}</span>` : ''}
-      ${rup.ate7 ? `<span class="rup-chip c"><b>${rup.ate7}</b> acaba(m) em até 7 dias</span>` : ''}
-      ${rup.ate15 ? `<span class="rup-chip a"><b>${rup.ate15}</b> em 8 a 15 dias</span>` : ''}
+      ${rup.atrasados ? `<span class="rup-chip z"><b>${rup.atrasados}</b> passou do dia de pedir${rup.perdaAtraso ? ` · ~${fmtMoeda(rup.perdaAtraso)} de venda em risco até chegar` : ''}</span>` : ''}
+      ${rup.hoje ? `<span class="rup-chip c"><b>${rup.hoje}</b> pedir hoje</span>` : ''}
+      ${rup.semana ? `<span class="rup-chip a"><b>${rup.semana}</b> pedir esta semana</span>` : ''}
       ${rup.cobertos ? `<span class="rup-chip ok"><b>${rup.cobertos}</b> com pedido a caminho</span>` : ''}
     </div>
-    <div style="overflow-x:auto"><table class="no-tools ini-rup-tab"><thead><tr><th>Produto</th><th>Situação</th><th class="num">Acaba</th><th class="num">Estoque</th><th class="num">Vende/dia</th><th class="num">A caminho</th><th class="num">Comprar</th></tr></thead>
+    <div style="overflow-x:auto"><table class="no-tools ini-rup-tab"><thead><tr><th>Produto</th><th>Situação</th><th class="num">Acaba</th><th class="num">Fornecedor entrega em</th><th class="num">Pedir até</th><th class="num">Estoque</th><th class="num">Vende/dia</th><th class="num">A caminho</th><th class="num">Comprar</th></tr></thead>
     <tbody>${rup.lista.map(linha).join('')}</tbody></table></div>
     <div class="actions" style="margin-top:10px; flex-wrap:wrap">
       <button data-ir="pedido">Montar o pedido para a Central</button>
       ${rup.lista.length > 10 ? `<button type="button" class="secondary" id="rup_mais">Ver todos (${rup.lista.length})</button>` : ''}
-      <span class="ini-prod-sub" style="align-self:center">Acaba = estoque ÷ venda média por dia dos últimos 60 dias. "Pedido a caminho" = o que está nos pedidos em andamento cobre mais de 15 dias.</span>
+      <span class="ini-prod-sub" style="align-self:center; max-width:760px">Acaba = estoque ÷ venda média por dia (últimos 60 dias). Pedir até = dia em que acaba − prazo de entrega do fornecedor − ${RUP_FOLGA} dias para montar e aprovar. O prazo é o real (mediana dos pedidos entregues); sem histórico, o informado pelo fornecedor; * = sem nenhum dos dois, ${RUP_PRAZO_PADRAO} dias. Passe o mouse no prazo para ver a origem.</span>
     </div>`;
   $('rup_mais')?.addEventListener('click', e => { box.querySelectorAll('[data-rup-extra]').forEach(r => r.style.display = ''); e.target.remove(); carregarFotos(loja, box); });
   ligarIrPara(box, loja);
@@ -2502,11 +2527,11 @@ async function sincronizarCentralPainel(dias, onStatus) {
 }
 async function recorrentePorLoja(payload, onProgresso) {
   try { await sincronizarCentralPainel(120, msg => onProgresso && onProgresso(0, 0, msg)); } catch (e) { /* segue: cada loja busca o que faltar */ }
-  const res = await porLoja(payload, onProgresso);
+  const [res, prz] = await Promise.all([porLoja(payload, onProgresso), chamarEdge({ modulo: 'recorrente', soPrazos: true, lojas: payload.lojas || [] }, EDGE_COMPRAS_URL).catch(() => ({}))]);
   const ok = res.filter(r => !r.erroLoja);
   if (!ok.length) throw new Error(res[0]?.erroLoja?.erro || 'Nenhuma loja respondeu.');
   const lojas = res.flatMap(r => r.erroLoja ? [{ ...r.erroLoja, recomendacoes: [], valorTotalEstimadoCompra: 0 }] : r.lojas);
-  return { parametros: ok[0].parametros, pedidos: ok[0].pedidos, lojas: lojas.sort((a, b) => a.nomeLoja.localeCompare(b.nomeLoja)),
+  return { parametros: ok[0].parametros, pedidos: ok[0].pedidos, prazosFornecedores: prz?.prazosFornecedores || {}, lojas: lojas.sort((a, b) => a.nomeLoja.localeCompare(b.nomeLoja)),
     valorTotalEstimadoCompraRede: lojas.reduce((s, l) => s + (l.valorTotalEstimadoCompra || 0), 0) };
 }
 
@@ -3884,6 +3909,12 @@ function analisar(res) {
       if (zer.length) acoes.push({ sev: 'critico', loja: l.nome, ir: 'pedido', irLabel: 'Gerar pedido', impacto: perdaDia || null, impLabel: 'de venda perdida por dia',
         titulo: `Perdendo venda: ${zer.length} ${zer.length === 1 ? 'produto que vende está zerado' : 'produtos que vendem estão zerados'}`,
         detalhe: `${perdaDia ? `Cerca de ${fmtMoeda(perdaDia)} por dia (${fmtMoeda(perdaDia * 30)} em 30 dias) deixam de entrar enquanto não chegar reposição. ` : ''}Mais vendidos zerados: ` + zer.sort((a, b) => b.vendaMediaDiaria * (b.precoMedioVenda || 0) - a.vendaMediaDiaria * (a.precoMedioVenda || 0)).slice(0, 3).map(r => `${r.descricao} (${fmtNum(r.vendaMediaDiaria)}/dia)`).join('; ') }); }
+    // Passou do dia de pedir: no prazo de entrega do fornecedor, o pedido de hoje já chega depois de acabar
+    { const rp = rupturaChegando(l.rec?.recomendacoes || [], rec?.prazosFornecedores || {});
+      const atr = rp.lista.filter(x => (x.faixa === 'atrasado' || x.faixa === 'hoje') && !x.cobre);
+      if (atr.length) acoes.push({ sev: 'critico', loja: l.nome, ir: 'pedido', irLabel: 'Gerar pedido', impacto: rp.perdaAtraso || null, impLabel: 'de venda em risco até o pedido chegar',
+        titulo: `${atr.length} ${atr.length === 1 ? 'produto precisa' : 'produtos precisam'} ser pedidos hoje`,
+        detalhe: 'Contando o prazo de entrega de cada fornecedor, quem esperar mais acaba antes de o pedido chegar: ' + atr.slice(0, 3).map(x => `${x.descricao} (acaba em ${Math.max(0, Math.floor(x.dias))} d; ${x.fornecedorNome || 'fornecedor'} leva ${x.prazo} d)`).join('; ') }); }
     if (l.risco.length) acoes.push({ sev: 'critico', loja: l.nome, ir: 'pedido', irLabel: 'Gerar pedido', impacto: l.valorRisco, impLabel: 'compra p/ evitar ruptura',
       titulo: `${l.risco.length} ${l.risco.length === 1 ? 'item' : 'itens'} em risco de ruptura`,
       detalhe: 'Mais vendidos em risco: ' + l.risco.slice(0, 3).map(r => `${r.descricao} (${fmtNum(r.vendaMediaDiaria)}/dia, estoque ${fmtNum(r.estoqueAtual)})`).join('; ') });
