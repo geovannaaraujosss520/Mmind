@@ -5168,7 +5168,23 @@ function desenharPicos(l) {
   const cards = (H.picos || []).map(pk => `<div class="pico-card"><div class="quando">${esc(pk.dia)}, ${pk.de}h às ${pk.ate}h</div>
     <div style="color:var(--muted)">média de ${fmtMoeda(pk.faturamentoMedioDia)} e ${fmtNum(pk.atendimentosMedioDia)} atendimentos por ${esc(pk.dia.toLowerCase())} nesse horário</div>
     ${pk.quem.length ? `<ol>${pk.quem.map(q => `<li>${esc(q.nome)} — ${fmtPct(q.participacao, 0)} (${fmtMoeda(q.faturamento)})</li>`).join('')}</ol>` : ''}</div>`).join('');
-  const linhas = vend.map(v => { const P = H.porVendedor[v.id]; return `<tr><td class="prod-name">${esc(v.nome)}</td><td>${esc(P.diaForte || '—')}</td><td>${P.horarioForte ? `${P.horarioForte.de}h às ${P.horarioForte.ate}h` : '—'}</td>
+  // ---- Onde o movimento cai: dias e horários mais fracos (apoio para folga, pausa e escala) ----
+  const B = H.baixas;
+  const baixasHTML = !B?.dias?.length ? '' : (() => {
+    const maxD = Math.max(...B.dias.map(d => d.faturamentoMedioDia)) || 1;
+    const fracos = B.dias.filter(d => d.vsMedia <= -10).slice(0, 2);
+    const dias = [...B.dias].sort((a, b) => a.dow === 0 ? 1 : b.dow === 0 ? -1 : a.dow - b.dow); // seg → dom
+    return `<div style="font-size:13px; font-weight:650; margin-top:18px">Onde o movimento cai — apoio para folga, pausa e escala</div>
+    <div class="sub" style="font-size:12px; max-width:none; margin:2px 0 8px">${fracos.length ? `Dia${fracos.length > 1 ? 's' : ''} mais fraco${fracos.length > 1 ? 's' : ''}: <strong>${fracos.map(d => `${esc(d.dia)} (${fmtMoeda(d.faturamentoMedioDia)}/dia, ${fmtPct(Math.abs(d.vsMedia), 0)} abaixo da média)`).join(' e ')}</strong> — os melhores para dar folga sem perder venda.` : 'O movimento é parecido em todos os dias: a folga pode ficar no dia que for melhor para a equipe.'} Média da loja: ${fmtMoeda(B.mediaDia)} por dia aberto.</div>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; align-items:start">
+      <table class="no-tools" style="font-size:12.5px"><thead><tr><th>Dia</th><th>Venda média</th><th class="num">Atend.</th><th class="num">vs média</th></tr></thead><tbody>
+      ${dias.map(d => `<tr><td>${esc(d.dia)}</td><td><span style="display:inline-block; height:8px; border-radius:4px; background:${d.vsMedia <= -10 ? 'var(--warn)' : 'var(--line-strong)'}; width:${Math.max(4, d.faturamentoMedioDia / maxD * 110)}px; margin-right:6px; vertical-align:middle"></span>${fmtMoeda(d.faturamentoMedioDia)}</td><td class="num">${fmtNum(d.atendimentosMedioDia)}</td><td class="num" style="color:${d.vsMedia <= -10 ? 'var(--warn)' : d.vsMedia >= 10 ? 'var(--good)' : 'inherit'}">${d.vsMedia > 0 ? '+' : ''}${fmtPct(d.vsMedia, 0)}</td></tr>`).join('')}
+      </tbody></table>
+      <div><div style="font-size:12.5px; font-weight:650; margin-bottom:4px">Horários mais fracos (loja aberta)</div>
+        <ul style="margin:0; padding-left:18px; font-size:12.5px; line-height:1.6">${(B.horarios || []).map(v => `<li><strong>${esc(v.dia)}, ${v.de}h às ${v.ate}h</strong> — média de ${fmtMoeda(v.faturamentoMedioDia)} e ${fmtNum(v.atendimentosMedioDia)} atendimento(s)</li>`).join('')}</ul>
+        <div class="sub" style="font-size:11.5px; max-width:none; margin-top:4px">Bons para almoço e pausas, reposição, organização de vitrine, treinamento e para chamar clientes pelo WhatsApp.</div></div>
+    </div>`; })();
+  const linhas = vend.map(v => { const P = H.porVendedor[v.id]; return `<tr><td class="prod-name">${esc(v.nome)}</td><td>${esc(P.diaForte || '—')}</td><td>${P.horarioForte ? `${P.horarioForte.de}h às ${P.horarioForte.ate}h` : '—'}</td><td title="Dia da semana em que a pessoa menos vende, entre os dias em que trabalha">${esc(P.diaFraco || '—')}</td>
     <td class="${P.percentNoPicoDaLoja >= 40 ? 'heat-bom' : P.percentNoPicoDaLoja < 15 ? 'heat-medio' : ''}">${fmtPct(P.percentNoPicoDaLoja, 0)}</td>
     <td><button type="button" class="secondary ini-oferecer" data-pico-ver="${esc(v.id)}">Ver mapa</button></td></tr>`; }).join('');
   box.innerHTML = `<div class="subsecao-titulo" style="margin-top:24px">Horários de pico</div>
@@ -5180,7 +5196,8 @@ function desenharPicos(l) {
     <div class="pico-wrap">${grade}</div>
     <div class="pico-legenda"><span>menos</span><span class="rampa"></span><span>mais</span>${_picoSel === 'loja' ? '<span class="marca" style="margin-left:12px"></span><span>horário forte da loja</span>' : ''}${H.semHora ? `<span style="margin-left:12px">${fmtNum(H.semHora)} venda(s) sem horário ficaram de fora</span>` : ''}</div>
     ${cards ? `<div style="font-size:13px; font-weight:650; margin-top:16px">Os 3 horários mais fortes da loja e quem mais vende neles</div><div class="pico-cards">${cards}</div>` : ''}
-    ${linhas ? `<div style="overflow-x:auto"><table class="no-tools"><thead><tr><th>Vendedor</th><th>Dia mais forte</th><th>Horário mais forte</th><th title="Parte das vendas da pessoa feita nos horários fortes da loja (contorno escuro no mapa)">Vendas no pico da loja</th><th></th></tr></thead><tbody>${linhas}</tbody></table></div>` : ''}`;
+    ${baixasHTML}
+    ${linhas ? `<div style="overflow-x:auto"><table class="no-tools"><thead><tr><th>Vendedor</th><th>Dia mais forte</th><th>Horário mais forte</th><th title="Dia da semana em que a pessoa menos vende (entre os dias em que trabalha): candidato a folga">Dia mais fraco</th><th title="Parte das vendas da pessoa feita nos horários fortes da loja (contorno escuro no mapa)">Vendas no pico da loja</th><th></th></tr></thead><tbody>${linhas}</tbody></table></div>` : ''}`;
   $('pico_sel').addEventListener('change', e => { _picoSel = e.target.value; desenharPicos(l); });
   box.querySelectorAll('[data-pico-m]').forEach(b => b.addEventListener('click', () => { _picoMetrica = b.dataset.picoM; desenharPicos(l); }));
   box.querySelectorAll('[data-pico-ver]').forEach(b => b.addEventListener('click', () => { _picoSel = b.dataset.picoVer; desenharPicos(l); $('pico_sel').scrollIntoView({ behavior: 'smooth', block: 'center' }); }));
