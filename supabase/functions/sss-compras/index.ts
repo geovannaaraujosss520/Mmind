@@ -958,6 +958,21 @@ function criarIdentificadorVariacao(lista: any[]) {
   };
 }
 
+// Prazo de entrega de cada fornecedor (pelo nome): mediana real (criação do pedido → situação final, sem cancelados)
+// e o prazo mais informado nos itens. Usado no alerta "pedir até" da ruptura.
+function prazosFornecedores(lista: any[]): Record<string, { leadTimeMedianoDias: number | null; amostras: number; prazoInformado: string | null }> {
+  const f = new Map<string, { lt: number[]; prazos: Map<string, number> }>();
+  for (const p of lista) {
+    const nome = String(p.fornecedor?.nome ?? '').trim(); if (!nome || ehCancelado(p)) continue;
+    const x = f.get(nome) ?? { lt: [], prazos: new Map() }; f.set(nome, x);
+    for (const i of p.itensPedido ?? []) { const pr = String(i.prazo ?? '').trim(); if (pr) x.prazos.set(pr, (x.prazos.get(pr) ?? 0) + 1); }
+    if (ehFinal(p)) { const lt = (Date.parse(p.situacao?.dataAlteracao) - Date.parse(p.dataCriacao)) / 86400000; if (Number.isFinite(lt) && lt >= 0 && lt < 180) x.lt.push(lt); }
+  }
+  const out: Record<string, any> = {};
+  for (const [nome, x] of f) out[nome] = { leadTimeMedianoDias: x.lt.length ? r2(mediana(x.lt)!) : null, amostras: x.lt.length, prazoInformado: [...x.prazos.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null };
+  return out;
+}
+
 function montarCatalogo(lista: any[]) {
   const idVar = criarIdentificadorVariacao(lista);
   const franqueados = new Map<string, string>();
@@ -3860,7 +3875,12 @@ Deno.serve(async (req) => {
     if (modulo === 'recorrente') {
       body.lojas = lojasDoAcesso(a, body.lojas);
       const apiBase = Deno.env.get('VAREJONLINE_API_BASE')!;
-      return resp(await moduloRecorrente(apiBase, await getLojasTokens(), body));
+      if (body.soPrazos) { const base = await buscarPedidosCentral(DIAS_CATALOGO); return resp({ prazosFornecedores: base.lista.length ? prazosFornecedores(base.lista) : {} }); }
+      const res: any = await moduloRecorrente(apiBase, await getLojasTokens(), body);
+      if (body.prazos) { // prazo de entrega por fornecedor, para "pedir até" no alerta de ruptura
+        try { const base = await buscarPedidosCentral(DIAS_CATALOGO); if (base.lista.length) res.prazosFornecedores = prazosFornecedores(base.lista); } catch { /* sem prazos: a tela usa o padrão */ }
+      }
+      return resp(res);
     }
     return resp({ error: `Modulo desconhecido: "${modulo}".` }, 400);
   } catch (e) {
