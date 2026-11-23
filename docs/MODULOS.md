@@ -253,3 +253,7 @@ A tela tem duas abas. **Visão geral**: resumo da rede, situações, comparador 
 - Escondidos para o franqueado: botões "Ver lojas configuradas", a opção técnica "Quantidade da Central é em embalagens", o diagnóstico técnico do estoque (só aparece se houver problema) e a aba "Comparativo de lojas" quando ele tem uma loja só.
 - Central de Decisão: quando o DRE, o estoque ou as compras não carregam, os cartões mostram "—" com o aviso, em vez de R$ 0,00.
 - Equipe: a lista de cadastros incompletos de clientes fica recolhida.
+- Financeiro: a meta somada usa só as lojas analisadas (antes somava a meta da rede inteira mesmo filtrando uma loja: "R$ 45 mil de R$ 2,3 mi"). Aba "DRE da loja" para franqueado de uma loja.
+- Central: "vs última análise" compara só com a última análise das mesmas lojas; capital parado mostra "—" quando há itens parados mas sem custo conhecido.
+- Estoque: "Estoque baixo" mostra primeiro os produtos que vendem (≥ 2 por mês), do que mais vende para o que menos vende; os que quase não vendem ficam atrás de um botão.
+- Sazonal: com uma loja só, sem a opção "Rede toda".
