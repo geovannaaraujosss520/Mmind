@@ -1,6 +1,6 @@
 # Segurança do Insight SSS — checklist
 
-Última revisão: 09/11/2026.
+Última revisão: 24/11/2026 (varredura antes de liberar aos franqueados em 01/12).
 
 ## Onde ficam as chaves
 
@@ -24,6 +24,17 @@ A Hostinger **não precisa de nenhuma chave**: ela só entrega os arquivos do pa
 - Login vale 24 horas: depois disso o painel sai sozinho e pede a senha de novo. No login por e-mail o servidor também recusa o token (hora do login no campo `amr` do token), mesmo que o navegador tente renovar.
 - A senha do time não fica mais gravada no navegador (versões antigas guardavam em `sss_senha_mastermind`; o painel apaga ao abrir).
 - Permissão por loja conferida no servidor (franqueado não acessa outra loja nem pelo console do navegador).
+
+## Varredura de 24/11/2026
+- Histórico do Git (252 commits) varrido de novo: nenhum JWT, `sb_secret`, `sk_`, `ghp_`, chave AWS, chave privada, senha ou URL com token. Nenhum CPF, telefone ou e-mail real no repositório.
+- Todas as 13 tabelas das migrations têm RLS ligada e **nenhuma política** → só as funções (service role) leem e gravam.
+- Funções: nenhum `console.log` com dados; erros sem token. `?config=1` devolve só URL do projeto, chave pública (anon) e se o login é obrigatório.
+- Permissões conferidas módulo a módulo (compras e mastermind): franqueado só vê as próprias lojas; fornecedores, diagnóstico, catálogo, benchmark, vínculos da rede e cadastro de lojas exigem equipe/admin; usuários e edição de lojas só admin.
+- `sincronizarCentral` pode ser chamado por qualquer usuário logado (as telas do franqueado precisam). É limitado a 180 dias, incremental e devolve só contagens — sem risco de dado.
+- Service worker não guarda respostas das funções (só o HTML, ícones e manifest).
+- Modo demonstração é só no navegador; o servidor continua aplicando a permissão real.
+- **Corrigido:** proteção contra HTML/script injetado nos dados. Nome de cliente, produto ou vendedor digitado no sistema de uma loja podia virar código no painel de quem vê a rede (admin). Agora toda resposta das funções troca `< > "` por `‹ › ”` antes de qualquer tela usar.
+- DRE: oculto para franqueado só na tela; o servidor ainda devolve o financeiro da própria loja (necessário para faturamento e meta). Não expõe outra loja.
 
 ## Pendências (fazer no Supabase)
 1. **Conferir RLS das tabelas antigas** (`lojas_config`, `metas_faturamento`, `pedidos_vinculos`, `perfil_lojas` e outras). Rode no SQL Editor:
