@@ -6770,8 +6770,32 @@ async function _fetchDemo(url, init) {
   if (j?.acesso === 'login' || (payload?.modulo === 'usuarios' && payload?.acao === 'meuPerfil')) return r;
   return new Response(JSON.stringify(_demoResp(j)), { status: r.status, headers: { 'content-type': 'application/json' } });
 }
+// Segurança: textos que vêm do sistema das lojas (nome de cliente, produto, vendedor…) nunca viram HTML no painel.
+// Troca < > " por sinais parecidos em TODAS as respostas das funções, antes de qualquer tela usar.
+const _SINAL_SEGURO = { '<': '‹', '>': '›', '"': '”' };
+const _neutro = (t) => t.replace(/[<>"]/g, (c) => _SINAL_SEGURO[c]);
+function _neutralizar(v) {
+  if (typeof v === 'string') return /[<>"]/.test(v) ? _neutro(v) : v;
+  if (Array.isArray(v)) { for (let i = 0; i < v.length; i++) v[i] = _neutralizar(v[i]); return v; }
+  if (v && typeof v === 'object') {
+    const o = {};
+    for (const k of Object.keys(v)) o[/[<>"]/.test(k) ? _neutro(k) : k] = _neutralizar(v[k]);
+    return o;
+  }
+  return v;
+}
+async function _respostaSegura(r) {
+  if (!/json/i.test(r.headers.get('content-type') || '')) return r;
+  let txt; try { txt = await r.clone().text(); } catch { return r; }
+  if (!/[<>]|\\"/.test(txt)) return r; // nada a neutralizar
+  let j; try { j = JSON.parse(txt); } catch { return r; }
+  const h = new Headers(r.headers); h.delete('content-length');
+  return new Response(JSON.stringify(_neutralizar(j)), { status: r.status, statusText: r.statusText, headers: h });
+}
 window.fetch = async (...args) => {
-  const r = _demo?.base && String(args[0]).includes('/functions/v1/') && !String(args[0]).includes('?config=1') ? await _fetchDemo(args[0], args[1]) : await _fetchOriginal(...args);
+  const ehFuncao = String(args[0]).includes('/functions/v1/');
+  let r = _demo?.base && ehFuncao && !String(args[0]).includes('?config=1') ? await _fetchDemo(args[0], args[1]) : await _fetchOriginal(...args);
+  if (ehFuncao) r = await _respostaSegura(r);
   if (r.status === 401 && String(args[0]).includes('/functions/v1/')) r.clone().json().then(d => { if (d && d.acesso === 'login') { if (/24 horas/.test(d.error || '')) encerrarPorTempo(); else mostrarLogin(d.error); } }).catch(() => {});
   return r;
 };
