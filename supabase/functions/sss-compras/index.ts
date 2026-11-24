@@ -1215,18 +1215,26 @@ async function buscarOpcoesCentral(fornecedorId: string) {
 async function montarEnvio(pedido: any) {
   const base = await buscarPedidosCentral(DIAS_CATALOGO);
   if (base.erro && !base.lista.length) throw new Error(base.erro);
-  const cat = montarCatalogo(base.lista);
+  // Mesmo catalogo usado na sugestao: pedidos dos ultimos 180 dias + catalogo fixo (itens mais antigos e planilha).
+  const cat = juntarCatalogoFixo(montarCatalogo(base.lista), await carregarCatalogoFixo());
   const kLoja = normLoja(pedido.loja);
   const franqueado = cat.franqueados.get(kLoja) ?? null;
   const ult = cat.ultimasCondicoes.get(`${kLoja}|${pedido.fornecedor_id}`) ?? null;
   const porChave = new Map(cat.itens.map((i: any) => [i.chave, i]));
-  const itens: any[] = [], problemas: string[] = [];
+  const porCV = new Map<string, any>();
+  for (const i of cat.itens) { const cv = codVar(i.codigo, i.variacaoDescricao ?? i.variacao); if (!porCV.has(cv)) porCV.set(cv, i); }
+  const itens: any[] = [], problemas: string[] = [], bloqueados: any[] = [];
+  const LANCE = 'lance este item direto na Central (e use "Ja lancei") ou retire-o do pedido';
   for (const it of pedido.itens ?? []) {
     const k = it.chave ?? chaveItem(it.codigo, it.variacao);
-    const c: any = porChave.get(k);
-    if (!c) { problemas.push(`${it.codigo}${it.variacao ? ' (' + it.variacao + ')' : ''}: nao encontrado no catalogo da Central`); continue; }
-    if (c.fornecedorId !== pedido.fornecedor_id) { problemas.push(`${it.codigo}: pertence a outro fornecedor na Central`); continue; }
-    if (!c.idProduto || !c.unidade) problemas.push(`${it.codigo}: sem idProduto/unidade no historico`);
+    const c: any = porChave.get(k) ?? porCV.get(codVar(it.codigo, it.variacao));
+    const rot = `${it.codigo}${it.variacao ? ' (' + it.variacao + ')' : ''}`;
+    const bloq = { chave: k, codigo: it.codigo, variacao: it.variacao ?? '', descricao: it.descricao ?? '' };
+    if (!c) { problemas.push(`${rot}: nao esta mais no catalogo da Central — ${LANCE}.`); bloqueados.push(bloq); continue; }
+    if (c.fornecedorId !== pedido.fornecedor_id) { problemas.push(`${rot}: pertence a outro fornecedor na Central`); bloqueados.push(bloq); continue; }
+    if (c.doCatalogoFixo && (!c.idProduto || !c.unidade)) { problemas.push(`${rot}: veio da planilha de pecas e nunca foi pedido pela Central, entao falta o ID do produto para enviar — ${LANCE}.`); bloqueados.push(bloq); continue; }
+    if (c.doCatalogoFixo && String(c.variacao ?? '').trim()) { problemas.push(`${rot}: sem pedido na Central nos ultimos 180 dias e tem variacao (cor/tamanho) que nao da para enviar com seguranca — ${LANCE}.`); bloqueados.push(bloq); continue; }
+    if (!c.idProduto || !c.unidade) problemas.push(`${rot}: sem idProduto/unidade no historico`);
     const qtd = Number(it.qtd);
     if (qtd < c.qtdMinima) problemas.push(`${it.codigo}: quantidade ${qtd} abaixo do minimo ${c.qtdMinima}`);
     if (c.qtdMaxima && qtd > c.qtdMaxima) problemas.push(`${it.codigo}: quantidade ${qtd} acima do maximo ${c.qtdMaxima}`);
@@ -1241,7 +1249,7 @@ async function montarEnvio(pedido: any) {
     });
   }
   if (!franqueado) problemas.push('ID da unidade na Central nao encontrado (a loja nao tem pedidos na Central nos ultimos 180 dias).');
-  return { franqueado, ultimasCondicoes: ult, itens, problemas };
+  return { franqueado, ultimasCondicoes: ult, itens, problemas, bloqueados };
 }
 
 // Aprovacao e acompanhamento. Tabela: pedidos_sugeridos (SQL no README da entrega).
@@ -1281,6 +1289,27 @@ async function moduloPedidoSugerido(apiBase: string, lojasTokens: Record<string,
     return { ok: true };
   }
 
+  // Retira itens de um pedido aprovado (ex.: item que nao da para enviar pela API). Nao envia nada.
+  if (acao === 'retirarItens') {
+    const chaves = new Set((Array.isArray(body.chaves) ? body.chaves : []).map(String));
+    if (!body.id || !chaves.size) throw new Error('Informe o pedido e os itens a retirar.');
+    const { data: ped, error } = await s.from('pedidos_sugeridos').select('id, status, itens').eq('id', body.id).maybeSingle();
+    if (error) throw new Error(`Erro ao ler o pedido: ${error.message}`);
+    if (!ped) throw new Error('Pedido nao encontrado.');
+    if (ped.status !== 'aprovado') throw new Error(`So da para retirar itens de pedido aguardando envio (status atual: ${ped.status}).`);
+    const chaveDe = (it: any) => String(it.chave ?? chaveItem(it.codigo, it.variacao));
+    const resto = (ped.itens ?? []).filter((it: any) => !chaves.has(chaveDe(it)));
+    const retirados = (ped.itens ?? []).length - resto.length;
+    if (!retirados) throw new Error('Nenhum dos itens informados esta neste pedido.');
+    if (!resto.length) throw new Error('Retirar estes itens deixaria o pedido vazio. Use "Descartar" se quiser cancelar o pedido inteiro.');
+    const valor = r2(resto.reduce((t: number, i: any) => t + Number(i.qtd) * Number(i.preco ?? 0), 0));
+    const { data: upd, error: eU } = await s.from('pedidos_sugeridos').update({ itens: resto, valor_total: valor }).eq('id', ped.id).eq('status', 'aprovado').select('id');
+    if (eU) throw new Error(`Erro ao atualizar: ${eU.message}`);
+    if (!upd?.length) throw new Error('O pedido mudou de status enquanto isso. Atualize a lista.');
+    _aprovados = null;
+    return { ok: true, retirados, itensRestantes: resto.length, valor };
+  }
+
   if (acao === 'opcoesEnvio' || acao === 'enviar') {
     if (!body.id) throw new Error('Informe o id do pedido aprovado.');
     const { data: ped, error } = await s.from('pedidos_sugeridos').select('*').eq('id', body.id).maybeSingle();
@@ -1301,7 +1330,7 @@ async function moduloPedidoSugerido(apiBase: string, lojasTokens: Record<string,
         ultimoPedidoComFornecedor: u ? { tipoFrete: u.tipoFrete, formaPagamento: u.formaPagamento, quando: u.quando } : null,
         itens: env.itens.map((i: any) => ({ codigo: i.payload.codigo, descricao: i.payload.descricaoProduto, variacao: i.variacaoRotulo ?? i.payload.variacao?.descricao ?? '', qtd: i.payload.quantidadeProdutos, precoAprovado: i.precoAprovado, precoAtual: i.precoAtual, ultimaCompra: i.ultimaCompra })),
         valorAtual: r2(env.itens.reduce((t: number, i: any) => t + i.payload.quantidadeProdutos * i.payload.valorUnitario, 0)),
-        problemas: env.problemas,
+        problemas: env.problemas, bloqueados: env.bloqueados,
       };
     }
 
@@ -3921,7 +3950,7 @@ Deno.serve(async (req) => {
       const acao = String(body.acao ?? 'gerar');
       if (acao === 'gerar' || acao === 'aprovar') exigirLoja(a, body.loja);
       if (acao === 'listar') { if (body.loja) exigirLoja(a, body.loja); else if (!a.todas) body.lojasPermitidas = a.lojas; }
-      if (['status', 'opcoesEnvio', 'enviar'].includes(acao)) {
+      if (['status', 'opcoesEnvio', 'enviar', 'retirarItens'].includes(acao)) {
         const { data: ped } = await sb().from('pedidos_sugeridos').select('loja').eq('id', body.id ?? '').maybeSingle();
         if (ped) exigirLoja(a, ped.loja);
       }
