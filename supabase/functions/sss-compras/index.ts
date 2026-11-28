@@ -308,6 +308,7 @@ async function centralIntervalo(de: string, ate: string, orcamentoMs = 90000) {
 //   acao 'frete' / 'salvarFrete' — frete estimado (% do valor do pedido) de cada fornecedor
 // =====================================================================
 const CHAVE_FRETE = 'frete_fornecedores', CHAVE_INSUMO = 'fornecedores_insumo', CHAVE_PACOTE = 'pacote_itens_central';
+const CHAVE_MARCAS_PLANILHA = 'marcas_planilha';
 async function moduloFornecedores(body: any, a: Acesso) {
   const acao = String(body.acao ?? '');
   const isoOk = (x: unknown) => /^\d{4}-\d{2}-\d{2}$/.test(String(x ?? ''));
@@ -334,7 +335,9 @@ async function moduloFornecedores(body: any, a: Acesso) {
       const ins = await sb().from('painel_cache').select('dados').eq('chave', CHAVE_INSUMO).maybeSingle();
       const mf = await sb().from('painel_cache').select('dados').eq('chave', 'marcas_fornecedor').maybeSingle();
       const pc = await sb().from('painel_cache').select('dados').eq('chave', CHAVE_PACOTE).maybeSingle();
-      return { frete: atual, insumo: Array.isArray(ins.data?.dados) ? ins.data.dados : [], marcasFornecedor: mf.data?.dados ?? {}, pacote: pc.data?.dados ?? {} };
+      const mp = await sb().from('painel_cache').select('dados, atualizado_em').eq('chave', CHAVE_MARCAS_PLANILHA + '_info').maybeSingle();
+      return { frete: atual, insumo: Array.isArray(ins.data?.dados) ? ins.data.dados : [], marcasFornecedor: mf.data?.dados ?? {}, pacote: pc.data?.dados ?? {},
+        marcasPlanilha: mp.data ? { ...mp.data.dados, atualizadoEm: mp.data.atualizado_em } : null };
     }
     const fid = String(body.fornecedorId ?? '').trim();
     if (!fid) throw new Error('Fornecedor não informado.');
@@ -430,6 +433,34 @@ async function moduloFornecedores(body: any, a: Acesso) {
   // MARCA de cada produto (categoria de nível MARCA no cadastro da VarejOnline), guardada para a rede em
   // painel_cache (chave marcas_rede: chave do produto → marca). Entrada: itens [[chave, loja, produtoId]];
   // busca no cadastro só o que ainda não está guardado, em lotes de 50, com limite de tempo.
+  // Planilha de produtos da franqueadora (exportação da VarejOnline): código -> MARCA, para ligar a venda das lojas ao fornecedor.
+  // Guardada para a rede: { m: [marcas], k: { codigo: indice da marca }, total, arquivo }.
+  if (acao === 'marcasPlanilha') {
+    const { data, error } = await sb().from('painel_cache').select('dados, atualizado_em').eq('chave', CHAVE_MARCAS_PLANILHA).maybeSingle();
+    if (error) throw new Error('Rode antes o SQL 20261117000001_painel_cache.sql no Supabase.');
+    return { planilha: data?.dados ?? null, atualizadoEm: data?.atualizado_em ?? null };
+  }
+  if (acao === 'salvarMarcasPlanilha') {
+    const m = Array.isArray(body.m) ? body.m : null, k = body.k && typeof body.k === 'object' ? body.k : null;
+    if (!m || !k) throw new Error('Planilha de marcas vazia.');
+    if (m.length > 5000 || m.some((x: unknown) => typeof x !== 'string' || x.length > 120)) throw new Error('Lista de marcas inválida.');
+    const ent = Object.entries(k);
+    if (!ent.length || ent.length > 200_000) throw new Error('Quantidade de produtos inválida.');
+    const limpo: Record<string, number> = {};
+    for (const [c, i] of ent) {
+      const n = Number(i);
+      if (!c || c.length > 60 || !Number.isInteger(n) || n < 0 || n >= m.length) continue;
+      limpo[c] = n;
+    }
+    const dados = { m, k: limpo, total: Math.max(0, Math.min(1_000_000, Number(body.total) || 0)), arquivo: String(body.arquivo ?? '').slice(0, 120), enviadoPor: a.email ?? a.nome ?? '' };
+    const agora = new Date().toISOString();
+    const r = await sb().from('painel_cache').upsert({ chave: CHAVE_MARCAS_PLANILHA, dados, atualizado_em: agora }, { onConflict: 'chave' });
+    if (r.error) throw new Error(r.error.message);
+    const ri = await sb().from('painel_cache').upsert({ chave: CHAVE_MARCAS_PLANILHA + '_info', dados: { total: dados.total, codigos: Object.keys(limpo).length, marcas: m.length, arquivo: dados.arquivo }, atualizado_em: agora }, { onConflict: 'chave' });
+    if (ri.error) throw new Error(ri.error.message);
+    return { ok: true, codigos: Object.keys(limpo).length, marcas: m.length, atualizadoEm: agora };
+  }
+
   if (acao === 'marcas') {
     const itens: any[] = Array.isArray(body.itens) ? body.itens.slice(0, 3000) : [];
     const { data, error } = await sb().from('painel_cache').select('dados').eq('chave', 'marcas_rede').maybeSingle();
