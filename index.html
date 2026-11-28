@@ -986,6 +986,10 @@
         <div><label>Vendas até</label><select id="forn_vendas_ate"><option value="hoje">Hoje (dá tempo de girar)</option><option value="fim">Fim do período de compras</option></select></div>
         <div><label>Lojas (vazio = todas)</label><input id="forn_lojas" placeholder="ex: SSS NATAL, SSS BAURU"></div>
       </div>
+      <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:10px; font-size:12.5px">
+        <label class="secondary" style="cursor:pointer; padding:7px 12px; border:1px solid var(--line); border-radius:10px; margin:0; width:auto">Enviar planilha de produtos (marcas)<input id="forn_marcas_arq" type="file" accept=".xlsx" style="display:none"></label>
+        <span id="forn_marcas_info" style="color:var(--muted)">Exportação de produtos da franqueadora na VarejOnline (com a coluna MARCA). Liga a venda das lojas ao fornecedor pela marca.</span>
+      </div>
       <div class="actions">
         <button id="forn_rodar">Analisar fornecedores</button>
         <span class="status" id="status-fornecedores"></span>
@@ -5323,7 +5327,41 @@ let _fornDados = null, _fornAberto = null, _fornOrdem = 'valor', _fornMostrarSem
     const h = new Date(Date.now() - 3 * 3600e3), i = new Date(h); i.setDate(i.getDate() - Number(b.dataset.fornPeriodo) + 1);
     $('forn_desde').value = iso(i); $('forn_ate').value = iso(h);
   }));
+  $('forn_marcas_arq').addEventListener('change', enviarPlanilhaMarcas);
 })();
+function mostrarInfoMarcasPlanilha(info) {
+  const el = $('forn_marcas_info'); if (!el || !info) return;
+  const quando = info.atualizadoEm ? new Date(info.atualizadoEm).toLocaleDateString('pt-BR') : '';
+  el.textContent = `Planilha de marcas em uso: ${fmtNum(info.total || info.codigos || 0)} produtos, ${fmtNum(info.marcas || 0)} marcas${quando ? ` · enviada em ${quando}` : ''}. Envie de novo quando cadastrar produtos novos.`;
+}
+// Exportação de produtos da franqueadora (VarejOnline): Referência Base/SKU, Código Interno, Código de barras e MARCA
+async function enviarPlanilhaMarcas(e) {
+  const arq = e.target.files[0]; e.target.value = ''; if (!arq) return;
+  const st = $('forn_marcas_info');
+  try {
+    st.textContent = 'Lendo a planilha…';
+    const linhas = (await lerPlanilha(arq)).flatMap(a => a.linhas);
+    const marcaDe = l => campo(l, 'MARCA').replace(/\s+/g, ' ').toUpperCase();
+    if (!linhas.length || !linhas.some(l => marcaDe(l))) throw new Error('Não achei a coluna MARCA nesta planilha. Use a exportação de produtos da VarejOnline com a coluna MARCA.');
+    const m = [], idx = new Map(), k = {};
+    let total = 0;
+    for (const l of linhas) {
+      const codigos = [campo(l, 'REFERENCIA BASE SKU', 'CODIGO DO SISTEMA', 'SKU'), campo(l, 'CODIGO INTERNO'), campo(l, 'CODIGO DE BARRAS')].filter(Boolean);
+      if (!codigos.length) continue;
+      total++;
+      const mc = marcaDe(l) || '(SEM MARCA)';
+      if (!idx.has(mc)) { idx.set(mc, m.length); m.push(mc); }
+      for (const c of codigos) { const kk = chaveCodMarca(c); if (kk && !(kk in k)) k[kk] = idx.get(mc); }
+    }
+    if (!total) throw new Error('Não achei as colunas de código (Referência Base/SKU ou Código Interno).');
+    const comMarca = linhas.filter(l => marcaDe(l)).length;
+    if (!confirm(`Usar esta planilha para ligar as vendas aos fornecedores?\n\n${fmtNum(total)} produtos · ${fmtNum(m.length)} marcas · ${fmtNum(comMarca)} com marca preenchida.\nVale para a rede inteira e substitui a planilha anterior.`)) { st.textContent = 'Envio cancelado.'; return; }
+    st.textContent = 'Gravando…';
+    const r = await chamarEdge({ modulo: 'fornecedores', acao: 'salvarMarcasPlanilha', m, k, total, arquivo: arq.name }, EDGE_COMPRAS_URL);
+    mostrarInfoMarcasPlanilha({ total, codigos: r.codigos, marcas: r.marcas, atualizadoEm: r.atualizadoEm });
+    st.textContent = '✓ ' + st.textContent + ' Rode "Analisar fornecedores" para ver as vendas com as marcas.';
+  } catch (err) { st.textContent = 'Erro: ' + err.message; }
+}
 async function rodarFornecedores() {
   const st = $('status-fornecedores'), erro = $('erro-fornecedores'), box = $('resultado-fornecedores');
   erro.innerHTML = '';
@@ -5350,7 +5388,10 @@ async function rodarFornecedores() {
       feitas++; st.textContent = `Lendo as vendas das lojas… ${feitas}/${nomes.length}`;
       return r;
     });
-    const vendas = await ligarVendasAosFornecedores(brutas, msg => { st.textContent = msg; }, compras.fornecedores, fr.marcasFornecedor || {});
+    mostrarInfoMarcasPlanilha(fr.marcasPlanilha);
+    let planilhaMarcas = null;
+    if (fr.marcasPlanilha) { st.textContent = 'Lendo a planilha de marcas…'; try { planilhaMarcas = (await chamarEdge({ modulo: 'fornecedores', acao: 'marcasPlanilha' }, EDGE_COMPRAS_URL)).planilha; } catch (e) { /* segue com a marca do cadastro das lojas */ } }
+    const vendas = await ligarVendasAosFornecedores(brutas, msg => { st.textContent = msg; }, compras.fornecedores, fr.marcasFornecedor || {}, planilhaMarcas);
     // compras dos últimos 60 dias (FORN_DIAS_RECENTE): ainda estão vendendo, ficam fora do giro (senão quem comprou semana passada parece encalhado)
     const fimV = vendasAte || new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
     const corte = new Date(Date.parse(fimV + 'T12:00:00Z') - (FORN_DIAS_RECENTE - 1) * 864e5).toISOString().slice(0, 10);
@@ -5451,8 +5492,15 @@ function marcaParaFornecedor(tally, fornecedores, manuais = {}) {
     cache.set(marca, r); return r;
   };
 }
-async function ligarVendasAosFornecedores(vendas, onStatus, fornecedoresCompra = [], marcasManuais = {}) {
+// código da planilha de marcas: maiúsculo, sem espaços e sem zeros à esquerda (0000044 = 44)
+const chaveCodMarca = c => { const t = String(c ?? '').trim().toUpperCase().replace(/\s+/g, ''); return t.replace(/^0+(?=.)/, ''); };
+async function ligarVendasAosFornecedores(vendas, onStatus, fornecedoresCompra = [], marcasManuais = {}, planilha = null) {
   const chave = (loja, x) => x.cs ? 'C:' + String(x.cs).trim().toUpperCase().replace(/\s+/g, '') : `I:${loja}:${x.id}`;
+  const marcaDaPlanilha = x => {
+    if (!planilha?.k) return null;
+    for (const c of [x.cs, x.ci]) { if (!c) continue; const i = planilha.k[chaveCodMarca(c)]; if (i != null && planilha.m[i] && planilha.m[i] !== '(SEM MARCA)') return planilha.m[i]; }
+    return null;
+  };
   const unicos = new Map();
   for (const v of vendas) if (!v.erro) for (const x of v.produtos) { const k = chave(v.loja, x); if (!unicos.has(k)) unicos.set(k, [x.id, x.desc, x.cs, x.ci]); }
   const lista = [...unicos.entries()], mapa = new Map();
@@ -5466,9 +5514,13 @@ async function ligarVendasAosFornecedores(vendas, onStatus, fornecedoresCompra =
     for (const [kk, p] of parte) mapa.set(kk, r[p[0]] ?? null);
   }
   // marca de cada produto (guardada no servidor; na primeira vez busca no cadastro da VarejOnline)
-  const rep = new Map();
-  for (const v of vendas) if (!v.erro) for (const x of v.produtos) { const k = chave(v.loja, x); if (!rep.has(k)) rep.set(k, [k, v.loja, x.id]); }
-  const listaM = [...rep.values()], marcas = new Map();
+  const rep = new Map(), marcas = new Map();
+  for (const v of vendas) if (!v.erro) for (const x of v.produtos) {
+    const k = chave(v.loja, x); if (rep.has(k) || marcas.has(k)) continue;
+    const mp = marcaDaPlanilha(x);
+    if (mp) marcas.set(k, mp); else rep.set(k, [k, v.loja, x.id]); // sem marca na planilha: lê do cadastro da loja
+  }
+  const listaM = [...rep.values()];
   for (let k = 0; k < listaM.length; k += 3000) {
     let parte = listaM.slice(k, k + 3000);
     for (let tent = 0; tent < 12 && parte.length; tent++) {
@@ -5491,14 +5543,14 @@ async function ligarVendasAosFornecedores(vendas, onStatus, fornecedoresCompra =
   for (const mk of Object.keys(tally).concat([...new Set(marcas.values())])) { const fid = mk && fornDaMarca(mk); if (fid) (window._fornMarcasVistas[fid] = window._fornMarcasVistas[fid] || new Set()).add(mk); }
   return vendas.map(v => {
     if (v.erro) return v;
-    const porFornecedor = {}, sem = { pecas: 0, faturamento: 0, produtos: 0 }, fora = { pecas: 0, faturamento: 0, produtos: 0 };
+    const porFornecedor = {}, sem = { pecas: 0, faturamento: 0, produtos: 0, porMarca: {} }, fora = { pecas: 0, faturamento: 0, produtos: 0 };
     for (const x of v.produtos) {
       const m = mapa.get(chave(v.loja, x));
       if (m === 'ignorado') { fora.pecas += x.q; fora.faturamento += x.v; fora.produtos++; continue; }
       if (!m) {
         // sem vínculo nem código: usa a MARCA do cadastro para saber o fornecedor (sem saber o item exato)
         const fid = fornDaMarca(marcas.get(chave(v.loja, x)));
-        if (!fid) { sem.pecas += x.q; sem.faturamento += x.v; sem.produtos++; continue; }
+        if (!fid) { sem.pecas += x.q; sem.faturamento += x.v; sem.produtos++; const mk = marcas.get(chave(v.loja, x)) || '(sem marca)'; sem.porMarca[mk] = (sem.porMarca[mk] || 0) + x.v; continue; }
         const f = porFornecedor[fid] ?? (porFornecedor[fid] = { nome: nomeF[fid] || '', pecas: 0, faturamento: 0, custo: 0, produtos: 0, porVia: {}, itensM: new Map(), mes: {} });
         for (const [t, [q, vv]] of Object.entries(x.t || {})) { const mm = f.mes[t] ?? (f.mes[t] = [0, 0]); mm[0] += q; mm[1] += vv; }
         f.pecas += x.q; f.faturamento += x.v; f.custo += x.c; f.produtos++; f.porVia.marca = (f.porVia.marca || 0) + x.v;
@@ -5660,7 +5712,8 @@ function montarFornecedores(compras, vendas, frete, insumo, P, recentes = null) 
   const cp = rev.reduce((t, x) => t + x.maduro.pecas, 0);
   T.giroRede = cp ? rev.reduce((t, x) => t + x.maduro.vendidas, 0) / cp : null;
   for (const x of F.values()) calcularLeituraFornecedor(x, T, P);
-  const D = { P, T, fornecedores: [...F.values()], faturamento: fat, aConferir: aConferirRede.filter(i => !insumo.has(i.fid)).sort((a, b) => b.vendaFat - a.vendaFat), semFornecedor: semForn, foraDaCentral: foraCentral, lojas: okV.length, erros, frete,
+  const D = { P, T, fornecedores: [...F.values()], faturamento: fat,
+    vendasLojas: okV.map(v => ({ loja: v.loja, faturamento: v.faturamento || 0, sem: v.semFornecedor.faturamento || 0, semPorMarca: v.semFornecedor.porMarca || {}, fora: v.foraDaCentral.faturamento || 0 })), aConferir: aConferirRede.filter(i => !insumo.has(i.fid)).sort((a, b) => b.vendaFat - a.vendaFat), semFornecedor: semForn, foraDaCentral: foraCentral, lojas: okV.length, erros, frete,
     centralIncompleta: compras.centralIncompleta, aviso: compras.aviso, foraDoPainel: compras.pedidosForaDoPainel || 0 };
   totaisFornecedores(D);
   return D;
@@ -5749,6 +5802,59 @@ const LEITURA_FORN = {
   estoque: ['chip', 'Sem compra no período'], nada: ['chip', '—'], insumo: ['chip', 'Insumo'],
 };
 const ORDEM_LEITURA = ['revisar', 'margem', 'lento', 'barata', 'compensa', 'novo', 'estoque', 'nada', 'insumo'];
+// ---- Por unidade: quanto cada unidade vendeu de cada fornecedor (toda a venda do período, também de estoque antigo) ----
+function _unidadesFornecedores(D) {
+  const forn = D.fornecedores.filter(x => !x.insumo && x.vendido.faturamento > 0).sort((a, b) => b.vendido.faturamento - a.vendido.faturamento);
+  const lojas = [...(D.vendasLojas || [])].sort((a, b) => b.faturamento - a.faturamento);
+  const venda = (x, loja) => x.porLoja[loja]?.vendaFat || 0;
+  return { forn, lojas, venda };
+}
+function paginaUnidades(D) {
+  const { forn, lojas, venda } = _unidadesFornecedores(D);
+  if (!lojas.length) return '<div class="panel">Nenhuma venda lida no período.</div>';
+  const TOP = 6, top = forn.slice(0, TOP), resto = forn.slice(TOP);
+  const cel = (v, base) => v ? `${esc(fmtMoeda(v))}<div style="font-size:11px; color:var(--muted)">${fmtPct(base ? v / base * 100 : 0, 1)}</div>` : '<span style="color:var(--muted)">—</span>';
+  const linha = (nome, fatL, valores, outros, sem) => `<tr><td><strong>${esc(nome)}</strong></td><td class="num">${esc(fmtMoeda(fatL))}</td>${valores.map(v => `<td class="num">${cel(v, fatL)}</td>`).join('')}<td class="num">${cel(outros, fatL)}</td><td class="num">${cel(sem, fatL)}</td></tr>`;
+  const corpo = lojas.map(L => {
+    const vals = top.map(x => venda(x, L.loja)), out = resto.reduce((t, x) => t + venda(x, L.loja), 0);
+    return linha(L.loja.replace(/^SSS /, ''), L.faturamento, vals, out, L.sem);
+  }).join('');
+  const fatRede = lojas.reduce((t, L) => t + L.faturamento, 0), semRede = lojas.reduce((t, L) => t + L.sem, 0);
+  const rodape = linha('Rede', fatRede, top.map(x => x.vendido.faturamento), resto.reduce((t, x) => t + x.vendido.faturamento, 0), semRede);
+  const semMarca = {};
+  for (const L of lojas) for (const [mk, v] of Object.entries(L.semPorMarca || {})) semMarca[mk] = (semMarca[mk] || 0) + v;
+  const topSem = Object.entries(semMarca).sort((a, b) => b[1] - a[1]).slice(0, 12);
+  const P = D.P || {};
+  return `<div class="panel">
+    <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center">
+      <div><h3 style="margin:0">Venda de cada unidade por fornecedor</h3>
+        <div class="sub" style="font-size:12.5px; max-width:none; margin:4px 0 0">Vendas de ${esc(_cliData(P.desde))} a ${esc(_cliData(P.vendasAte || P.ate))}. Conta toda a venda do fornecedor na loja, inclusive de estoque comprado antes do período. O % é sobre o faturamento da unidade.</div></div>
+      <button type="button" class="secondary" id="forn_un_baixar">Baixar planilha completa (${fmtNum(lojas.length)} unidades × ${fmtNum(forn.length)} fornecedores)</button>
+    </div>
+    <div style="overflow-x:auto; margin-top:10px"><table class="no-tools forn-tab"><thead><tr><th>Unidade</th><th class="num">Faturamento</th>${top.map(x => `<th class="num"><a href="#" data-forn-un-ir="${esc(x.id)}" onclick="return false" title="Abrir ${esc(x.nome)}" style="color:inherit; text-decoration:underline dotted">${esc(x.nome.split(' ').slice(0, 2).join(' '))}</a></th>`).join('')}<th class="num">Outros ${fmtNum(resto.length)}</th><th class="num" title="Venda que não foi ligada a nenhum fornecedor (sem código da Central, sem vínculo e sem marca reconhecida)">Sem fornecedor</th></tr></thead>
+      <tbody>${corpo}${rodape.replace('<tr>', '<tr style="border-top:2px solid var(--line); background:var(--soft, transparent)">')}</tbody></table></div>
+    ${topSem.length ? `<div style="margin-top:14px; font-size:12.5px"><strong>Venda sem fornecedor, por marca</strong> <span style="color:var(--muted)">(para ligar uma marca, abra o fornecedor em "Por fornecedor" e acrescente a marca em "Marcas no cadastro da VarejOnline")</span>
+      <div style="display:flex; flex-wrap:wrap; gap:6px 14px; margin-top:6px">${topSem.map(([mk, v]) => `<span>${esc(mk)} <strong>${esc(fmtMoeda(v))}</strong></span>`).join('')}</div></div>` : ''}
+  </div>`;
+}
+function baixarUnidadesFornecedores(D) {
+  const { forn, lojas, venda } = _unidadesFornecedores(D);
+  const r2 = v => Math.round(v * 100) / 100;
+  const grade = {
+    nome: 'Unidade x fornecedor',
+    colunas: [{ titulo: 'Unidade' }, { titulo: 'Faturamento da unidade', tipo: 'moeda' }, ...forn.map(x => ({ titulo: x.nome, tipo: 'moeda' })), { titulo: 'Sem fornecedor', tipo: 'moeda' }, { titulo: 'Fora da Central (ignorados)', tipo: 'moeda' }],
+    linhas: lojas.map(L => [L.loja, r2(L.faturamento), ...forn.map(x => r2(venda(x, L.loja))), r2(L.sem), r2(L.fora)]),
+  };
+  const longa = { nome: 'Por fornecedor e unidade', colunas: [{ titulo: 'Fornecedor' }, { titulo: 'Unidade' }, { titulo: 'Venda', tipo: 'moeda' }, { titulo: 'Peças', tipo: 'numero' }, { titulo: '% da venda da unidade', tipo: 'numero' }, { titulo: 'Comprado na Central', tipo: 'moeda' }], linhas: [] };
+  for (const x of forn) for (const L of lojas) {
+    const P = x.porLoja[L.loja]; if (!P || !(P.vendaFat || P.compraValor)) continue;
+    longa.linhas.push([x.nome, L.loja, r2(P.vendaFat || 0), r2(P.vendaPecas || 0), L.faturamento ? r2((P.vendaFat || 0) / L.faturamento * 100) : 0, r2(P.compraValor || 0)]);
+  }
+  const sem = { nome: 'Sem fornecedor por marca', colunas: [{ titulo: 'Unidade' }, { titulo: 'Marca' }, { titulo: 'Venda', tipo: 'moeda' }], linhas: [] };
+  for (const L of lojas) for (const [mk, v] of Object.entries(L.semPorMarca || {}).sort((a, b) => b[1] - a[1])) sem.linhas.push([L.loja, mk, r2(v)]);
+  const P = D.P || {};
+  baixarXlsx(`vendas-unidade-fornecedor-${P.desde || ''}-a-${P.vendasAte || P.ate || ''}.xlsx`, [grade, longa, sem]);
+}
 function renderFornecedores() {
   const D = _fornDados, box = $('resultado-fornecedores'); if (!D) return;
   const P = D.P, dt = d => d ? _cliData(d) : '—';
@@ -5757,6 +5863,7 @@ function renderFornecedores() {
   const abas = `<div class="forn-abas" role="tablist">
       <button type="button" role="tab" aria-selected="${_fornAba === 'geral'}" data-forn-aba="geral">Visão geral</button>
       <button type="button" role="tab" aria-selected="${_fornAba === 'fornecedor'}" data-forn-aba="fornecedor">Por fornecedor</button>
+      <button type="button" role="tab" aria-selected="${_fornAba === 'unidade'}" data-forn-aba="unidade">Por unidade</button>
       ${_fornAba === 'fornecedor' ? `<select id="forn_sel" aria-label="Fornecedor">${porCompra.map(x => `<option value="${esc(x.id)}" ${x.id === _fornSel ? 'selected' : ''}>${esc(x.nome || x.id)}${x.insumo ? ' (insumo)' : ''}</option>`).join('')}</select>` : ''}
     </div>`;
   const ligar = () => {
@@ -5770,6 +5877,13 @@ function renderFornecedores() {
   if (_fornAba === 'fornecedor' && _fornSel) {
     box.innerHTML = abas + paginaFornecedor(D.fornecedores.find(x => x.id === _fornSel));
     ligar(); return;
+  }
+  if (_fornAba === 'unidade') {
+    box.innerHTML = abas + paginaUnidades(D);
+    ligar();
+    $('forn_un_baixar')?.addEventListener('click', () => baixarUnidadesFornecedores(D));
+    box.querySelectorAll('[data-forn-un-ir]').forEach(b => b.addEventListener('click', () => { _fornAba = 'fornecedor'; _fornSel = b.dataset.fornUnIr; renderFornecedores(); }));
+    return;
   }
   let lista = D.fornecedores.filter(x => !x.insumo && (_fornMostrarSemCompra || x.comprado.pedidos));
   const insumos = D.fornecedores.filter(x => x.insumo && x.comprado.pedidos).sort((a, b) => b.comprado.valor - a.comprado.valor);
